@@ -1,0 +1,42 @@
+server:
+  port: 8080
+
+management.endpoints.web.exposure.include: health,info
+management.endpoint.health.probes.enabled: true
+management.health.livenessState.enabled: true
+management.health.readinessState.enabled: true
+
+app:
+  default-broker: ${APP_DEFAULT_BROKER:rabbit}
+
+spring:
+  application:
+    name: labs64.io-auditflow
+  cloud:
+    stream:
+      bindings:
+        receive-in-0:
+          destination: ${AUDIT_TOPIC_NAME:labs64-audit-topic}
+          binder: ${app.default-broker:rabbit}
+      binders:
+        rabbit:
+          type: rabbit
+  rabbitmq:
+    host: ${RABBITMQ_HOST:rabbitmq.default.svc.cluster.local}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME}
+    password: ${RABBITMQ_PASSWORD}
+
+management:
+  tracing:
+    sampling:
+      probability: 1.0
+otel:
+  exporter:
+    otlp:
+      endpoint: ${OTLP_ENDPONT:http://otel-collector.observability.svc.cluster.local:4317}
+
+logging:
+  level:
+    io.labs64: DEBUG
+    org.springframework.cloud.stream: INFO
