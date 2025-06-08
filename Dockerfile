@@ -1,12 +1,23 @@
 FROM eclipse-temurin:21-alpine
 
-RUN addgroup -g 1064 l64group && \
-    adduser -D -u 1064 -G l64group l64user
+# Define build arguments
+ARG USER_ID=1064
+ARG GROUP_ID=1064
+ARG USER_NAME=l64user
+ARG GROUP_NAME=l64group
 
-WORKDIR /home/l64user
+# Create group and user with the specified IDs
+RUN addgroup -g ${GROUP_ID} ${GROUP_NAME} && \
+    adduser -D -u ${USER_ID} -G ${GROUP_NAME} ${USER_NAME}
 
-COPY --chown=l64user:l64group target/*.jar /home/l64user/app.jar
+# Set working directory
+WORKDIR /home/${USER_NAME}
 
-USER l64user
+# Copy the jar file with appropriate ownership
+COPY --chown=${USER_NAME}:${GROUP_NAME} target/*.jar /home/${USER_NAME}/app.jar
 
-ENTRYPOINT ["java", "-jar", "/home/l64user/app.jar"]
+# Set user context
+USER ${USER_NAME}
+
+# Default command
+ENTRYPOINT ["java", "-jar", "/home/${USER_NAME}/app.jar"]
