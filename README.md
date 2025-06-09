@@ -1,6 +1,7 @@
 <p align="center"><img src="https://raw.githubusercontent.com/Labs64/.github/refs/heads/master/assets/labs64-io-ecosystem.png"></p>
 
-# Labs64.IO :: AuditFlow - A Scalable & Searchable Microservices-based Auditing Solution
+# Labs64.IO :: AuditFlow
+## A Scalable & Searchable Microservices-based Auditing Solution
 
 AuditFlow is a robust and scalable microservices-based auditing solution engineered to capture, process, and store all inbound and outbound traffic from your RESTful APIs. Designed to seamlessly integrate with APIs consuming both XML and JSON payloads, AuditFlow provides a decoupled, resilient, and highly searchable mechanism for logging critical operational data, enabling compliance, security monitoring, and business intelligence.
 
