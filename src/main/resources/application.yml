@@ -9,6 +9,11 @@ management.health.readinessState.enabled: true
 app:
   default-broker: ${APP_DEFAULT_BROKER:rabbit}
 
+kubernetes:
+  transformers:
+    namespace: "default"
+    id-label: "transformer/id"
+
 spring:
   application:
     name: labs64.io-auditflow
