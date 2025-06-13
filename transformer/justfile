@@ -1,0 +1,17 @@
+APP_NAME := "auditflow-transformer"
+
+# build application
+docker:
+    docker build -t {{APP_NAME}}:latest .
+    docker tag {{APP_NAME}}:latest localhost:5005/{{APP_NAME}}:latest
+    docker push localhost:5005/{{APP_NAME}}:latest
+    docker images | grep "{{APP_NAME}}"
+
+# run docker image
+run: docker
+    docker run -p 8081:8080 {{APP_NAME}}:latest
+
+# open documentation
+docu:
+    open "http://localhost:8081/redoc"
+    open "http://localhost:8081/docs"

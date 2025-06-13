@@ -45,3 +45,15 @@ jobs:
             labs64/auditflow:${{ steps.get_release_tag.outputs.RELEASE_TAG }}
           cache-from: type=gha,scope=${{ github.workflow }}
           cache-to: type=gha,mode=max,scope=${{ github.workflow }}
+
+      - name: Build and push Transformer Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./transformer
+          push: true
+          platforms: linux/amd64,linux/arm64/v8
+          tags: |
+            labs64/auditflow-transformer:latest
+            labs64/auditflow-transformer:${{ steps.get_release_tag.outputs.RELEASE_TAG }}
+          cache-from: type=gha,scope=${{ github.workflow }}-transformer
+          cache-to: type=gha,mode=max,scope=${{ github.workflow }}-transformer
