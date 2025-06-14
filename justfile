@@ -5,7 +5,7 @@ build:
     mvn clean package
 
 # build docker image
-docker:
+docker: build
     docker build -t {{APP_NAME}}:latest .
     docker tag {{APP_NAME}}:latest localhost:5005/{{APP_NAME}}:latest
     docker push localhost:5005/{{APP_NAME}}:latest

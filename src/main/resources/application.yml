@@ -9,10 +9,14 @@ management.health.readinessState.enabled: true
 app:
   default-broker: ${APP_DEFAULT_BROKER:rabbit}
 
-kubernetes:
-  transformers:
-    namespace: "default"
-    id-label: "transformer/id"
+transformer:
+  discovery:
+    mode: local # or "kubernetes"
+  local:
+    port: 8081
+  service:
+    name: auditflow-transformer
+    namespace: default
 
 spring:
   application:

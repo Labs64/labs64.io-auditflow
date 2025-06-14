@@ -34,11 +34,11 @@ COPY --chown=${USER_NAME}:${GROUP_NAME} transformers/ /home/${USER_NAME}/transfo
 RUN python -m pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Make port 8080 available outside this container
-EXPOSE 8080
+# Make port 8081 available outside this container
+EXPOSE 8081
 
 # Set user context
 USER ${USER_NAME}
 
 # Run the FastAPI application using Uvicorn
-CMD ["uvicorn", "transformer:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "transformer:app", "--host", "0.0.0.0", "--port", "8081"]
