@@ -3,6 +3,8 @@
 # Labs64.IO :: AuditFlow
 ## A Scalable & Searchable Microservices-based Auditing Solution
 
+![Docker Image Version](https://img.shields.io/docker/v/labs64/auditflow?logo=docker&logoColor=%23E14817&color=%23E14817)
+
 AuditFlow is a robust and scalable microservices-based auditing solution engineered to capture, process, and store all inbound and outbound traffic from your RESTful APIs. Designed to seamlessly integrate with APIs consuming both XML and JSON payloads, AuditFlow provides a decoupled, resilient, and highly searchable mechanism for logging critical operational data, enabling compliance, security monitoring, and business intelligence.
 
 By offloading the auditing responsibility from core services, AuditFlow ensures minimal impact on the systems' performance and enhanced reliability for audit data capture.
