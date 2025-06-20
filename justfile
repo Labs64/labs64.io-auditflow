@@ -14,3 +14,9 @@ docker: build
 # run application
 run: build
     mvn spring-boot:run -Dspring-boot.run.profiles=local
+
+# check maven dependencies/plugins/properties updates
+check-updates:
+    mvn versions:display-plugin-updates
+    mvn versions:display-property-updates
+    mvn versions:display-dependency-updates -DprocessDependencyManagement=false

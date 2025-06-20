@@ -13,7 +13,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.5.0</version>
+        <version>3.5.3</version>
     </parent>
 
     <properties>
@@ -27,6 +27,7 @@
         <kubernetes-client.version>7.3.1</kubernetes-client.version>
         <!-- PLUGINS -->
         <maven-enforcer-plugin.version>3.5.0</maven-enforcer-plugin.version>
+        <opentelemetry-exporter-otlp.version>1.51.0</opentelemetry-exporter-otlp.version>
     </properties>
 
     <dependencyManagement>
@@ -106,6 +107,7 @@
         <dependency>
             <groupId>io.opentelemetry</groupId>
             <artifactId>opentelemetry-exporter-otlp</artifactId>
+            <version>${opentelemetry-exporter-otlp.version}</version>
         </dependency>
 
         <!-- Lombok (optional, for reducing boilerplate code) -->
