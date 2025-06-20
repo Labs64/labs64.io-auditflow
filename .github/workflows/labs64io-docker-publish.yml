@@ -1,5 +1,9 @@
 name: Labs64.IO - AuditFlow - Publish Docker
 
+permissions:
+  contents: read
+  packages: write
+
 on:
   release:
     types: [created]

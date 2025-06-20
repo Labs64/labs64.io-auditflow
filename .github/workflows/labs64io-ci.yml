@@ -8,6 +8,10 @@
 
 name: Labs64.IO - AuditFlow - CI
 
+permissions:
+  contents: write
+  security-events: write
+
 on:
   push:
     branches: [ "master" ]
