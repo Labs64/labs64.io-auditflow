@@ -73,7 +73,7 @@ def transform(input_data):
     action = input_data.get('action', {})
     geolocation = input_data.get('geolocation', {})
     parameters = input_data.get('parameters', {})
-    rawData = input_data.get('rawData', None) # Changed default to None if not present
+    rawData = input_data.get('rawData', None)
 
     # MetaInfo fields (flattened)
     transformed_data['timestamp'] = meta.get('timestamp')

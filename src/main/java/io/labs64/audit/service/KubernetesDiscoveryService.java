@@ -10,13 +10,11 @@ import org.springframework.beans.factory.annotation.Value;
 @ConditionalOnProperty(name = "transformer.discovery.mode", havingValue = "kubernetes")
 public class KubernetesDiscoveryService implements TransformerDiscovery {
 
-    @Value("${transformer.service.name:auditflow-transformer}")
-    private String serviceName;
-
+    private final KubernetesClient kubernetesClient = new KubernetesClientBuilder().build();
     @Value("${transformer.service.namespace:default}")
     private String namespace;
-
-    private final KubernetesClient kubernetesClient = new KubernetesClientBuilder().build();
+    @Value("${transformer.service.name:auditflow-transformer}")
+    private String serviceName;
 
     @Override
     public String getTransformerUrl() {

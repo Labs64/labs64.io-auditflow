@@ -11,12 +11,35 @@ app:
 
 transformer:
   discovery:
-    mode: local # or "kubernetes"
+    mode: local # "local" or "kubernetes"
   local:
-    port: 8081
+    url: "http://localhost:8081"
   service:
     name: auditflow-transformer
     namespace: default
+
+auditflow:
+  pipelines:
+    - name: 'logs'
+      enabled: true
+      transformer:
+        name: 'zero'
+      processor:
+        name: 'logging_processor'
+        clazz: 'io.labs64.audit.processors.LoggingProcessor'
+        properties:
+          file-path: "/var/log/audit.log"
+          rotation-policy: "daily"
+    - name: 'loki'
+      enabled: true
+      transformer:
+        name: 'audit_loki'
+      processor:
+        name: 'loki_processor'
+        clazz: 'io.labs64.audit.processors.WebClientPostProcessor'
+        properties:
+          service-url: "http://loki-write.monitoring.svc.cluster.local:3100"
+          service-path: "/loki/api/v1/push"
 
 spring:
   application:
