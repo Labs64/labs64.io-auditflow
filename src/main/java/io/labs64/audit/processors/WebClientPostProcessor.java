@@ -4,6 +4,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.netty.http.client.HttpClient;
+import io.netty.handler.ssl.SslContextBuilder;
+import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 
 import java.util.Map;
 
@@ -13,12 +17,17 @@ public class WebClientPostProcessor implements DestinationProcessor {
 
     private String serviceUrl;
     private String servicePath;
+    private String username;
+    private String password;
+
     private WebClient webClient;
 
     @Override
     public void initialize(Map<String, String> properties) {
         this.serviceUrl = properties.get("service-url");
         this.servicePath = properties.get("service-path");
+        this.username = properties.get("username");
+        this.password = properties.get("password");
 
         if (serviceUrl == null || serviceUrl.isEmpty()) {
             logger.warn("Service URL not provided in properties. Using default: {}", this.serviceUrl);
@@ -27,8 +36,33 @@ public class WebClientPostProcessor implements DestinationProcessor {
             logger.warn("Service Path not provided in properties. Using default: {}", this.servicePath);
         }
 
-        this.webClient = WebClient.create(this.serviceUrl);
-        logger.info("WebClientPostProcessor initialized with Service URL: {} and Path: {}", this.serviceUrl, this.servicePath);
+        // Create an HttpClient that ignores SSL certificate validation
+        HttpClient httpClient = HttpClient.create()
+                .secure(sslContextSpec -> {
+                    try {
+                        sslContextSpec.sslContext(
+                                SslContextBuilder.forClient()
+                                        .trustManager(InsecureTrustManagerFactory.INSTANCE)
+                                        .build()
+                        );
+                    } catch (Exception e) {
+                        logger.error("Failed to configure insecure SSL context", e);
+                    }
+                });
+
+
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .clientConnector(new ReactorClientHttpConnector(httpClient))
+                .baseUrl(this.serviceUrl);
+        if (username.isEmpty() || password.isEmpty()) {
+            logger.warn("WebClient configured without Basic Authentication (username or password not provided).");
+        } else {
+            webClientBuilder.defaultHeaders(headers -> headers.setBasicAuth(username, password));
+            logger.info("WebClient configured with Basic Authentication.");
+        }
+        this.webClient = webClientBuilder.build();
+
+        logger.debug("WebClientPostProcessor initialized with properties: {}", properties);
     }
 
     @Override
@@ -48,6 +82,7 @@ public class WebClientPostProcessor implements DestinationProcessor {
                 .retrieve()
                 .toBodilessEntity()
                 .doOnSuccess(response -> {
+                    logger.debug("Response received: {}", response);
                     if (response.getStatusCode().is2xxSuccessful()) {
                         logger.info("Successfully sent message. Status: {}", response.getStatusCode());
                     } else {

@@ -12,7 +12,7 @@ def transform(input_data):
     Example Input (for /transform/audit_event):
     {
       "meta": {
-        "timestamp": "2023-10-27T10:00:00Z",
+        "timestamp": "2025-07-04T10:00:00Z",
         "correlationId": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
         "eventType": "audit.action.performed",
         "sourceSystem": "system-name/service-name",
@@ -42,7 +42,7 @@ def transform(input_data):
 
     Example Output (OpenSearch friendly):
     {
-      "timestamp": "2023-10-27T10:00:00Z",
+      "timestamp": "2025-07-04T10:00:00Z",
       "event_id": "fedcba98-7654-3210-fedc-ba9876543210",
       "correlation_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
       "event_type": "audit.action.performed",

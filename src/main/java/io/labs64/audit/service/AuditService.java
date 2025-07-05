@@ -29,25 +29,26 @@ public class AuditService {
                 } catch (Exception e) {
                     logger.error("Error processing audit pipeline '{}'", pipeline.getName(), e);
                 }
+            } else {
+                logger.info("Pipeline '{}' is disabled, skipping processing.", pipeline.getName());
             }
         }
     }
 
     private void processPipeline(AuditFlowProperties.PipelineProperties pipeline, String message) throws Exception {
+        logger.info("Start event processing using pipeline '{}' for message: {}", pipeline.getName(), message);
+
         // 1. Transform message using the configured transformer
         String transformedMessage = transformationService.transform(message, pipeline.getTransformer().getName());
-        logger.info("Transformed message for pipeline '{}': {}", pipeline.getName(), transformedMessage);
 
         // 2. Instantiate the Processor
         DestinationProcessor processor = (DestinationProcessor) Class
                 .forName(pipeline.getProcessor().getClazz())
                 .getDeclaredConstructor()
                 .newInstance();
-        logger.info("Instantiated processor '{}' for pipeline '{}'", processor.getClass().getSimpleName(), pipeline.getName());
 
         // 3. Initialize the processor with its properties
         processor.initialize(pipeline.getProcessor().getProperties());
-        logger.info("Initialized processor '{}' for pipeline '{}'", processor.getClass().getSimpleName(), pipeline.getName());
 
         // 4. Process the transformed event
         processor.process(transformedMessage);

@@ -11,7 +11,7 @@ def transform(input_data):
     Example Input (expected from FastAPI endpoint):
     {
       "meta": {
-        "timestamp": "2023-10-27T10:00:00Z",
+        "timestamp": "2025-07-04T10:00:00Z",
         "correlationId": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
         "eventType": "audit.action.performed",
         "sourceSystem": "system-name/service-name",

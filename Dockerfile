@@ -20,4 +20,4 @@ COPY --chown=${USER_NAME}:${GROUP_NAME} target/*.jar /home/${USER_NAME}/app.jar
 USER ${USER_NAME}
 
 # Default command
-ENTRYPOINT ["java", "-jar", "/home/l64user/app.jar"]
+ENTRYPOINT ["/bin/sh", "-c", "java $JAVA_OPTS -jar /home/l64user/app.jar"]

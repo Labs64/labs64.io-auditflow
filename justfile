@@ -18,5 +18,5 @@ run: build
 # check maven dependencies/plugins/properties updates
 check-updates:
     mvn versions:display-plugin-updates
-    mvn versions:display-property-updates
-    mvn versions:display-dependency-updates -DprocessDependencyManagement=false
+    mvn versions:display-property-updates -Dmaven.version.ignore='(?i).*[.-]?(alpha|beta|RC|M)\d*'
+    mvn versions:display-dependency-updates -DprocessDependencyManagement=false -Dmaven.version.ignore='(?i).*[.-]?(alpha|beta|RC|M)\d*'
