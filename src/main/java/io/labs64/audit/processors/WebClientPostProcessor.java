@@ -84,7 +84,7 @@ public class WebClientPostProcessor implements DestinationProcessor {
                 .doOnSuccess(response -> {
                     logger.debug("Response received: {}", response);
                     if (response.getStatusCode().is2xxSuccessful()) {
-                        logger.info("Successfully sent message. Status: {}", response.getStatusCode());
+                        logger.debug("Successfully sent message. Status: {}", response.getStatusCode());
                     } else {
                         logger.warn("Service responded with non-2xx status. Status: {}, Body: {}",
                                 response.getStatusCode(), response.getBody());

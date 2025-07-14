@@ -36,7 +36,7 @@ public class AuditService {
     }
 
     private void processPipeline(AuditFlowProperties.PipelineProperties pipeline, String message) throws Exception {
-        logger.info("Start event processing using pipeline '{}' for message: {}", pipeline.getName(), message);
+        logger.debug("Start event processing using pipeline '{}' for message: {}", pipeline.getName(), message);
 
         // 1. Transform message using the configured transformer
         String transformedMessage = transformationService.transform(message, pipeline.getTransformer().getName());
