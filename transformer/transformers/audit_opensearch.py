@@ -16,7 +16,6 @@ def transform(input_data):
         "correlationId": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
         "eventType": "audit.action.performed",
         "sourceSystem": "system-name/service-name",
-        "eventVersion": "1.0.0",
         "eventId": "fedcba98-7654-3210-fedc-ba9876543210",
         "tenantId": "tenant-001"
       },
@@ -81,7 +80,6 @@ def transform(input_data):
     transformed_data['correlation_id'] = meta.get('correlationId')
     transformed_data['event_type'] = meta.get('eventType')
     transformed_data['source_system'] = meta.get('sourceSystem')
-    transformed_data['event_version'] = meta.get('eventVersion')
     transformed_data['tenant_id'] = meta.get('tenantId')
 
     # ActionDetails fields (flattened)

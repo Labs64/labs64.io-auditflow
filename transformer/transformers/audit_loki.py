@@ -15,7 +15,6 @@ def transform(input_data):
         "correlationId": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
         "eventType": "audit.action.performed",
         "sourceSystem": "system-name/service-name",
-        "eventVersion": "1.0.0",
         "eventId": "fedcba98-7654-3210-fedc-ba9876543210",
         "tenantId": "tenant-001"
       },
@@ -75,7 +74,6 @@ def transform(input_data):
         "action_name": action.get("name", "unknown_action"),
         "action_status": action.get("status", "unknown_status"),
         "country_code": geolocation.get("countryCode", "unknown"),
-        "event_version": meta.get("eventVersion", "1.0.0"),
         # IMPORTANT: Be cautious adding high-cardinality fields like 'userId' as labels.
         # It's generally better to include them in the log line content.
         # "user_id": parameters.get("userId", "anonymous")
