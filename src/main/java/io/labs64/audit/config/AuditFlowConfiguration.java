@@ -3,14 +3,20 @@ package io.labs64.audit.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+import jakarta.annotation.PostConstruct;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Component
-@ConfigurationProperties(prefix = "auditflow")
-public class AuditFlowProperties {
+@ConfigurationProperties(prefix = "")
+public class AuditFlowConfiguration {
 
-    private List<PipelineProperties> pipelines;
+    private static final Logger logger = LoggerFactory.getLogger(AuditFlowConfiguration.class);
+
+    private List<PipelineProperties> pipelines = new ArrayList<>();;
 
     public List<PipelineProperties> getPipelines() {
         return pipelines;
@@ -18,6 +24,11 @@ public class AuditFlowProperties {
 
     public void setPipelines(List<PipelineProperties> pipelines) {
         this.pipelines = pipelines;
+    }
+
+    @PostConstruct
+    public void logConfiguration() {
+        logger.debug("Loaded {} pipelines at AuditFlowConfiguration", pipelines.size());
     }
 
     public static class PipelineProperties {
@@ -73,7 +84,7 @@ public class AuditFlowProperties {
 
     public static class ProcessorProperties {
         private String name;
-        private String clazz; // Renamed from 'class' to avoid keyword conflict
+        private String clazz;
         private Map<String, String> properties;
 
         public String getName() {

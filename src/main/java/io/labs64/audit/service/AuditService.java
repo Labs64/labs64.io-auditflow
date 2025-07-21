@@ -1,6 +1,6 @@
 package io.labs64.audit.service;
 
-import io.labs64.audit.config.AuditFlowProperties;
+import io.labs64.audit.config.AuditFlowConfiguration;
 import io.labs64.audit.processors.DestinationProcessor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,31 +12,36 @@ public class AuditService {
 
     private static final Logger logger = LoggerFactory.getLogger(AuditService.class);
 
-    private final AuditFlowProperties auditFlowProperties;
+    private final AuditFlowConfiguration auditFlowConfiguration;
     private final TransformationService transformationService;
 
     @Autowired
-    public AuditService(AuditFlowProperties auditFlowProperties, TransformationService transformationService) {
-        this.auditFlowProperties = auditFlowProperties;
+    public AuditService(AuditFlowConfiguration auditFlowConfiguration, TransformationService transformationService) {
+        this.auditFlowConfiguration = auditFlowConfiguration;
         this.transformationService = transformationService;
     }
 
     public void processAuditEvent(String message) {
-        for (AuditFlowProperties.PipelineProperties pipeline : auditFlowProperties.getPipelines()) {
-            if (pipeline.isEnabled()) {
-                try {
-                    processPipeline(pipeline, message);
-                } catch (Exception e) {
-                    logger.error("Error processing audit pipeline '{}'", pipeline.getName(), e);
+        if (auditFlowConfiguration.getPipelines() == null || auditFlowConfiguration.getPipelines().isEmpty()) {
+            logger.warn("No audit pipelines configured, skipping event processing.");
+        } else {
+            logger.debug("Processing audit event: {}", message);
+            for (AuditFlowConfiguration.PipelineProperties pipeline : auditFlowConfiguration.getPipelines()) {
+                if (pipeline.isEnabled()) {
+                    try {
+                        processPipeline(pipeline, message);
+                    } catch (Exception e) {
+                        logger.error("Error processing audit pipeline '{}'", pipeline.getName(), e);
+                    }
+                } else {
+                    logger.info("Pipeline '{}' is disabled, skipping processing.", pipeline.getName());
                 }
-            } else {
-                logger.info("Pipeline '{}' is disabled, skipping processing.", pipeline.getName());
             }
         }
     }
 
-    private void processPipeline(AuditFlowProperties.PipelineProperties pipeline, String message) throws Exception {
-        logger.debug("Start event processing using pipeline '{}' for message: {}", pipeline.getName(), message);
+    private void processPipeline(AuditFlowConfiguration.PipelineProperties pipeline, String message) throws Exception {
+        logger.debug("Start event processing using pipeline '{}'", pipeline.getName());
 
         // 1. Transform message using the configured transformer
         String transformedMessage = transformationService.transform(message, pipeline.getTransformer().getName());

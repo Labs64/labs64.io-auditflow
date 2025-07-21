@@ -27,17 +27,17 @@ transformer:
     name: auditflow-transformer
     namespace: default
 
-auditflow:
-  pipelines: []
-#    - name: 'logs'
-#      enabled: true
-#      transformer:
-#        name: 'zero'
-#      processor:
-#        name: 'logging_processor'
-#        clazz: 'io.labs64.audit.processors.LoggingProcessor'
-#        properties:
-#          log-level: "DEBUG"
+pipelines: []
+#  - name: 'logs'
+#    enabled: true
+#    transformer:
+#      name: 'zero'
+#    processor:
+#      name: 'logging_processor'
+#      clazz: 'io.labs64.audit.processors.LoggingProcessor'
+#      properties:
+#        log-level: "DEBUG"
+
 spring:
   application:
     name: labs64.io-auditflow
