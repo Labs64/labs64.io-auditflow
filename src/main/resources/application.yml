@@ -47,10 +47,6 @@ spring:
         audit-in-0:
           destination: labs64-audit-topic
           binder: rabbit
-        shopping-cart-in-0:
-          destination: labs64-shopping-cart-exchange
-          #group: shopping-cart-consumer-group
-          binder: rabbit
       binders:
         rabbit:
           type: rabbit
@@ -58,11 +54,6 @@ spring:
         bindings:
           audit-in-0:
             consumer:
-              autoBindDlq: true
-          shopping-cart-in-0:
-            consumer:
-              exchangeType: direct
-              bindingRoutingKey: "checkout.cart.created"
               autoBindDlq: true
 
   rabbitmq:
