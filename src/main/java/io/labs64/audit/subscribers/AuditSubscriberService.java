@@ -25,7 +25,7 @@ public class AuditSubscriberService {
     }
 
     @Bean
-    public Consumer<String> receive() {
+    public Consumer<String> audit() {
         return message -> {
             auditService.processAuditEvent(message);
         };

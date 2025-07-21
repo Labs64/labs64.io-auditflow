@@ -44,12 +44,27 @@ spring:
   cloud:
     stream:
       bindings:
-        receive-in-0:
+        audit-in-0:
           destination: labs64-audit-topic
+          binder: rabbit
+        shopping-cart-in-0:
+          destination: labs64-shopping-cart-exchange
+          #group: shopping-cart-consumer-group
           binder: rabbit
       binders:
         rabbit:
           type: rabbit
+      rabbit:
+        bindings:
+          audit-in-0:
+            consumer:
+              autoBindDlq: true
+          shopping-cart-in-0:
+            consumer:
+              exchangeType: direct
+              bindingRoutingKey: "checkout.cart.created"
+              autoBindDlq: true
+
   rabbitmq:
     host: rabbitmq.default.svc.cluster.local
     port: 5672
