@@ -17,6 +17,8 @@
     </parent>
 
     <properties>
+        <!-- API VERSIONS -->
+        <audit.version>v1</audit.version>
         <!-- DEPENDENCIES -->
         <java.version>21</java.version>
         <spring-cloud.version>2025.0.0</spring-cloud.version>
@@ -24,6 +26,7 @@
         <springdoc.version>2.8.9</springdoc.version>
         <openapitools.version>0.2.6</openapitools.version>
         <junit-jupiter.version.version>5.13.4</junit-jupiter.version.version>
+        <jackson-datatype-jsr310.version>2.19.2</jackson-datatype-jsr310.version>
         <commons-lang3.version>3.18.0</commons-lang3.version>
         <kubernetes-client.version>7.3.1</kubernetes-client.version>
         <reactor-netty-http.version>1.2.8</reactor-netty-http.version>
@@ -32,6 +35,8 @@
         <micrometer-tracing.version>1.5.2</micrometer-tracing.version>
         <!-- PLUGINS -->
         <maven-enforcer-plugin.version>3.6.1</maven-enforcer-plugin.version>
+        <openapi-generator-maven-plugin.version>7.14.0</openapi-generator-maven-plugin.version>
+        <build-helper-maven-plugin.version>3.6.1</build-helper-maven-plugin.version>
     </properties>
 
     <dependencyManagement>
@@ -89,6 +94,11 @@
             <groupId>org.openapitools</groupId>
             <artifactId>jackson-databind-nullable</artifactId>
             <version>${openapitools.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+            <version>${jackson-datatype-jsr310.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>
@@ -176,6 +186,52 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.openapitools</groupId>
+                <artifactId>openapi-generator-maven-plugin</artifactId>
+                <version>${openapi-generator-maven-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>labs64.io-audit</id>
+                        <goals>
+                            <goal>generate</goal>
+                        </goals>
+                        <phase>generate-sources</phase>
+                        <configuration>
+                            <inputSpec>${project.basedir}/src/main/resources/openapi/openapi-audit-${audit.version}.yaml</inputSpec>
+                            <generatorName>spring</generatorName>
+                            <output>${project.build.directory}/generated-sources</output>
+                            <apiPackage>io.labs64.audit.${audit.version}.api</apiPackage>
+                            <modelPackage>io.labs64.audit.${audit.version}.model</modelPackage>
+                            <generateSupportingFiles>true</generateSupportingFiles>
+                            <configOptions>
+                                <useTags>true</useTags>
+                                <interfaceOnly>true</interfaceOnly>
+                                <useSpringBoot3>true</useSpringBoot3>
+                            </configOptions>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>${build-helper-maven-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>add-source</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>add-source</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <source>${project.build.directory}/generated-sources</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

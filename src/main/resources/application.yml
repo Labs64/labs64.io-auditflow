@@ -15,9 +15,6 @@ logging:
     io.labs64: DEBUG
     org.springframework.cloud.stream: INFO
 
-application:
-  default-broker: rabbit
-
 transformer:
   discovery:
     mode: local # "local" or "kubernetes"
@@ -44,6 +41,9 @@ spring:
   cloud:
     stream:
       bindings:
+        audit-out-0:
+          destination: labs64-audit-topic
+          binder: rabbit
         audit-in-0:
           destination: labs64-audit-topic
           binder: rabbit
@@ -52,6 +52,9 @@ spring:
           type: rabbit
       rabbit:
         bindings:
+          audit-out-0:
+            producer:
+              exchangeType: topic
           audit-in-0:
             consumer:
               autoBindDlq: true

@@ -1,0 +1,152 @@
+openapi: 3.0.0
+info:
+  title: Event Publisher API
+  version: 1.0.0
+  description: API for publishing audit events to a message broker.
+servers:
+  - url: /api/v1
+    description: API base path
+paths:
+  /audit/publish:
+    post:
+      summary: Publish an audit event
+      operationId: publishEvent
+      tags:
+        - AuditEvent
+      description: Publishes an audit event to a message broker for further processing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuditEvent'
+      responses:
+        '200':
+          description: Audit event published successfully
+          content:
+            text/plain:
+              schema:
+                type: string
+        '500':
+          description: Failed to publish audit event
+          content:
+            text/plain:
+              schema:
+                type: string
+components:
+  schemas:
+    AuditEvent:
+      type: object
+      description: Represents an audit event.
+      required:
+        - meta
+        - action
+      properties:
+        meta:
+          $ref: '#/components/schemas/MetaInfo'
+        action:
+          $ref: '#/components/schemas/ActionDetails'
+        geolocation:
+          $ref: '#/components/schemas/Geolocation'
+        parameters:
+          $ref: '#/components/schemas/ParametersObject'
+        rawData:
+          type: string
+          description: Optional raw event data or original message, typically a stringified JSON or XML.
+          example: "<raw event data or original event payload>"
+    MetaInfo:
+      type: object
+      required:
+        - timestamp
+        - correlationId
+        - eventId
+        - eventType
+        - sourceSystem
+        - eventVersion
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: The precise time the audit event occurred, in ISO 8601 format.
+          example: "2025-07-14T00:00:00Z"
+        correlationId:
+          type: string
+          format: uuid
+          description: A unique identifier that links multiple related events together across different services or a single transaction.
+          example: "a1b2c3d4-e5f6-7890-1234-567890abcdef"
+        eventId:
+          type: string
+          format: uuid
+          description: A globally unique identifier for this specific audit event.
+          example: "fedcba98-7654-3210-fedc-ba9876543210"
+        eventType:
+          type: string
+          description: A high-level classification of the event type (e.g., 'audit.action.performed').
+          example: "api.call"
+        sourceSystem:
+          type: string
+          description: Identifies the system or service that generated the audit event.
+          example: "netlicensing/core"
+        tenantId:
+          type: string
+          description: Identifier for the tenant or organization associated with the event.
+          example: "V12345678"
+    ActionDetails:
+      type: object
+      required:
+        - name
+        - status
+      properties:
+        name:
+          type: string
+          description: The name of the specific action performed (e.g., 'LOGIN_SUCCESS', 'USER_CREATED', 'DATA_ACCESSED').
+          example: "licensee/validate"
+        status:
+          type: string
+          enum: [SUCCESS, FAILURE, PENDING]
+          description: The outcome status of the action.
+          example: "SUCCESS"
+        message:
+          type: string
+          description: A human-readable message providing more context about the action's outcome.
+          example: "Validation completed successfully"
+    Geolocation:
+      type: object
+      required:
+        - lat
+        - lon
+      properties:
+        lat:
+          type: number
+          format: double
+          description: The latitude coordinate (e.g., 48.1264019).
+          example: 48.1264019
+        lon:
+          type: number
+          format: double
+          description: The longitude coordinate (e.g., 11.5407647).
+          example: 11.5407647
+        countryCode:
+          type: string
+          description: The ISO 3166-1 alpha-2 country code (e.g., "DE").
+          example: "DE"
+        country:
+          type: string
+          description: The full country name (e.g., "Germany").
+          example: "Germany"
+        region:
+          type: string
+          description: The region, state, or province name (e.g., "Bavaria").
+          example: "Bavaria"
+        city:
+          type: string
+          description: The city name where the event originated (e.g., "Munich").
+          example: "Munich"
+    ParametersObject:
+      type: object
+      description: A flexible object to capture application-specific context or additional details not covered by other fields.
+      additionalProperties:
+        type: string
+      example:
+        userId: "customer123"
+        userBU: "BU12345678"

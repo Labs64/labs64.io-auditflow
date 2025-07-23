@@ -1,5 +1,6 @@
-package io.labs64.audit.service;
+package io.labs64.audit.subscriber;
 
+import io.labs64.audit.service.AuditService;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
