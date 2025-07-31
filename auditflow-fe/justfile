@@ -1,0 +1,5 @@
+APP_NAME := "auditflow"
+
+# build application
+build:
+    npn ci
