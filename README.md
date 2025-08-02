@@ -1,7 +1,7 @@
 <p align="center"><img src="https://raw.githubusercontent.com/Labs64/.github/refs/heads/master/assets/labs64-io-ecosystem.png"></p>
 
 # Labs64.IO :: AuditFlow
-## A Scalable & Searchable Microservices-based Auditing Solution
+## A Scalable Audit Logging for Modern Microservices
 
 ![Docker Image Version](https://img.shields.io/docker/v/labs64/auditflow?logo=docker&logoColor=%23E14817&color=%23E14817)
 
