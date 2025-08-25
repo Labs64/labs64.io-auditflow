@@ -1,5 +1,17 @@
 from datetime import datetime
 
+status_to_level_mapping = {
+    "SUCCESS": "INFO",
+    "FAILURE": "ERROR",
+    "PENDING": "WARN"
+}
+
+def get_log_level(status):
+    """
+    Maps a status string to a log level string.
+    """
+    return status_to_level_mapping.get(status.upper(), "UNKNOWN")
+
 def transform(input_data):
     """
     Transforms a Labs64.IO AuditFlow JSON structure into a Loki-compatible payload.
@@ -43,17 +55,28 @@ def transform(input_data):
       "streams": [
         {
           "stream": {
-            "job": "audit-flow-transformer",
-            "source_system": "system-name/service-name",
-            "tenant_id": "tenant-001",
-            "event_type": "audit.action.performed",
-            "action_name": "LOGIN_SUCCESS",
-            "action_status": "SUCCESS",
-            "country_code": "DE",
-            "event_version": "1.0.0"
+            "job": "auditflow",
+            "service_name": "netlicensing/core",
+            "tenant_id": "V12345678",
+            "event_type": "api.call",
+            "action_name": "licensee/validate",
+            "action_status": "SUCCESS"
           },
           "values": [
-            [ "1698391200000000000", "ACTION:LOGIN_SUCCESS STATUS:SUCCESS USER:user123 {\"meta\": {\"timestamp\": \"2023-10-27T10:00:00Z\", ...}}" ]
+            [
+              "1756157127354000128",
+              "Validation completed successfully",
+              {
+                "correlationId": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+                "eventId": "fedcba98-7654-3210-fedc-ba9876543210",
+                "level": "INFO",
+                "userId": "customer123",
+                "country_code": "DE",
+                "latitude": "48.1264019",
+                "longitude": "11.5407647",
+                "rawData": "<raw event data or original event payload>"
+              }
+            ]
           ]
         }
       ]
@@ -65,52 +88,53 @@ def transform(input_data):
     extra = input_data.get('extra', {})
     rawData = input_data.get('rawData', None)
 
-    # 1. Prepare Labels
-    labels = {
+    # Prepare the "stream" object based on the desired output structure
+    stream_data = {
         "job": "auditflow",
-        "source_system": meta.get("sourceSystem", "unknown"),
+        "service_name": meta.get("sourceSystem", "unknown"),
         "tenant_id": meta.get("tenantId", "unknown"),
         "event_type": meta.get("eventType", "unknown"),
         "action_name": action.get("name", "unknown_action"),
         "action_status": action.get("status", "unknown_status"),
-        "country_code": geolocation.get("countryCode", "unknown"),
-        # IMPORTANT: Be cautious adding high-cardinality fields like 'userId' as labels.
-        # It's generally better to include them in the log line content.
-        # "user_id": extra.get("userId", "anonymous")
     }
 
-    # 2. Prepare Log Line (Value)
-    log_line_prefix = (
-        f"meta.correlationId:{meta.get('correlationId', 'N/A')} "
-        f"action.name:{action.get('name', 'N/A')} "
-        f"action.status:{action.get('status', 'N/A')} "
-        f"extra.userId:{extra.get('userId', 'N/A')} "
-        f"action.message:{action.get('message', 'N/A')} "
-    )
-    # Convert the entire original audit_json to a JSON string for the log line.
-    log_line = log_line_prefix + rawData
+    # Prepare the nested dictionary for the "values" array
+    values_dict = {
+        "correlationId": meta.get("correlationId", "N/A"),
+        "eventId": meta.get("eventId", "N/A"),
+        "level": get_log_level(action.get("status", "N/A")),
+        "userId": extra.get("userId", "N/A"),
+        "country_code": geolocation.get("countryCode", "N/A"),
+        "latitude": f'{geolocation.get("lat", "N/A")}',
+        "longitude": f'{geolocation.get("lon", "N/A")}',
+        "rawData": rawData if rawData is not None else "N/A",
+    }
 
-    # 3. Prepare Timestamp (Unix nanoseconds)
+    # Prepare the "values" array
+    # The timestamp needs to be a string in Unix nanoseconds
     timestamp_iso = meta.get("timestamp")
+    unix_nano_timestamp = "0"
     if timestamp_iso:
         try:
+            from datetime import datetime
             dt_object = datetime.fromisoformat(timestamp_iso.replace('Z', '+00:00'))
             unix_nano_timestamp = str(int(dt_object.timestamp() * 1_000_000_000))
         except ValueError:
-            dt_object = datetime.now() # Current time is 2025-06-23 14:00:29
-            unix_nano_timestamp = str(int(dt_object.timestamp() * 1_000_000_000))
-    else:
-        dt_object = datetime.now() # Current time is 2025-06-23 14:00:29
-        unix_nano_timestamp = str(int(dt_object.timestamp() * 1_000_000_000))
+            # Handle invalid timestamp format, e.g., by using a default or current time
+            pass
 
-    # Construct the Loki payload structure
+    values_data = [
+        unix_nano_timestamp,
+        action.get("message", "N/A"),
+        values_dict
+    ]
+
+    # Construct the final nested output structure
     loki_payload = {
         "streams": [
             {
-                "stream": labels,
-                "values": [
-                    [unix_nano_timestamp, log_line]
-                ]
+                "stream": stream_data,
+                "values": [values_data]
             }
         ]
     }
