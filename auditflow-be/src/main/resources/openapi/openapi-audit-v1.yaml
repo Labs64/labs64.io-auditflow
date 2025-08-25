@@ -40,7 +40,7 @@ paths:
               example:
                 code: "VALIDATION_ERROR"
                 message: "Status is invalid. Allowed values: SUCCESS, FAILURE, PENDING"
-                timestamp: "2025-08-19T12:34:56Z"
+                timestamp: "2025-08-25T12:34:56Z"
                 traceId: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
         '500':
           description: Failed to publish audit event
@@ -71,6 +71,7 @@ components:
             licenseType: "FEATURE"
             validity: "1 year"
             supportIncluded: true
+            userId: "I69SPSVEE"
         rawData:
           type: string
           description: Optional raw event data or original message, typically a stringified JSON or XML.
@@ -89,7 +90,7 @@ components:
           type: string
           format: date-time
           description: The precise time the audit event occurred, in ISO 8601 format.
-          example: "2025-07-14T00:00:00Z"
+          example: "2025-08-25T00:00:00Z"
         correlationId:
           type: string
           format: uuid
@@ -185,12 +186,12 @@ components:
         message:
           type: string
           description: Human-readable message describing the error.
-          example: "Shopping cart with ID '550e8400-e29b-41d4-a716-446655440000' was not found."
+          example: "Status is invalid. Allowed values: SUCCESS, FAILURE, PENDING"
         timestamp:
           type: string
           format: date-time
           description: Time when the error occurred.
-          example: "2025-08-19T12:34:56Z"
+          example: "2025-08-25T12:34:56Z"
         traceId:
           type: string
           description: Optional trace ID for correlating logs or debugging.
