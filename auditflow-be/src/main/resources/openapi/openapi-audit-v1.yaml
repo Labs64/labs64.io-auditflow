@@ -64,14 +64,7 @@ components:
         geolocation:
           $ref: '#/components/schemas/Geolocation'
         extra:
-          type: object
-          description: Custom user-defined fields for the item.
-          additionalProperties: true
-          example:
-            licenseType: "FEATURE"
-            validity: "1 year"
-            supportIncluded: true
-            userId: "I69SPSVEE"
+          $ref: '#/components/schemas/ExtraObject'
         rawData:
           type: string
           description: Optional raw event data or original message, typically a stringified JSON or XML.
@@ -164,6 +157,17 @@ components:
           type: string
           description: The city name where the event originated (e.g., "Munich").
           example: "Munich"
+    ExtraObject:
+      type: object
+      description: A flexible object to capture application-specific context or additional details not covered by other fields.
+      additionalProperties:
+        type: string
+      example:
+        licenseType: "FEATURE"
+        validity: "1 year"
+        supportIncluded: true
+        userId: "customer123"
+        userBU: "BU12345678"
 
     ErrorCode:
       type: string
