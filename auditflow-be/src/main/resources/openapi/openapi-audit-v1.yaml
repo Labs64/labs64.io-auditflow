@@ -40,7 +40,7 @@ paths:
               example:
                 code: "VALIDATION_ERROR"
                 message: "Status is invalid. Allowed values: SUCCESS, FAILURE, PENDING"
-                timestamp: "2025-08-25T12:34:56Z"
+                timestamp: "YYYY-MM-DDThh:mm:ssZ"
                 traceId: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
         '500':
           description: Failed to publish audit event
@@ -83,7 +83,7 @@ components:
           type: string
           format: date-time
           description: The precise time the audit event occurred, in ISO 8601 format.
-          example: "2025-08-25T00:00:00Z"
+          example: "YYYY-MM-DDThh:mm:ssZ"
         correlationId:
           type: string
           format: uuid
@@ -195,7 +195,7 @@ components:
           type: string
           format: date-time
           description: Time when the error occurred.
-          example: "2025-08-25T12:34:56Z"
+          example: "YYYY-MM-DDThh:mm:ssZ"
         traceId:
           type: string
           description: Optional trace ID for correlating logs or debugging.
