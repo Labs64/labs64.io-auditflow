@@ -32,7 +32,7 @@ def transform(input_data):
         "country": "Germany",
         "countryCode": "DE"
       },
-      "parameters": {
+      "extra": {
         "userId": "user123",
         "browser": "Chrome"
       },
@@ -59,7 +59,7 @@ def transform(input_data):
       "location_region": "Bavaria",
       "location_country": "Germany",
       "location_country_code": "DE",
-      "parameters": {
+      "extra": {
         "userId": "user123",
         "browser": "Chrome"
       },
@@ -71,7 +71,7 @@ def transform(input_data):
     meta = input_data.get('meta', {})
     action = input_data.get('action', {})
     geolocation = input_data.get('geolocation', {})
-    parameters = input_data.get('parameters', {})
+    extra = input_data.get('extra', {})
     rawData = input_data.get('rawData', None)
 
     # MetaInfo fields (flattened)
@@ -105,11 +105,11 @@ def transform(input_data):
     transformed_data['location_country'] = geolocation.get('country')
     transformed_data['location_country_code'] = geolocation.get('countryCode')
 
-    # Parameters - keep as a nested object (OpenSearch handles nested objects well)
-    if parameters:
-        transformed_data['parameters'] = parameters
+    # Extra - keep as a nested object (OpenSearch handles nested objects well)
+    if extra:
+        transformed_data['extra'] = extra
     else:
-        transformed_data['parameters'] = {} # Ensure it's an empty object if no parameters
+        transformed_data['extra'] = {} # Ensure it's an empty object if no extra
 
     # RawData - keep as a string, renamed for clarity in OpenSearch
     if rawData is not None:

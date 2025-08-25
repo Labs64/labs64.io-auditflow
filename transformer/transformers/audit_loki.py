@@ -31,7 +31,7 @@ def transform(input_data):
         "country": "Germany",
         "countryCode": "DE"
       },
-      "parameters": {
+      "extra": {
         "userId": "user123",
         "browser": "Chrome"
       },
@@ -62,7 +62,7 @@ def transform(input_data):
     meta = input_data.get('meta', {})
     action = input_data.get('action', {})
     geolocation = input_data.get('geolocation', {})
-    parameters = input_data.get('parameters', {})
+    extra = input_data.get('extra', {})
     rawData = input_data.get('rawData', None)
 
     # 1. Prepare Labels
@@ -76,7 +76,7 @@ def transform(input_data):
         "country_code": geolocation.get("countryCode", "unknown"),
         # IMPORTANT: Be cautious adding high-cardinality fields like 'userId' as labels.
         # It's generally better to include them in the log line content.
-        # "user_id": parameters.get("userId", "anonymous")
+        # "user_id": extra.get("userId", "anonymous")
     }
 
     # 2. Prepare Log Line (Value)
@@ -84,7 +84,7 @@ def transform(input_data):
         f"meta.correlationId:{meta.get('correlationId', 'N/A')} "
         f"action.name:{action.get('name', 'N/A')} "
         f"action.status:{action.get('status', 'N/A')} "
-        f"parameters.userId:{parameters.get('userId', 'N/A')} "
+        f"extra.userId:{extra.get('userId', 'N/A')} "
         f"action.message:{action.get('message', 'N/A')} "
     )
     # Convert the entire original audit_json to a JSON string for the log line.
