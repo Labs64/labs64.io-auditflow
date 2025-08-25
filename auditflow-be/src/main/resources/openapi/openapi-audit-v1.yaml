@@ -6,6 +6,9 @@ info:
 servers:
   - url: /api/v1
     description: API base path
+tags:
+  - name: AuditEvent
+    description: Operations to manage the audit events.
 paths:
   /audit/publish:
     post:
@@ -15,6 +18,7 @@ paths:
         - AuditEvent
       description: Publishes an audit event to a message broker for further processing.
       requestBody:
+        description: Payload to create an audit event.
         required: true
         content:
           application/json:
@@ -27,6 +31,17 @@ paths:
             text/plain:
               schema:
                 type: string
+        '400':
+          description: Invalid request payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "VALIDATION_ERROR"
+                message: "Status is invalid. Allowed values: SUCCESS, FAILURE, PENDING"
+                timestamp: "2025-08-19T12:34:56Z"
+                traceId: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
         '500':
           description: Failed to publish audit event
           content:
@@ -48,8 +63,14 @@ components:
           $ref: '#/components/schemas/ActionDetails'
         geolocation:
           $ref: '#/components/schemas/Geolocation'
-        parameters:
-          $ref: '#/components/schemas/ParametersObject'
+        extra:
+          type: object
+          description: Custom user-defined fields for the item.
+          additionalProperties: true
+          example:
+            licenseType: "FEATURE"
+            validity: "1 year"
+            supportIncluded: true
         rawData:
           type: string
           description: Optional raw event data or original message, typically a stringified JSON or XML.
@@ -142,11 +163,35 @@ components:
           type: string
           description: The city name where the event originated (e.g., "Munich").
           example: "Munich"
-    ParametersObject:
+
+    ErrorCode:
+      type: string
+      description: Unique error code identifying the type of error.
+      enum:
+        - NOT_FOUND
+        - INTERNAL_ERROR
+        - VALIDATION_ERROR
+      example: "NOT_FOUND"
+
+    ErrorResponse:
       type: object
-      description: A flexible object to capture application-specific context or additional details not covered by other fields.
-      additionalProperties:
-        type: string
-      example:
-        userId: "customer123"
-        userBU: "BU12345678"
+      description: Standard error response returned by the API.
+      required:
+        - code
+        - message
+      properties:
+        code:
+          $ref: '#/components/schemas/ErrorCode'
+        message:
+          type: string
+          description: Human-readable message describing the error.
+          example: "Shopping cart with ID '550e8400-e29b-41d4-a716-446655440000' was not found."
+        timestamp:
+          type: string
+          format: date-time
+          description: Time when the error occurred.
+          example: "2025-08-19T12:34:56Z"
+        traceId:
+          type: string
+          description: Optional trace ID for correlating logs or debugging.
+          example: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
