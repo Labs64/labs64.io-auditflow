@@ -1,5 +1,0 @@
-APP_NAME := "auditflow"
-
-# build application
-build:
-    npm ci

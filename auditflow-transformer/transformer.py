@@ -91,4 +91,49 @@ async def transform(
         raise http_exc
     except Exception as e:
         app_logger.error(f"An unexpected error occurred in transform endpoint: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"An unexpected error occurred while processing event through transformer '{transformer_id}': {e}"
+        )
+
+
+@app.get('/transformers')
+async def list_transformers():
+    """
+    List all available transformer modules.
+
+    Returns a list of available transformer IDs that can be used in the /transformer/{transformer_id} endpoint.
+    """
+    available_transformers = []
+
+    # Check internal transformers
+    internal_transformers_path = os.path.join(current_dir, 'transformers')
+    if os.path.exists(internal_transformers_path):
+        for file in os.listdir(internal_transformers_path):
+            if file.endswith('.py') and not file.startswith('__'):
+                transformer_id = file[:-3]  # Remove .py extension
+                available_transformers.append({
+                    "id": transformer_id,
+                    "type": "internal",
+                    "path": f"transformers/{file}"
+                })
+
+    # Check external transformers
+    external_transformers_path = os.path.join(current_dir, 'transformers_bootstrap')
+    if os.path.exists(external_transformers_path):
+        for file in os.listdir(external_transformers_path):
+            if file.endswith('.py') and not file.startswith('__'):
+                transformer_id = file[:-3]  # Remove .py extension
+                available_transformers.append({
+                    "id": transformer_id,
+                    "type": "external",
+                    "path": f"transformers_bootstrap/{file}"
+                })
+
+    return JSONResponse(
+        content={
+            "available_transformers": available_transformers,
+            "count": len(available_transformers)
+        },
+        status_code=200
+    )

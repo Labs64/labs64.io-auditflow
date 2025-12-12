@@ -35,7 +35,7 @@ public class AuditFlowConfiguration {
         private String name;
         private boolean enabled;
         private TransformerProperties transformer;
-        private ProcessorProperties processor;
+        private SinkProperties sink;
 
         public String getName() {
             return name;
@@ -61,12 +61,12 @@ public class AuditFlowConfiguration {
             this.transformer = transformer;
         }
 
-        public ProcessorProperties getProcessor() {
-            return processor;
+        public SinkProperties getSink() {
+            return sink;
         }
 
-        public void setProcessor(ProcessorProperties processor) {
-            this.processor = processor;
+        public void setSink(SinkProperties sink) {
+            this.sink = sink;
         }
     }
 
@@ -82,9 +82,8 @@ public class AuditFlowConfiguration {
         }
     }
 
-    public static class ProcessorProperties {
+    public static class SinkProperties {
         private String name;
-        private String clazz;
         private Map<String, String> properties;
 
         public String getName() {
@@ -95,13 +94,6 @@ public class AuditFlowConfiguration {
             this.name = name;
         }
 
-        public String getClazz() {
-            return clazz;
-        }
-
-        public void setClazz(String clazz) {
-            this.clazz = clazz;
-        }
 
         public Map<String, String> getProperties() {
             return properties;

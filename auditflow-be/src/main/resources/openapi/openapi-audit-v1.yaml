@@ -1,14 +1,23 @@
 openapi: 3.0.0
 info:
-  title: Event Publisher API
+  title: Labs64 AuditFlow API
   version: 1.0.0
-  description: API for publishing audit events to a message broker.
+  description: API for publishing audit events to a message broker for asynchronous processing through configurable pipelines.
+  contact:
+    name: Labs64
+    url: https://labs64.io
+    email: info@labs64.com
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
 servers:
+  - url: http://localhost:8080/api/v1
+    description: Local Development Server
   - url: /api/v1
-    description: API base path
+    description: Default API base path
 tags:
   - name: AuditEvent
-    description: Operations to manage the audit events.
+    description: Operations to manage and publish audit events.
 paths:
   /audit/publish:
     post:
@@ -16,14 +25,33 @@ paths:
       operationId: publishEvent
       tags:
         - AuditEvent
-      description: Publishes an audit event to a message broker for further processing.
+      description: Publishes an audit event to a message broker for asynchronous processing through configured pipelines.
+      security:
+        - bearerAuth: []
       requestBody:
-        description: Payload to create an audit event.
+        description: Audit event payload to be published.
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/AuditEvent'
+            example:
+              eventId: "123e4567-e89b-12d3-a456-426614174000"
+              eventType: "user.login"
+              sourceSystem: "auth-service"
+              tenantId: "T123456"
+              geolocation:
+                lat: 48.1264019
+                lon: 11.5407647
+                countryCode: "DE"
+                country: "Germany"
+                city: "Munich"
+              extra:
+                userId: "user123"
+                sessionId: "sess456"
+                action_name: "login"
+                action_status: "SUCCESS"
+                action_message: "User logged in successfully"
       responses:
         '200':
           description: Audit event published successfully
@@ -31,64 +59,42 @@ paths:
             text/plain:
               schema:
                 type: string
+                example: "Audit event published successfully"
         '400':
-          description: Invalid request payload.
+          description: Invalid request payload
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
               example:
                 code: "VALIDATION_ERROR"
-                message: "Status is invalid. Allowed values: SUCCESS, FAILURE, PENDING"
-                timestamp: "YYYY-MM-DDThh:mm:ssZ"
-                traceId: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+                message: "eventType must not be null"
+                timestamp: "2025-11-30T10:15:30Z"
         '500':
           description: Failed to publish audit event
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "INTERNAL_ERROR"
+                message: "An internal error occurred while processing your request"
+                timestamp: "2025-11-30T10:15:30Z"
 components:
   schemas:
     AuditEvent:
       type: object
       description: Represents an audit event.
       required:
-        - meta
-        - action
-      properties:
-        meta:
-          $ref: '#/components/schemas/MetaInfo'
-        action:
-          $ref: '#/components/schemas/ActionDetails'
-        geolocation:
-          $ref: '#/components/schemas/Geolocation'
-        extra:
-          $ref: '#/components/schemas/Extra'
-        rawData:
-          type: string
-          description: Optional raw event data or original message, typically a stringified JSON or XML.
-          example: "<raw event data or original event payload>"
-    MetaInfo:
-      type: object
-      required:
-        - timestamp
-        - correlationId
-        - eventId
         - eventType
         - sourceSystem
-        - eventVersion
       properties:
         timestamp:
           type: string
           format: date-time
           description: The precise time the audit event occurred, in ISO 8601 format.
           example: "YYYY-MM-DDThh:mm:ssZ"
-        correlationId:
-          type: string
-          format: uuid
-          description: A unique identifier that links multiple related events together across different services or a single transaction.
-          example: "a1b2c3d4-e5f6-7890-1234-567890abcdef"
+          readOnly: true
         eventId:
           type: string
           format: uuid
@@ -106,25 +112,10 @@ components:
           type: string
           description: Identifier for the tenant or organization associated with the event.
           example: "V12345678"
-    ActionDetails:
-      type: object
-      required:
-        - name
-        - status
-      properties:
-        name:
-          type: string
-          description: The name of the specific action performed (e.g., 'LOGIN_SUCCESS', 'USER_CREATED', 'DATA_ACCESSED').
-          example: "licensee/validate"
-        status:
-          type: string
-          enum: [SUCCESS, FAILURE, PENDING]
-          description: The outcome status of the action.
-          example: "SUCCESS"
-        message:
-          type: string
-          description: A human-readable message providing more context about the action's outcome.
-          example: "Validation completed successfully"
+        geolocation:
+          $ref: '#/components/schemas/Geolocation'
+        extra:
+          $ref: '#/components/schemas/Extra'
     Geolocation:
       type: object
       required:
@@ -164,6 +155,9 @@ components:
       example:
         userId: "customer123"
         userBU: "BU12345678"
+        action_name: "login"
+        action_status: "SUCCESS"
+        action_message: "User logged in successfully"
 
     ErrorCode:
       type: string
@@ -196,3 +190,10 @@ components:
           type: string
           description: Optional trace ID for correlating logs or debugging.
           example: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT authentication token

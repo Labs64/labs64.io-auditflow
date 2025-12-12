@@ -22,19 +22,11 @@ def transform(input_data):
 
     Example Input (expected from FastAPI endpoint):
     {
-      "meta": {
-        "timestamp": "2025-07-04T10:00:00Z",
-        "correlationId": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
-        "eventType": "audit.action.performed",
-        "sourceSystem": "system-name/service-name",
-        "eventId": "fedcba98-7654-3210-fedc-ba9876543210",
-        "tenantId": "tenant-001"
-      },
-      "action": {
-        "name": "LOGIN_SUCCESS",
-        "status": "SUCCESS",
-        "message": "User logged in successfully"
-      },
+      "timestamp": "2025-07-04T10:00:00Z",
+      "eventId": "fedcba98-7654-3210-fedc-ba9876543210",
+      "eventType": "audit.action.performed",
+      "sourceSystem": "system-name/service-name",
+      "tenantId": "tenant-001",
       "geolocation": {
         "lat": 48.1351,
         "lon": 11.5820,
@@ -45,9 +37,11 @@ def transform(input_data):
       },
       "extra": {
         "userId": "user123",
-        "browser": "Chrome"
-      },
-      "rawData": "{\"original_event\": \"some_data\"}"
+        "browser": "Chrome",
+        "action_name": "LOGIN_SUCCESS",
+        "action_status": "SUCCESS",
+        "action_message": "User logged in successfully"
+      }
     }
 
     Example Output (Loki payload):
@@ -67,14 +61,12 @@ def transform(input_data):
               "1756157127354000128",
               "Validation completed successfully",
               {
-                "correlationId": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
                 "eventId": "fedcba98-7654-3210-fedc-ba9876543210",
                 "level": "INFO",
                 "userId": "customer123",
                 "country_code": "DE",
                 "latitude": "48.1264019",
-                "longitude": "11.5407647",
-                "rawData": "<raw event data or original event payload>"
+                "longitude": "11.5407647"
               }
             ]
           ]
@@ -82,37 +74,32 @@ def transform(input_data):
       ]
     }
     """
-    meta = input_data.get('meta', {})
-    action = input_data.get('action', {})
     geolocation = input_data.get('geolocation', {})
     extra = input_data.get('extra', {})
-    rawData = input_data.get('rawData', None)
 
     # Prepare the "stream" object based on the desired output structure
     stream_data = {
         "job": "auditflow",
-        "service_name": meta.get("sourceSystem", "unknown"),
-        "tenant_id": meta.get("tenantId", "unknown"),
-        "event_type": meta.get("eventType", "unknown"),
-        "action_name": action.get("name", "unknown_action"),
-        "action_status": action.get("status", "unknown_status"),
+        "service_name": input_data.get("sourceSystem", "unknown"),
+        "tenant_id": input_data.get("tenantId", "unknown"),
+        "event_type": input_data.get("eventType", "unknown"),
+        "action_name": extra.get("action_name", "unknown_action"),
+        "action_status": extra.get("action_status", "unknown_status"),
     }
 
     # Prepare the nested dictionary for the "values" array
     values_dict = {
-        "correlationId": meta.get("correlationId", "N/A"),
-        "eventId": meta.get("eventId", "N/A"),
-        "level": get_log_level(action.get("status", "N/A")),
+        "eventId": input_data.get("eventId", "N/A"),
+        "level": get_log_level(extra.get("action_status", "N/A")),
         "userId": extra.get("userId", "N/A"),
         "country_code": geolocation.get("countryCode", "N/A"),
         "latitude": f'{geolocation.get("lat", "N/A")}',
         "longitude": f'{geolocation.get("lon", "N/A")}',
-        "rawData": rawData if rawData is not None else "N/A",
     }
 
     # Prepare the "values" array
     # The timestamp needs to be a string in Unix nanoseconds
-    timestamp_iso = meta.get("timestamp")
+    timestamp_iso = input_data.get("timestamp")
     unix_nano_timestamp = "0"
     if timestamp_iso:
         try:
@@ -125,7 +112,7 @@ def transform(input_data):
 
     values_data = [
         unix_nano_timestamp,
-        action.get("message", "N/A"),
+        extra.get("action_message", "N/A"),
         values_dict
     ]
 

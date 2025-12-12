@@ -1,4 +1,5 @@
-APP_NAME := "auditflow-transformer"
+APP_NAME := "auditflow-sink"
+USER_NAME := "l64user"
 
 # build application
 docker:
@@ -9,9 +10,9 @@ docker:
 
 # run docker image
 run: docker
-    docker run -p 8081:8081 {{APP_NAME}}:latest
+    docker run -p 8082:8082 -v ./sinks_bootstrap:/home/{{USER_NAME}}/sinks_bootstrap {{APP_NAME}}:latest
 
 # open documentation
 docu:
-    open "http://localhost:8081/redoc"
-    open "http://localhost:8081/docs"
+    open "http://localhost:8082/redoc"
+    open "http://localhost:8082/docs"

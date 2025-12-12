@@ -11,19 +11,11 @@ def transform(input_data):
 
     Example Input (for /transform/audit_event):
     {
-      "meta": {
-        "timestamp": "2025-07-04T10:00:00Z",
-        "correlationId": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
-        "eventType": "audit.action.performed",
-        "sourceSystem": "system-name/service-name",
-        "eventId": "fedcba98-7654-3210-fedc-ba9876543210",
-        "tenantId": "tenant-001"
-      },
-      "action": {
-        "name": "LOGIN_SUCCESS",
-        "status": "SUCCESS",
-        "message": "User logged in successfully"
-      },
+      "timestamp": "2025-07-04T10:00:00Z",
+      "eventId": "fedcba98-7654-3210-fedc-ba9876543210",
+      "eventType": "audit.action.performed",
+      "sourceSystem": "system-name/service-name",
+      "tenantId": "tenant-001",
       "geolocation": {
         "lat": 48.1351,
         "lon": 11.5820,
@@ -34,19 +26,19 @@ def transform(input_data):
       },
       "extra": {
         "userId": "user123",
-        "browser": "Chrome"
-      },
-      "rawData": "{\"original_event\": \"some_data\"}"
+        "browser": "Chrome",
+        "action_name": "LOGIN_SUCCESS",
+        "action_status": "SUCCESS",
+        "action_message": "User logged in successfully"
+      }
     }
 
     Example Output (OpenSearch friendly):
     {
       "timestamp": "2025-07-04T10:00:00Z",
       "event_id": "fedcba98-7654-3210-fedc-ba9876543210",
-      "correlation_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
       "event_type": "audit.action.performed",
       "source_system": "system-name/service-name",
-      "event_version": "1.0.0",
       "tenant_id": "tenant-001",
       "action_name": "LOGIN_SUCCESS",
       "action_status": "SUCCESS",
@@ -62,30 +54,25 @@ def transform(input_data):
       "extra": {
         "userId": "user123",
         "browser": "Chrome"
-      },
-      "raw_data_string": "{\"original_event\": \"some_data\"}"
+      }
     }
     """
     transformed_data = {}
 
-    meta = input_data.get('meta', {})
-    action = input_data.get('action', {})
     geolocation = input_data.get('geolocation', {})
     extra = input_data.get('extra', {})
-    rawData = input_data.get('rawData', None)
 
-    # MetaInfo fields (flattened)
-    transformed_data['timestamp'] = meta.get('timestamp')
-    transformed_data['event_id'] = meta.get('eventId')
-    transformed_data['correlation_id'] = meta.get('correlationId')
-    transformed_data['event_type'] = meta.get('eventType')
-    transformed_data['source_system'] = meta.get('sourceSystem')
-    transformed_data['tenant_id'] = meta.get('tenantId')
+    # Top-level fields (previously in MetaInfo)
+    transformed_data['timestamp'] = input_data.get('timestamp')
+    transformed_data['event_id'] = input_data.get('eventId')
+    transformed_data['event_type'] = input_data.get('eventType')
+    transformed_data['source_system'] = input_data.get('sourceSystem')
+    transformed_data['tenant_id'] = input_data.get('tenantId')
 
-    # ActionDetails fields (flattened)
-    transformed_data['action_name'] = action.get('name')
-    transformed_data['action_status'] = action.get('status')
-    transformed_data['action_message'] = action.get('message')
+    # Action fields (now in extra)
+    transformed_data['action_name'] = extra.get('action_name')
+    transformed_data['action_status'] = extra.get('action_status')
+    transformed_data['action_message'] = extra.get('action_message')
 
     # Geolocation fields - Combined for OpenSearch geo_point
     if geolocation and geolocation.get('lat') is not None and geolocation.get('lon') is not None:
@@ -111,10 +98,5 @@ def transform(input_data):
     else:
         transformed_data['extra'] = {} # Ensure it's an empty object if no extra
 
-    # RawData - keep as a string, renamed for clarity in OpenSearch
-    if rawData is not None:
-        transformed_data['raw_data_string'] = rawData
-    else:
-        transformed_data['raw_data_string'] = None # Explicitly None if not present
 
     return transformed_data

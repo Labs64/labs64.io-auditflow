@@ -1,52 +1,24 @@
 server:
   port: 8080
-
-management.endpoints.web.exposure.include: health,info
-management.endpoint.health.probes.enabled: true
-management.health.livenessState.enabled: true
-management.health.readinessState.enabled: true
-management:
-  tracing:
-    sampling:
-      probability: 1.0
-
-logging:
-  level:
-    io.labs64: DEBUG
-    org.springframework.cloud.stream: INFO
-
-transformer:
-  discovery:
-    mode: local # "local" or "kubernetes"
-  local:
-    url: "http://localhost:8081"
-  service:
-    name: auditflow-transformer
-    namespace: default
-
-pipelines: []
-#  - name: 'logs'
-#    enabled: true
-#    transformer:
-#      name: 'zero'
-#    processor:
-#      name: 'logging_processor'
-#      clazz: 'io.labs64.audit.processors.LoggingProcessor'
-#      properties:
-#        log-level: "DEBUG"
+  shutdown: graceful
 
 spring:
   application:
     name: labs64.io-auditflow
+
+  # Spring Cloud Stream Configuration
   cloud:
     stream:
       bindings:
         audit-out-0:
           destination: labs64-audit-topic
           binder: rabbit
+          content-type: application/json
         audit-in-0:
           destination: labs64-audit-topic
           binder: rabbit
+          content-type: application/json
+          group: ${spring.application.name}
       binders:
         rabbit:
           type: rabbit
@@ -55,12 +27,115 @@ spring:
           audit-out-0:
             producer:
               exchangeType: topic
+              routing-key-expression: headers['routingKey']
           audit-in-0:
             consumer:
               autoBindDlq: true
+              republishToDlq: true
+              requeueRejected: false
 
+  # RabbitMQ Configuration
   rabbitmq:
     host: rabbitmq.default.svc.cluster.local
     port: 5672
-    username:
-    password:
+    username: ${RABBITMQ_USERNAME:}
+    password: ${RABBITMQ_PASSWORD:}
+    connection-timeout: 10s
+
+# Actuator Configuration
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when-authorized
+  health:
+    livenessState:
+      enabled: true
+    readinessState:
+      enabled: true
+
+  # Distributed Tracing
+  tracing:
+    sampling:
+      probability: 1.0
+
+  # Metrics
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    export:
+      prometheus:
+        enabled: true
+
+# Logging Configuration
+logging:
+  level:
+    root: INFO
+    io.labs64: DEBUG
+    org.springframework.cloud.stream: INFO
+    org.springframework.amqp: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+
+# Transformer Discovery Configuration
+transformer:
+  discovery:
+    mode: local # "local" or "kubernetes"
+  local:
+    url: "http://localhost:8081"
+  service:
+    name: auditflow-transformer
+    namespace: default
+    port: 8081
+
+# Sink Discovery Configuration
+sink:
+  discovery:
+    mode: local # "local" or "kubernetes"
+  local:
+    url: "http://localhost:8082"
+  service:
+    name: auditflow-sink
+    namespace: default
+    port: 8082
+
+# Pipeline Configuration
+# Example pipeline configuration (commented out by default):
+pipelines: []
+#  - name: 'logs'
+#    enabled: true
+#    transformer:
+#      name: 'zero'
+#    sink:
+#      name: 'logging_sink'
+#      properties:
+#        log-level: "INFO"
+#        format: "json"
+#  - name: 'opensearch'
+#    enabled: false
+#    transformer:
+#      name: 'audit_opensearch'
+#    sink:
+#      name: 'opensearch_sink'
+#      properties:
+#        service-url: "http://opensearch:9200"
+#        service-path: "/audit/_doc"
+#        username: "admin"
+#        password: "admin"
+#        verify-ssl: "false"
+#  - name: 'loki'
+#    enabled: false
+#    transformer:
+#      name: 'audit_loki'
+#    sink:
+#      name: 'loki_sink'
+#      properties:
+#        service-url: "http://loki:3100"
+#        service-path: "/loki/api/v1/push"
+#        username: "user"
+#        password: "password"
