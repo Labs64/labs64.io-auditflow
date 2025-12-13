@@ -1,6 +1,5 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
-from typing import Any, Dict
 import importlib
 import sys
 import os
@@ -46,8 +45,8 @@ else:
 @app.post('/sink/{sink_id}')
 async def sink(
         sink_id: str,
-        event_data: Dict[str, Any],
-        properties: Dict[str, str] = None
+        event_data: dict,
+        properties: dict = None
 ):
     """
     Send transformed audit events to a destination sink.

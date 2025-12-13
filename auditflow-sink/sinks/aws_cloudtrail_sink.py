@@ -6,8 +6,6 @@ This sink sends audit events to AWS CloudTrail Lake for long-term audit storage 
 import logging
 import json
 import uuid
-from datetime import datetime
-from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +17,7 @@ except ImportError:
     boto3 = None
 
 
-def process(event_data: Dict[str, Any], properties: Dict[str, str]) -> Dict[str, Any]:
+def process(event_data: dict, properties: dict) -> dict:
     """
     Process an audit event by sending it to CloudTrail Lake.
 
@@ -95,7 +93,7 @@ def process(event_data: Dict[str, Any], properties: Dict[str, str]) -> Dict[str,
         raise RuntimeError(f"Unexpected error: {e}")
 
 
-def convert_to_cloudtrail_format(event_data: Dict[str, Any]) -> Dict[str, Any]:
+def convert_to_cloudtrail_format(event_data: dict) -> dict:
     """
     Convert AuditFlow event to CloudTrail format.
 
@@ -116,4 +114,3 @@ def convert_to_cloudtrail_format(event_data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
     return cloudtrail_event
-

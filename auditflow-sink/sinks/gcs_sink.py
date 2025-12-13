@@ -7,7 +7,6 @@ import logging
 import json
 import gzip
 from datetime import datetime
-from typing import Dict, Any
 import uuid
 
 logger = logging.getLogger(__name__)
@@ -20,7 +19,7 @@ except ImportError:
     storage = None
 
 
-def process(event_data: Dict[str, Any], properties: Dict[str, str]) -> Dict[str, Any]:
+def process(event_data: dict, properties: dict) -> dict:
     """
     Process an audit event by uploading it to Google Cloud Storage.
 
@@ -130,7 +129,7 @@ def build_object_name(
     partition_by_date: bool,
     partition_format: str,
     compress: bool,
-    event_data: Dict[str, Any]
+    event_data: dict
 ) -> str:
     """Build GCS object name with optional date partitioning."""
     name_parts = [prefix.rstrip('/')]
@@ -152,4 +151,3 @@ def build_object_name(
     name_parts.append(filename)
 
     return '/'.join(name_parts)
-

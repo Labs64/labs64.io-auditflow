@@ -8,7 +8,6 @@ import logging
 import json
 import gzip
 from datetime import datetime
-from typing import Dict, Any
 import uuid
 
 logger = logging.getLogger(__name__)
@@ -21,7 +20,7 @@ except ImportError:
     boto3 = None
 
 
-def process(event_data: Dict[str, Any], properties: Dict[str, str]) -> Dict[str, Any]:
+def process(event_data: dict, properties: dict) -> dict:
     """
     Process an audit event by uploading it to AWS S3.
 
@@ -142,7 +141,7 @@ def build_object_key(
     partition_format: str,
     file_format: str,
     compress: bool,
-    event_data: Dict[str, Any]
+    event_data: dict
 ) -> str:
     """Build S3 object key with optional date partitioning."""
     key_parts = [prefix.rstrip('/')]
@@ -164,4 +163,3 @@ def build_object_key(
     key_parts.append(filename)
 
     return '/'.join(key_parts)
-

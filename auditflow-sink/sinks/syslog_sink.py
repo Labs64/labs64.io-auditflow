@@ -8,7 +8,6 @@ import logging
 import socket
 import json
 from datetime import datetime
-from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +48,7 @@ FACILITY = {
 }
 
 
-def process(event_data: Dict[str, Any], properties: Dict[str, str]) -> Dict[str, Any]:
+def process(event_data: dict, properties: dict) -> dict:
     """
     Process an audit event by sending it to Syslog.
 
@@ -146,12 +145,12 @@ def send_tcp(host: str, port: int, message: str):
         sock.close()
 
 
-def format_json(event_data: Dict[str, Any]) -> str:
+def format_json(event_data: dict) -> str:
     """Format event as JSON string."""
     return json.dumps(event_data, separators=(',', ':'))
 
 
-def format_cef(event_data: Dict[str, Any]) -> str:
+def format_cef(event_data: dict) -> str:
     """
     Format event as Common Event Format (CEF).
     CEF:Version|Device Vendor|Device Product|Device Version|Signature ID|Name|Severity|Extension
@@ -179,4 +178,3 @@ def format_cef(event_data: Dict[str, Any]) -> str:
     extension = ' '.join(extensions)
 
     return f"CEF:{cef_version}|{device_vendor}|{device_product}|{device_version}|{signature_id}|{name}|{severity}|{extension}"
-

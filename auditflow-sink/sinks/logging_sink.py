@@ -33,15 +33,7 @@ def process(event_data: dict, properties: dict) -> dict:
     if log_format == 'json':
         message = json.dumps(event_data, indent=2)
     else:
-        # Extract key fields for text format
-        meta = event_data.get('meta', {})
-        action = event_data.get('action', {})
-        message = (
-            f"AuditEvent: {meta.get('eventType', 'unknown')} | "
-            f"Source: {meta.get('sourceSystem', 'unknown')} | "
-            f"Action: {action.get('name', 'unknown')} | "
-            f"Status: {action.get('status', 'unknown')}"
-        )
+        message = event_data
 
     # Log the event
     logger.log(numeric_level, f"Audit Event Logged:\n{message}")
@@ -50,6 +42,5 @@ def process(event_data: dict, properties: dict) -> dict:
         "logged": True,
         "log_level": log_level,
         "format": log_format,
-        "event_type": event_data.get('meta', {}).get('eventType', 'unknown')
+        "event_id": event_data.get('eventId', 'unknown')
     }
-

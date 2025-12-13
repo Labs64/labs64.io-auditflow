@@ -8,12 +8,11 @@ import requests
 import json
 from datetime import datetime
 from requests.auth import HTTPBasicAuth
-from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
 
-def process(event_data: Dict[str, Any], properties: Dict[str, str]) -> Dict[str, Any]:
+def process(event_data: dict, properties: dict) -> dict:
     """
     Process an audit event by sending it to OpenSearch.
 
@@ -92,4 +91,3 @@ def process(event_data: Dict[str, Any], properties: Dict[str, str]) -> Dict[str,
     except Exception as e:
         logger.error(f"Unexpected error sending event to OpenSearch: {e}")
         raise RuntimeError(f"Unexpected error: {e}")
-

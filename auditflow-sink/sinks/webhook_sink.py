@@ -8,13 +8,11 @@ import requests
 import json
 import hmac
 import hashlib
-from typing import Dict, Any
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 
-def process(event_data: Dict[str, Any], properties: Dict[str, str]) -> Dict[str, Any]:
+def process(event_data: dict, properties: dict) -> dict:
     """
     Process an audit event by sending it to a webhook.
 
@@ -124,7 +122,7 @@ def process(event_data: Dict[str, Any], properties: Dict[str, str]) -> Dict[str,
     raise RuntimeError(f"Failed to send webhook to {webhook_url}: {last_error}")
 
 
-def prepare_payload(event_data: Dict[str, Any], content_type: str) -> str:
+def prepare_payload(event_data: dict, content_type: str) -> str:
     """Prepare payload based on content type."""
     if content_type == 'application/json':
         return json.dumps(event_data)
@@ -148,7 +146,7 @@ def generate_signature(payload: str, secret: str) -> str:
     return f"sha256={signature}"
 
 
-def flatten_dict(d: Dict[str, Any], parent_key: str = '', sep: str = '.') -> Dict[str, str]:
+def flatten_dict(d: dict, parent_key: str = '', sep: str = '.') -> dict:
     """Flatten nested dictionary for URL encoding."""
     items = []
     for k, v in d.items():
@@ -160,4 +158,3 @@ def flatten_dict(d: Dict[str, Any], parent_key: str = '', sep: str = '.') -> Dic
         else:
             items.append((new_key, str(v)))
     return dict(items)
-

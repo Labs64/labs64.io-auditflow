@@ -7,14 +7,12 @@ import logging
 import requests
 import json
 import time
-from datetime import datetime
 from requests.auth import HTTPBasicAuth
-from typing import Dict, Any, List
 
 logger = logging.getLogger(__name__)
 
 
-def process(event_data: Dict[str, Any], properties: Dict[str, str]) -> Dict[str, Any]:
+def process(event_data: dict, properties: dict) -> dict:
     """
     Process an audit event by sending it to Grafana Loki.
 
@@ -117,4 +115,3 @@ def process(event_data: Dict[str, Any], properties: Dict[str, str]) -> Dict[str,
     except Exception as e:
         logger.error(f"Unexpected error sending event to Loki: {e}")
         raise RuntimeError(f"Unexpected error: {e}")
-

@@ -5,8 +5,6 @@ This sink sends audit events to CloudWatch Logs for centralized logging and moni
 """
 import logging
 import json
-from datetime import datetime
-from typing import Dict, Any
 import time
 
 logger = logging.getLogger(__name__)
@@ -19,7 +17,7 @@ except ImportError:
     boto3 = None
 
 
-def process(event_data: Dict[str, Any], properties: Dict[str, str]) -> Dict[str, Any]:
+def process(event_data: dict, properties: dict) -> dict:
     """
     Process an audit event by sending it to CloudWatch Logs.
 
@@ -156,4 +154,3 @@ def get_sequence_token(client, log_group: str, log_stream: str) -> str:
     except ClientError:
         pass
     return None
-
