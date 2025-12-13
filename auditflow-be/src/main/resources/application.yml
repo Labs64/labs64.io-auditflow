@@ -78,7 +78,6 @@ logging:
     io.labs64: DEBUG
     org.springframework.cloud.stream: INFO
     org.springframework.amqp: WARN
-    org.springframework.web.reactive.function.client.ExchangeFunctions: DEBUG
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
 

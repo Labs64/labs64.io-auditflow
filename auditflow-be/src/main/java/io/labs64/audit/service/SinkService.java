@@ -6,6 +6,9 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -20,9 +23,11 @@ public class SinkService {
     private static final Logger logger = LoggerFactory.getLogger(SinkService.class);
 
     private final SinkDiscovery sinkDiscovery;
+    private ObjectMapper objectMapper;
 
-    public SinkService(SinkDiscovery sinkDiscovery) {
+    public SinkService(SinkDiscovery sinkDiscovery, ObjectMapper objectMapper) {
         this.sinkDiscovery = sinkDiscovery;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -75,21 +80,31 @@ public class SinkService {
      * @return Response from the sink
      */
     private Mono<String> sendEventToSink(String message, String sinkUrl, String sinkName, Map<String, String> properties) {
-        WebClient client = WebClient.create(sinkUrl);
+        return Mono.fromCallable(() -> {
+            Map<String, Object> requestBody = new HashMap<>();
 
-        // Build request body
-        Map<String, Object> requestBody = new HashMap<>();
+            JsonNode eventData = objectMapper.readTree(message);
 
-        // Parse message as event_data (assuming it's already JSON)
-        // In a real implementation, you might want to parse the JSON first
-        requestBody.put("event_data", message);
-        requestBody.put("properties", properties != null ? properties : new HashMap<>());
+            requestBody.put("event_data", eventData);
+            requestBody.put("properties",
+                    properties != null ? properties : new HashMap<>());
 
-        return client.post()
-                .uri("/sink/" + sinkName)
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(requestBody)
-                .retrieve()
-                .bodyToMono(String.class);
+            logger.debug(
+                    "Sending event to sink '{}' payload JSON: {}",
+                    sinkName,
+                    objectMapper.writeValueAsString(requestBody)
+            );
+
+            return requestBody;
+        })
+        .flatMap(requestBody ->
+                WebClient.create(sinkUrl)
+                        .post()
+                        .uri("/sink/" + sinkName)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .bodyValue(requestBody)
+                        .retrieve()
+                        .bodyToMono(String.class)
+        );
     }
 }
