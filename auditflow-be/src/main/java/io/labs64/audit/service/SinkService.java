@@ -34,12 +34,12 @@ public class SinkService {
      * @return Processing result from the sink
      */
     public String sendToSink(String message, String sinkName, Map<String, String> properties) {
-        logger.debug("Attempting to send event to sink '{}' with properties: {}", sinkName, properties);
+        logger.debug("Send event to sink '{}' with properties: {}", sinkName, properties);
 
         Mono<String> sinkResultMono = Mono.fromCallable(sinkDiscovery::getSinkUrl)
                 .flatMap(sinkUrl -> {
                     if (sinkUrl != null && !sinkUrl.isEmpty()) {
-                        logger.debug("Determined sink service at URL '{}'. Sending to sink '{}'...", sinkUrl, sinkName);
+                        logger.debug("Determined sink service '{}' at URL '{}'. Sending to sink...", sinkName, sinkUrl);
                         return sendEventToSink(message, sinkUrl, sinkName, properties)
                                 .doOnSuccess(response -> logger.info(
                                         "Event sent to sink '{}' successfully. Response: {}",

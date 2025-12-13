@@ -19,15 +19,15 @@ public class TransformationService {
     }
 
     public String transform(String message, String transformerName) {
-        logger.debug("Attempting to trigger transformer '{}' process for message: '{}'", transformerName, message);
+        logger.debug("Trigger transformer '{}' process for message: '{}'", transformerName, message);
 
         Mono<String> transformationResultMono = Mono.fromCallable(transformerDiscovery::getTransformerUrl)
-                .flatMap(transformerPodUrl -> {
-                    if (transformerPodUrl != null && !transformerPodUrl.isEmpty()) {
-                        logger.debug("Determined transformer '{}' at URL '{}'. Initiating transformation...", transformerName, transformerPodUrl);
-                        return transformMessage(message, transformerPodUrl, transformerName)
-                                .doOnSuccess(response -> logger.info("Transformation successful for transformer '{}' at URL '{}'. Response: {}", transformerName, transformerPodUrl, response))
-                                .doOnError(error -> logger.error("Transformation failed for transformer'{}' at URL '{}'. Error: {}", transformerName, transformerPodUrl, error.getMessage()));
+                .flatMap(transformerUrl -> {
+                    if (transformerUrl != null && !transformerUrl.isEmpty()) {
+                        logger.debug("Determined transformer '{}' at URL '{}'. Initiating transformation...", transformerName, transformerUrl);
+                        return transformMessage(message, transformerUrl, transformerName)
+                                .doOnSuccess(response -> logger.info("Transformation successful for transformer '{}' at URL '{}'. Response: {}", transformerName, transformerUrl, response))
+                                .doOnError(error -> logger.error("Transformation failed for transformer'{}' at URL '{}'. Error: {}", transformerName, transformerUrl, error.getMessage()));
                     } else {
                         logger.error("Determined transformer URL is empty!");
                         return Mono.error(new IllegalStateException("Transformer URL is empty"));

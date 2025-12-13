@@ -37,7 +37,7 @@ public class AuditPublisherService {
             return false;
         }
 
-        logger.debug("Publish audit event '{}' to binding '{}'", json, AUDIT_OUT_0);
+        logger.debug("Publish audit event to binding '{}'", AUDIT_OUT_0);
         return streamBridge.send(AUDIT_OUT_0, MessageBuilder.withPayload(json).build());
     }
 

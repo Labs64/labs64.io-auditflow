@@ -43,9 +43,8 @@ public class AuditEventController implements AuditEventApi {
         description = "Publishes an audit event to the message broker for asynchronous processing through configured pipelines"
     )
     public ResponseEntity<String> publishEvent(@Valid AuditEvent event) {
-        logger.debug("Received request to publish audit event: eventType={}, sourceSystem={}",
-                event.getEventType() != null ? event.getEventType() : "unknown",
-                event.getSourceSystem() != null ? event.getSourceSystem() : "unknown");
+        String eventId = event.getEventId() != null ? event.getEventId().toString() : "unknown";
+        logger.debug("Received request to publish audit event; eventId={}", eventId);
 
         try {
             OffsetDateTime receivedAt = OffsetDateTime.now();
@@ -53,15 +52,14 @@ public class AuditEventController implements AuditEventApi {
             boolean result = publisherService.publishMessage(event);
 
             if (result) {
-                logger.info("Audit event published successfully");
+                logger.info("Audit event published successfully; eventId={}", eventId);
                 return ResponseEntity.ok("Audit event published successfully");
             } else {
-                logger.error("Failed to publish audit event - publisher returned false");
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                        .body("Failed to publish audit event");
+                logger.error("Failed to publish audit event - publisher returned false; eventId={}", eventId);
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to publish audit event");
             }
         } catch (Exception e) {
-            logger.error("Exception occurred while publishing audit event: {}", e.getMessage(), e);
+            logger.error("Exception occurred while publishing audit event; eventId={}, error={}", eventId, e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body("Failed to publish audit event: " + e.getMessage());
         }

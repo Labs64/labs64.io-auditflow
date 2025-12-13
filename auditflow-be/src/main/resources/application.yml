@@ -18,7 +18,6 @@ spring:
           destination: labs64-audit-topic
           binder: rabbit
           content-type: application/json
-          group: ${spring.application.name}
       binders:
         rabbit:
           type: rabbit
