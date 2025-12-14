@@ -54,7 +54,7 @@ jobs:
       - name: Build and push Transformer Docker image
         uses: docker/build-push-action@v6
         with:
-          context: ./transformer
+          context: ./auditflow-transformer
           push: true
           platforms: linux/amd64,linux/arm64/v8
           tags: |
@@ -62,3 +62,15 @@ jobs:
             labs64/auditflow-transformer:${{ steps.get_release_tag.outputs.RELEASE_TAG }}
           cache-from: type=gha,scope=${{ github.workflow }}-transformer
           cache-to: type=gha,mode=max,scope=${{ github.workflow }}-transformer
+
+      - name: Build and push Sink Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./auditflow-sink
+          push: true
+          platforms: linux/amd64,linux/arm64/v8
+          tags: |
+            labs64/auditflow-sink:latest
+            labs64/auditflow-sink:${{ steps.get_release_tag.outputs.RELEASE_TAG }}
+          cache-from: type=gha,scope=${{ github.workflow }}-sink
+          cache-to: type=gha,mode=max,scope=${{ github.workflow }}-sink

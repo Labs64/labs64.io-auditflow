@@ -16,3 +16,11 @@ run: docker
 docu:
     open "http://localhost:8081/redoc"
     open "http://localhost:8081/docs"
+
+check-updates:
+    python3 -m venv temp_env
+    temp_env/bin/python3 -m pip install --upgrade pip
+    temp_env/bin/pip install -r requirements.txt
+    temp_env/bin/pip list --outdated
+    rm -rf temp_env
+    docker scout cves {{APP_NAME}}:latest

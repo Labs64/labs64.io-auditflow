@@ -1,14 +1,14 @@
-fastapi==0.116.1
-uvicorn==0.35.0
+fastapi==0.124.4
+uvicorn==0.38.0
 
-requests==2.32.4
-python-multipart==0.0.18
+requests==2.32.5
+python-multipart==0.0.20
 
 # AWS sinks
-boto3==1.35.76
+boto3==1.42.9
 
 # Google Cloud sinks
-google-cloud-storage==2.19.0
+google-cloud-storage==3.7.0
 
 # Azure sinks
-azure-storage-blob==12.24.0
+azure-storage-blob==12.27.1
