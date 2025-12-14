@@ -1,7 +1,6 @@
 package io.labs64.audit.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -83,7 +82,8 @@ public class SinkService {
         return Mono.fromCallable(() -> {
                     Map<String, Object> requestBody = new HashMap<>();
 
-                    JsonNode eventData = objectMapper.readTree(message);
+                    // Parse the JSON string into a Map to preserve the actual structure
+                    Object eventData = objectMapper.readValue(message, Object.class);
 
                     requestBody.put("event_data", eventData);
                     requestBody.put("properties",

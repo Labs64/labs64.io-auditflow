@@ -46,7 +46,7 @@ else:
 @app.post('/transform/{transformer_id}')
 async def transform(
         transformer_id: str,
-        json_data: Dict[str, Any]
+        json_data: dict
 ):
     """
     Transforms Labs64.IO AuditFlow JSON structures based on a transformer ID.

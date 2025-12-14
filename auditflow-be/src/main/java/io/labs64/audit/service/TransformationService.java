@@ -1,5 +1,6 @@
 package io.labs64.audit.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -13,9 +14,11 @@ public class TransformationService {
     private static final Logger logger = LoggerFactory.getLogger(TransformationService.class);
 
     private final TransformerDiscovery transformerDiscovery;
+    private final ObjectMapper objectMapper;
 
-    public TransformationService(TransformerDiscovery transformerDiscovery) {
+    public TransformationService(TransformerDiscovery transformerDiscovery, ObjectMapper objectMapper) {
         this.transformerDiscovery = transformerDiscovery;
+        this.objectMapper = objectMapper;
     }
 
     public String transform(String message, String transformerName) {
@@ -60,12 +63,18 @@ public class TransformationService {
     public Mono<String> transformMessage(String message, String transformerUrl, String transformerName) {
         WebClient client = WebClient.create(transformerUrl);
 
-        return client.post()
-                .uri("/transform/" + transformerName)
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(message)
-                .retrieve()
-                .bodyToMono(String.class);
+        return Mono.fromCallable(() -> {
+                    // Parse JSON string to Object to ensure proper serialization
+                    return objectMapper.readValue(message, Object.class);
+                })
+                .flatMap(requestBody ->
+                        client.post()
+                                .uri("/transform/" + transformerName)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .bodyValue(requestBody)
+                                .retrieve()
+                                .bodyToMono(String.class)
+                );
     }
 
 }
