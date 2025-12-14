@@ -35,8 +35,8 @@
         <micrometer-tracing.version>1.5.3</micrometer-tracing.version>
         <lombok.version>1.18.38</lombok.version>
         <!-- PLUGINS -->
-        <maven-enforcer-plugin.version>3.6.1</maven-enforcer-plugin.version>
-        <openapi-generator-maven-plugin.version>7.15.0</openapi-generator-maven-plugin.version>
+        <maven-enforcer-plugin.version>3.6.2</maven-enforcer-plugin.version>
+        <openapi-generator-maven-plugin.version>7.17.0</openapi-generator-maven-plugin.version>
         <build-helper-maven-plugin.version>3.6.1</build-helper-maven-plugin.version>
     </properties>
 

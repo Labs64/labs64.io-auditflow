@@ -1,4 +1,4 @@
-FROM eclipse-temurin:21-alpine
+FROM eclipse-temurin:25-alpine
 
 # Define build arguments
 ARG USER_ID=1064
