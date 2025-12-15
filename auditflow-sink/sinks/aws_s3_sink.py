@@ -7,7 +7,7 @@ Supports batching, compression, and partitioning by date.
 import logging
 import json
 import gzip
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 logger = logging.getLogger(__name__)
@@ -105,13 +105,18 @@ def process(event_data: dict, properties: dict) -> dict:
             Body=content_bytes,
             ContentType=content_type,
             Metadata={
+                'timestamp': event_data.get('timestamp', datetime.now(timezone.utc).isoformat()),
+                'event-id': event_data.get('eventId', 'unknown'),
                 'event-type': event_data.get('eventType', 'unknown'),
                 'source-system': event_data.get('sourceSystem', 'unknown'),
-                'timestamp': datetime.utcnow().isoformat()
+                'tenant-id': event_data.get('tenantId', 'unknown'),
             }
         )
 
         logger.info(f"Event uploaded to S3 successfully. ETag: {response.get('ETag')}")
+
+        # Strip quotes from ETag (AWS returns ETags wrapped in quotes)
+        etag = response.get('ETag', '').strip('"')
 
         return {
             "sent": True,
@@ -121,7 +126,7 @@ def process(event_data: dict, properties: dict) -> dict:
             "region": region,
             "compressed": compress,
             "size_bytes": len(content_bytes),
-            "etag": response.get('ETag'),
+            "etag": etag,
             "version_id": response.get('VersionId')
         }
 
@@ -143,17 +148,35 @@ def build_object_key(
     compress: bool,
     event_data: dict
 ) -> str:
-    """Build S3 object key with optional date partitioning."""
+    """Build S3 object key with optional tenantId and date partitioning."""
     key_parts = [prefix.rstrip('/')]
 
-    # Add date partition
+    # Add tenantId partition if exists (as first partition element)
+    tenant_id = event_data.get('tenantId')
+    if tenant_id:
+        key_parts.append(f"tenant={tenant_id}")
+
+    # Parse timestamp from event_data if exists, otherwise use current timestamp
+    event_timestamp = event_data.get('timestamp')
+    if event_timestamp:
+        try:
+            if isinstance(event_timestamp, str):
+                dt = datetime.fromisoformat(event_timestamp.replace('Z', '+00:00'))
+            else:
+                dt = datetime.now(timezone.utc)
+        except (ValueError, AttributeError):
+            dt = datetime.now(timezone.utc)
+    else:
+        dt = datetime.now(timezone.utc)
+
+    # Add date partition using the event timestamp
     if partition_by_date:
-        date_part = datetime.utcnow().strftime(partition_format)
+        date_part = dt.strftime(partition_format)
         key_parts.append(date_part.rstrip('/'))
 
-    # Generate unique filename
+    # Generate unique filename using the event timestamp
     event_id = event_data.get('eventId', str(uuid.uuid4()))
-    timestamp = datetime.utcnow().strftime('%Y%m%d-%H%M%S')
+    timestamp = dt.strftime('%Y%m%d-%H%M%S')
 
     extension = 'json'
     if compress:
