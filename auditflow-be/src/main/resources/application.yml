@@ -115,18 +115,6 @@ pipelines: []
 #      properties:
 #        log-level: "INFO"
 #        format: "json"
-#  - name: 'opensearch'
-#    enabled: false
-#    transformer:
-#      name: 'audit_opensearch'
-#    sink:
-#      name: 'opensearch_sink'
-#      properties:
-#        service-url: "http://opensearch:9200"
-#        service-path: "/audit/_doc"
-#        username: "admin"
-#        password: "admin"
-#        verify-ssl: "false"
 #  - name: 'loki'
 #    enabled: false
 #    transformer:
