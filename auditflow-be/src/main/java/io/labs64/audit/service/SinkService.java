@@ -38,7 +38,7 @@ public class SinkService {
      * @return Processing result from the sink
      */
     public String sendToSink(String message, String sinkName, Map<String, String> properties) {
-        logger.debug("Send event to sink '{}' with properties: {}", sinkName, properties);
+        logger.debug("Send event to sink '{}'", sinkName);
 
         Mono<String> sinkResultMono = Mono.fromCallable(sinkDiscovery::getSinkUrl)
                 .flatMap(sinkUrl -> {
@@ -89,7 +89,7 @@ public class SinkService {
                     requestBody.put("properties",
                             properties != null ? properties : new HashMap<>());
 
-                    logger.debug(
+                    logger.trace(
                             "Sending event to sink '{}' payload JSON: {}",
                             sinkName,
                             objectMapper.writeValueAsString(requestBody)

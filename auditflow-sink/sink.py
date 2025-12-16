@@ -103,7 +103,7 @@ async def sink(
             properties = {}
 
         # Execute the sink processing
-        app_logger.info(f"Processing event through sink '{sink_id}' with properties: {properties}")
+        app_logger.info(f"Processing event through sink '{sink_id}'")
         result = process_function(event_data, properties)
 
         # Return success response
