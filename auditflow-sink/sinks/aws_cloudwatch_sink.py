@@ -118,27 +118,47 @@ def process(event_data: dict, properties: dict) -> dict:
 def ensure_log_group(client, log_group: str):
     """Ensure log group exists, create if it doesn't."""
     try:
-        client.describe_log_groups(logGroupNamePrefix=log_group)
-        logger.debug(f"Log group '{log_group}' already exists")
-    except ClientError:
-        logger.info(f"Creating log group: {log_group}")
-        client.create_log_group(logGroupName=log_group)
+        response = client.describe_log_groups(logGroupNamePrefix=log_group)
+        # Check if the exact log group exists in the response
+        log_groups = response.get('logGroups', [])
+        exists = any(lg['logGroupName'] == log_group for lg in log_groups)
+
+        if exists:
+            logger.debug(f"Log group '{log_group}' already exists")
+        else:
+            logger.info(f"Creating log group: {log_group}")
+            client.create_log_group(logGroupName=log_group)
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'ResourceAlreadyExistsException':
+            logger.debug(f"Log group '{log_group}' already exists")
+        else:
+            raise
 
 
 def ensure_log_stream(client, log_group: str, log_stream: str):
     """Ensure log stream exists, create if it doesn't."""
     try:
-        client.describe_log_streams(
+        response = client.describe_log_streams(
             logGroupName=log_group,
             logStreamNamePrefix=log_stream
         )
-        logger.debug(f"Log stream '{log_stream}' already exists")
-    except ClientError:
-        logger.info(f"Creating log stream: {log_stream}")
-        client.create_log_stream(
-            logGroupName=log_group,
-            logStreamName=log_stream
-        )
+        # Check if the exact log stream exists in the response
+        log_streams = response.get('logStreams', [])
+        exists = any(ls['logStreamName'] == log_stream for ls in log_streams)
+
+        if exists:
+            logger.debug(f"Log stream '{log_stream}' already exists")
+        else:
+            logger.info(f"Creating log stream: {log_stream}")
+            client.create_log_stream(
+                logGroupName=log_group,
+                logStreamName=log_stream
+            )
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'ResourceAlreadyExistsException':
+            logger.debug(f"Log stream '{log_stream}' already exists")
+        else:
+            raise
 
 
 def get_sequence_token(client, log_group: str, log_stream: str) -> str:
