@@ -108,6 +108,17 @@ sink:
 pipelines: []
 #  - name: 'logs'
 #    enabled: true
+#    # Optional condition to filter events for this pipeline
+#    # If not specified, all events will be processed
+#    condition:
+#      match: 'all'  # 'all' (AND) or 'any' (OR)
+#      rules:
+#        - field: 'eventType'
+#          operator: 'eq'
+#          value: 'api.call'
+#        - field: 'sourceSystem'
+#          operator: 'startsWith'
+#          value: 'netlicensing'
 #    transformer:
 #      name: 'zero'
 #    sink:
@@ -115,6 +126,23 @@ pipelines: []
 #      properties:
 #        log-level: "INFO"
 #        format: "json"
+#  - name: 'security-alerts'
+#    enabled: true
+#    condition:
+#      match: 'any'  # Match if any rule is true
+#      rules:
+#        - field: 'extra.action_status'
+#          operator: 'eq'
+#          value: 'FAILURE'
+#        - field: 'eventType'
+#          operator: 'in'
+#          value: 'security.alert,auth.failed,access.denied'
+#    transformer:
+#      name: 'security_transformer'
+#    sink:
+#      name: 'slack_sink'
+#      properties:
+#        webhook-url: "${SLACK_WEBHOOK_URL}"
 #  - name: 'loki'
 #    enabled: false
 #    transformer:
@@ -126,3 +154,17 @@ pipelines: []
 #        service-path: "/loki/api/v1/push"
 #        username: "user"
 #        password: "password"
+#
+# Supported condition operators:
+#   eq, neq          - equals / not equals
+#   contains         - string contains
+#   startsWith       - string starts with
+#   endsWith         - string ends with
+#   in, notIn        - value in/not in comma-separated list
+#   exists, notExists - field exists/doesn't exist
+#   regex            - regular expression match
+#   gt, gte, lt, lte - numeric comparisons
+#   eqIgnoreCase     - case-insensitive equals
+#
+# Field paths support dot notation: 'extra.userId', 'geolocation.countryCode'
+# Array access is also supported: 'items[0].name'

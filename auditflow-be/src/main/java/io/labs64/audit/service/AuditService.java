@@ -20,15 +20,18 @@ public class AuditService {
     private final AuditFlowConfiguration auditFlowConfiguration;
     private final TransformationService transformationService;
     private final SinkService sinkService;
+    private final ConditionEvaluator conditionEvaluator;
 
     @Autowired
     public AuditService(
             AuditFlowConfiguration auditFlowConfiguration,
             TransformationService transformationService,
-            SinkService sinkService) {
+            SinkService sinkService,
+            ConditionEvaluator conditionEvaluator) {
         this.auditFlowConfiguration = auditFlowConfiguration;
         this.transformationService = transformationService;
         this.sinkService = sinkService;
+        this.conditionEvaluator = conditionEvaluator;
     }
 
     @PostConstruct
@@ -64,6 +67,11 @@ public class AuditService {
 
         for (AuditFlowConfiguration.PipelineProperties pipeline : auditFlowConfiguration.getPipelines()) {
             if (pipeline.isEnabled()) {
+                // Check if pipeline condition matches the event
+                if (!conditionEvaluator.evaluate(message, pipeline.getCondition())) {
+                    logger.debug("Pipeline '{}' condition not matched, skipping processing.", pipeline.getName());
+                    continue;
+                }
                 try {
                     processPipeline(pipeline, message);
                 } catch (Exception e) {

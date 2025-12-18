@@ -34,6 +34,7 @@ public class AuditFlowConfiguration {
     public static class PipelineProperties {
         private String name;
         private boolean enabled;
+        private ConditionProperties condition;
         private TransformerProperties transformer;
         private SinkProperties sink;
 
@@ -53,6 +54,14 @@ public class AuditFlowConfiguration {
             this.enabled = enabled;
         }
 
+        public ConditionProperties getCondition() {
+            return condition;
+        }
+
+        public void setCondition(ConditionProperties condition) {
+            this.condition = condition;
+        }
+
         public TransformerProperties getTransformer() {
             return transformer;
         }
@@ -67,6 +76,82 @@ public class AuditFlowConfiguration {
 
         public void setSink(SinkProperties sink) {
             this.sink = sink;
+        }
+    }
+
+    /**
+     * Condition configuration for pipeline triggering.
+     * Supports multiple rules with logical operators.
+     */
+    public static class ConditionProperties {
+        /**
+         * Logical operator to combine rules: "and" (default), "or"
+         */
+        private String match = "all";
+
+        /**
+         * List of condition rules to evaluate
+         */
+        private List<ConditionRule> rules = new ArrayList<>();
+
+        public String getMatch() {
+            return match;
+        }
+
+        public void setMatch(String match) {
+            this.match = match;
+        }
+
+        public List<ConditionRule> getRules() {
+            return rules;
+        }
+
+        public void setRules(List<ConditionRule> rules) {
+            this.rules = rules;
+        }
+    }
+
+    /**
+     * A single condition rule that evaluates a field against a value.
+     */
+    public static class ConditionRule {
+        /**
+         * JSON path to the field (e.g., "eventType", "extra.action_name", "tenantId")
+         */
+        private String field;
+
+        /**
+         * Comparison operator: eq, neq, gt, gte, lt, lte, contains, startsWith, endsWith, in, notIn, exists, regex
+         */
+        private String operator;
+
+        /**
+         * Value(s) to compare against. For 'in' and 'notIn' operators, use comma-separated values.
+         */
+        private String value;
+
+        public String getField() {
+            return field;
+        }
+
+        public void setField(String field) {
+            this.field = field;
+        }
+
+        public String getOperator() {
+            return operator;
+        }
+
+        public void setOperator(String operator) {
+            this.operator = operator;
+        }
+
+        public String getValue() {
+            return value;
+        }
+
+        public void setValue(String value) {
+            this.value = value;
         }
     }
 

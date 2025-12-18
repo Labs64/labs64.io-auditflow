@@ -1,4 +1,4 @@
-package io.labs64.audit.controller.audit.v1;
+package io.labs64.audit.controller;
 
 import io.labs64.audit.v1.api.AuditEventApi;
 import io.labs64.audit.v1.model.AuditEvent;
@@ -21,7 +21,6 @@ import java.time.OffsetDateTime;
  */
 @RestController
 @RequestMapping("/api/v1")
-@Tag(name = "AuditEvent", description = "Audit Event Management API")
 public class AuditEventController implements AuditEventApi {
 
     private static final Logger logger = LoggerFactory.getLogger(AuditEventController.class);
