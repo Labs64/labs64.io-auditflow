@@ -17,6 +17,7 @@ docu:
     open "http://localhost:8082/redoc"
     open "http://localhost:8082/docs"
 
+# check updates
 check-updates:
     python3 -m venv temp_env
     temp_env/bin/python3 -m pip install --upgrade pip
