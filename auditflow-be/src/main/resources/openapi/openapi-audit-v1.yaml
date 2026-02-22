@@ -166,6 +166,7 @@ components:
         - NOT_FOUND
         - INTERNAL_ERROR
         - VALIDATION_ERROR
+        - PUBLISH_FAILED
       example: "NOT_FOUND"
 
     ErrorResponse:
@@ -174,6 +175,7 @@ components:
       required:
         - code
         - message
+        - timestamp
       properties:
         code:
           $ref: '#/components/schemas/ErrorCode'

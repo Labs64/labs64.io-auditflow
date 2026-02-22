@@ -2,7 +2,11 @@ APP_NAME := "auditflow"
 
 # build application
 build:
-    mvn clean package
+    mvn clean package -DskipTests
+
+# build and run tests
+test:
+    mvn clean verify
 
 # build docker image
 docker: build

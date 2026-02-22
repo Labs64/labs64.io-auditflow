@@ -16,7 +16,7 @@ public class AuditFlowConfiguration {
 
     private static final Logger logger = LoggerFactory.getLogger(AuditFlowConfiguration.class);
 
-    private List<PipelineProperties> pipelines = new ArrayList<>();;
+    private List<PipelineProperties> pipelines = new ArrayList<>();
 
     public List<PipelineProperties> getPipelines() {
         return pipelines;
