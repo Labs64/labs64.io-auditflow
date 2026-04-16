@@ -6,7 +6,7 @@ This sink uploads audit events to GCS as JSON objects.
 import logging
 import json
 import gzip
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 logger = logging.getLogger(__name__)
@@ -90,20 +90,20 @@ def process(event_data: dict, properties: dict) -> dict:
 
         # Set metadata
         blob.metadata = {
-            'event-type': event_data.get('meta', {}).get('eventType', 'unknown'),
-            'source-system': event_data.get('meta', {}).get('sourceSystem', 'unknown'),
-            'timestamp': datetime.utcnow().isoformat()
+            'event-type': event_data.get('eventType', 'unknown'),
+            'source-system': event_data.get('sourceSystem', 'unknown'),
+            'timestamp': datetime.now(timezone.utc).isoformat()
         }
 
         # Upload
-        logger.info(f"Uploading event to GCS: gs://{bucket_name}/{object_name}")
+        logger.info("Uploading event to GCS: gs://%s/%s", bucket_name, object_name)
 
         blob.upload_from_string(
             content_bytes,
             content_type=final_content_type
         )
 
-        logger.info(f"Event uploaded to GCS successfully")
+        logger.info("Event uploaded to GCS successfully")
 
         return {
             "sent": True,
@@ -117,10 +117,10 @@ def process(event_data: dict, properties: dict) -> dict:
         }
 
     except GoogleCloudError as e:
-        logger.error(f"Failed to upload to GCS: {e}")
+        logger.error("Failed to upload to GCS: %s", e)
         raise RuntimeError(f"Failed to upload to GCS bucket '{bucket_name}': {e}")
     except Exception as e:
-        logger.error(f"Unexpected error uploading to GCS: {e}")
+        logger.error("Unexpected error uploading to GCS: %s", e)
         raise RuntimeError(f"Unexpected error: {e}")
 
 
@@ -134,14 +134,16 @@ def build_object_name(
     """Build GCS object name with optional date partitioning."""
     name_parts = [prefix.rstrip('/')]
 
+    now = datetime.now(timezone.utc)
+
     # Add date partition
     if partition_by_date:
-        date_part = datetime.utcnow().strftime(partition_format)
+        date_part = now.strftime(partition_format)
         name_parts.append(date_part.rstrip('/'))
 
     # Generate unique filename
-    event_id = event_data.get('meta', {}).get('eventId', str(uuid.uuid4()))
-    timestamp = datetime.utcnow().strftime('%Y%m%d-%H%M%S')
+    event_id = event_data.get('eventId', str(uuid.uuid4()))
+    timestamp = now.strftime('%Y%m%d-%H%M%S')
 
     extension = 'json'
     if compress:

@@ -1,6 +1,5 @@
 <configuration>
-    <springProperty name="appName" source="spring.application.name" defaultValue="local"/>
-    <property name="APP_NAME" value="${SPRING_APPLICATION_NAME:-unknown-app}"/>
+    <springProperty name="appName" source="spring.application.name" defaultValue="auditflow"/>
     <property name="POD_NAME" value="${HOSTNAME:-unknown-pod}"/>
 
     <!-- JSON Appender -->

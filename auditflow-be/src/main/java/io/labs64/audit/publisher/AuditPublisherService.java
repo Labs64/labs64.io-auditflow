@@ -28,8 +28,8 @@ public class AuditPublisherService {
         try {
             json = objectMapper.writeValueAsString(event);
         } catch (JsonProcessingException e) {
-            logger.error("Failed to convert Object to JSON! Error: {}", e.getMessage());
-            return false;
+            logger.error("Failed to serialize audit event to JSON: {}", e.getMessage());
+            throw new IllegalArgumentException("Failed to serialize audit event: " + e.getMessage(), e);
         }
 
         logger.debug("Publish audit event to binding '{}'", AUDIT_OUT_0);

@@ -42,6 +42,7 @@ Expected event structure (from checkout module):
 }
 """
 import logging
+import base64
 import requests
 import json
 import time
@@ -96,7 +97,7 @@ def process(event_data: dict, properties: dict) -> dict:
     # Validate event type
     event_type = event_data.get('eventType', '')
     if not event_type.startswith('checkout.transaction'):
-        logger.warning(f"Skipping non-checkout event: {event_type}")
+        logger.warning("Skipping non-checkout event: %s", event_type)
         return {
             "processed": False,
             "reason": f"Event type '{event_type}' is not a checkout transaction event",
@@ -113,7 +114,7 @@ def process(event_data: dict, properties: dict) -> dict:
     # Only process completed transactions
     status = transaction.get('status', '')
     if status != 'COMPLETED':
-        logger.info(f"Skipping transaction with status: {status}")
+        logger.info("Skipping transaction with status: %s", status)
         return {
             "processed": False,
             "reason": f"Transaction status '{status}' is not COMPLETED",
@@ -160,7 +161,7 @@ def process(event_data: dict, properties: dict) -> dict:
             created_licensees.extend(result.get('licensees', []))
             created_licenses.extend(result.get('licenses', []))
         except Exception as e:
-            logger.error(f"Failed to process item {item.get('sku', 'unknown')}: {e}")
+            logger.error("Failed to process item %s: %s", item.get('sku', 'unknown'), e)
             errors.append({
                 "item_sku": item.get('sku'),
                 "item_name": item.get('name'),
@@ -224,10 +225,10 @@ def _process_item(
             licensee = client.get_licensee(existing_licensee_number)
             # Verify licensee belongs to the same product
             if licensee and licensee.get('product', {}).get('number') != product_number:
-                logger.warning(f"Licensee {existing_licensee_number} belongs to different product, creating new")
+                logger.warning("Licensee %s belongs to different product, creating new", existing_licensee_number)
                 licensee = None
         except Exception as e:
-            logger.warning(f"Could not retrieve licensee {existing_licensee_number}: {e}")
+            logger.warning("Could not retrieve licensee %s: %s", existing_licensee_number, e)
             licensee = None
 
     # Create licenses for the quantity
@@ -336,7 +337,7 @@ def _create_license(
         if license_type == 'TIMEVOLUME':
             properties['startDate'] = 'now'
     except Exception as e:
-        logger.warning(f"Could not retrieve license template {license_template_number}: {e}")
+        logger.warning("Could not retrieve license template %s: %s", license_template_number, e)
 
     # Add item-specific properties from extra
     item_extra = item.get('extra', {})
@@ -365,7 +366,6 @@ class NetLicensingClient:
 
     def _encode_api_key(self) -> str:
         """Encode API key for Basic auth (apiKey:)."""
-        import base64
         credentials = f"apiKey:{self.api_key}"
         return base64.b64encode(credentials.encode()).decode()
 
@@ -376,7 +376,7 @@ class NetLicensingClient:
 
         for attempt in range(self.retry_count):
             try:
-                logger.debug(f"NetLicensing API request: {method} {url} (attempt {attempt + 1})")
+                logger.debug("NetLicensing API request: %s %s (attempt %d)", method, url, attempt + 1)
 
                 response = self.session.request(
                     method=method,
@@ -401,9 +401,9 @@ class NetLicensingClient:
 
             except requests.exceptions.RequestException as e:
                 last_error = e
-                logger.warning(f"NetLicensing API attempt {attempt + 1} failed: {e}")
+                logger.warning("NetLicensing API attempt %d failed: %s", attempt + 1, e)
                 if hasattr(e, 'response') and e.response is not None:
-                    logger.warning(f"Response body: {e.response.text[:500]}")
+                    logger.warning("Response body: %s", e.response.text[:500])
                 if attempt < self.retry_count - 1:
                     time.sleep(2 ** attempt)
                 continue

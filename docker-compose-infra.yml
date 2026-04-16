@@ -1,0 +1,37 @@
+# AuditFlow — Infrastructure only
+#
+# Starts just RabbitMQ so you can run the Spring Boot backend and Python services
+# directly on your machine (e.g. via `just run` in each sub-directory).
+#
+# Usage:
+#   just infra-up    # start RabbitMQ
+#   just infra-down  # stop RabbitMQ
+#
+# The Spring Boot app should be started with the 'local' profile:
+#   cd auditflow-be && just run
+#
+# The Python services can be started with:
+#   cd auditflow-transformer && just run
+#   cd auditflow-sink && just run
+
+services:
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    container_name: auditflow-rabbitmq
+    ports:
+      - "5673:5672"    # AMQP  (host 5673 → container 5672)
+      - "15673:15672"  # Management UI  →  http://localhost:15673  (guest/guest)
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+networks:
+  default:
+    driver: bridge

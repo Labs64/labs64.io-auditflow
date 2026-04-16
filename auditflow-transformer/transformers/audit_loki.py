@@ -103,11 +103,9 @@ def transform(input_data):
     unix_nano_timestamp = "0"
     if timestamp_iso:
         try:
-            from datetime import datetime
             dt_object = datetime.fromisoformat(timestamp_iso.replace('Z', '+00:00'))
             unix_nano_timestamp = str(int(dt_object.timestamp() * 1_000_000_000))
         except ValueError:
-            # Handle invalid timestamp format, e.g., by using a default or current time
             pass
 
     values_data = [

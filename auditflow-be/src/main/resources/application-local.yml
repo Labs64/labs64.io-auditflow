@@ -1,5 +1,31 @@
 spring:
   rabbitmq:
     host: localhost
-    username: guest
-    password: guest
+    port: 5673  # AuditFlow uses 5673 on the host to avoid conflicts with other projects
+    # Local development credentials — override via RABBITMQ_USERNAME / RABBITMQ_PASSWORD env vars
+    # or set them in a local .env file that is NOT committed to source control.
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+
+# When running outside Docker (just infra-up + just run), services are on localhost
+transformer:
+  local:
+    url: "http://localhost:8081"
+
+sink:
+  local:
+    url: "http://localhost:8082"
+
+# Happy-path pipeline for local development: zero transformer → logging_sink
+# No 3rd-party dependencies required.
+auditflow:
+  pipelines:
+    - name: local-logging
+      enabled: true
+      transformer:
+        name: zero
+      sink:
+        name: logging_sink
+        properties:
+          log-level: INFO
+          format: json

@@ -1,0 +1,124 @@
+# AuditFlow — Full local stack
+#
+# Starts all three services + RabbitMQ with a pre-configured happy-path pipeline:
+#   audit event → zero transformer (pass-through) → logging_sink (prints to console)
+#
+# Usage:
+#   just up          # build images and start everything
+#   just down        # stop and remove containers
+#   just logs        # tail all logs
+#   just e2e         # publish a test event and verify it flows end-to-end
+#
+# See .env.example for configurable variables.
+
+services:
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Infrastructure
+  # ─────────────────────────────────────────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    container_name: auditflow-rabbitmq
+    ports:
+      - "5673:5672"    # AMQP  (host 5673 → container 5672)
+      - "15673:15672"  # Management UI  →  http://localhost:15673  (guest/guest)
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - auditflow-net
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Transformer service
+  # ─────────────────────────────────────────────────────────────────────────────
+  transformer:
+    build:
+      context: ./auditflow-transformer
+      dockerfile: Dockerfile
+    image: auditflow-transformer:local
+    container_name: auditflow-transformer
+    ports:
+      - "8081:8081"
+    networks:
+      - auditflow-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/transformers"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Sink service
+  # ─────────────────────────────────────────────────────────────────────────────
+  sink:
+    build:
+      context: ./auditflow-sink
+      dockerfile: Dockerfile
+    image: auditflow-sink:local
+    container_name: auditflow-sink
+    ports:
+      - "8082:8082"
+    networks:
+      - auditflow-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8082/sinks"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Backend (Spring Boot)
+  # ─────────────────────────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./auditflow-be
+      dockerfile: Dockerfile
+    image: auditflow-be:local
+    container_name: auditflow-backend
+    ports:
+      - "8080:8080"
+    environment:
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      SPRING_RABBITMQ_HOST: rabbitmq
+      # Point discovery at the compose service names
+      TRANSFORMER_LOCAL_URL: http://transformer:8081
+      SINK_LOCAL_URL: http://sink:8082
+      # Happy-path pipeline: zero transformer → logging_sink (no 3rd-party deps)
+      JAVA_OPTS: >-
+        -Dauditflow.pipelines[0].name=e2e-logging
+        -Dauditflow.pipelines[0].enabled=true
+        -Dauditflow.pipelines[0].transformer.name=zero
+        -Dauditflow.pipelines[0].sink.name=logging_sink
+        -Dauditflow.pipelines[0].sink.properties.log-level=INFO
+        -Dauditflow.pipelines[0].sink.properties.format=json
+        -Dtransformer.local.url=http://transformer:8081
+        -Dsink.local.url=http://sink:8082
+        -Dspring.rabbitmq.host=rabbitmq
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      transformer:
+        condition: service_healthy
+      sink:
+        condition: service_healthy
+    networks:
+      - auditflow-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+networks:
+  auditflow-net:
+    driver: bridge

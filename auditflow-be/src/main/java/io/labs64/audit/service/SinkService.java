@@ -2,12 +2,16 @@ package io.labs64.audit.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.netty.channel.ChannelOption;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.netty.http.client.HttpClient;
 
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -30,6 +34,11 @@ public class SinkService {
         this.objectMapper = objectMapper;
     }
 
+    /** Package-private accessor for testing — allows injecting mock WebClient instances. */
+    Map<String, WebClient> getWebClientCache() {
+        return webClientCache;
+    }
+
     /**
      * Send a transformed event to a sink for processing.
      *
@@ -40,6 +49,11 @@ public class SinkService {
      */
     public String sendToSink(String message, String sinkName, Map<String, String> properties) {
         logger.debug("Send event to sink '{}'", sinkName);
+
+        if (sinkName == null || !sinkName.matches("[a-zA-Z0-9_]+")) {
+            throw new IllegalArgumentException("Invalid sink name: '" + sinkName
+                    + "'. Only alphanumeric characters and underscores are allowed.");
+        }
 
         String sinkUrl = sinkDiscovery.getSinkUrl();
         if (sinkUrl == null || sinkUrl.isEmpty()) {
@@ -82,7 +96,16 @@ public class SinkService {
 
         logger.trace("Sending event to sink '{}' at URL '{}'", sinkName, sinkUrl);
 
-        WebClient client = webClientCache.computeIfAbsent(sinkUrl, WebClient::create);
+        WebClient client = webClientCache.computeIfAbsent(sinkUrl, u ->
+                WebClient.builder()
+                        .clientConnector(new ReactorClientHttpConnector(
+                                HttpClient.create()
+                                        .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5_000)
+                                        .responseTimeout(Duration.ofSeconds(10))
+                        ))
+                        .baseUrl(u)
+                        .build()
+        );
 
         return client.post()
                 .uri("/sink/" + sinkName)

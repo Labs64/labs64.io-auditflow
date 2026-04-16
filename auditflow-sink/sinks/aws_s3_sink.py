@@ -97,7 +97,7 @@ def process(event_data: dict, properties: dict) -> dict:
 
     try:
         # Upload to S3
-        logger.info(f"Uploading event to S3: s3://{bucket}/{object_key}")
+        logger.info("Uploading event to S3: s3://%s/%s", bucket, object_key)
 
         response = s3_client.put_object(
             Bucket=bucket,
@@ -113,7 +113,7 @@ def process(event_data: dict, properties: dict) -> dict:
             }
         )
 
-        logger.info(f"Event uploaded to S3 successfully. ETag: {response.get('ETag')}")
+        logger.info("Event uploaded to S3 successfully. ETag: %s", response.get('ETag'))
 
         # Strip quotes from ETag (AWS returns ETags wrapped in quotes)
         etag = response.get('ETag', '').strip('"')
@@ -133,10 +133,10 @@ def process(event_data: dict, properties: dict) -> dict:
     except ClientError as e:
         error_code = e.response['Error']['Code']
         error_message = e.response['Error']['Message']
-        logger.error(f"Failed to upload to S3: {error_code} - {error_message}")
+        logger.error("Failed to upload to S3: %s - %s", error_code, error_message)
         raise RuntimeError(f"Failed to upload to S3 bucket '{bucket}': {error_code} - {error_message}")
     except Exception as e:
-        logger.error(f"Unexpected error uploading to S3: {e}")
+        logger.error("Unexpected error uploading to S3: %s", e)
         raise RuntimeError(f"Unexpected error: {e}")
 
 

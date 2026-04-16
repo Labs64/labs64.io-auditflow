@@ -7,6 +7,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+
 /**
  * Kubernetes-based transformer discovery.
  * Discovers the transformer service URL via Kubernetes service discovery.
@@ -41,7 +43,11 @@ public class KubernetesDiscoveryService implements TransformerDiscovery {
                 throw new IllegalStateException("Transformer service not found: " + serviceName);
             }
             String ip = svc.getSpec().getClusterIP();
-            int port = svc.getSpec().getPorts().get(0).getPort();
+            List<io.fabric8.kubernetes.api.model.ServicePort> ports = svc.getSpec().getPorts();
+            if (ports == null || ports.isEmpty()) {
+                throw new IllegalStateException("Transformer service '" + serviceName + "' has no ports defined");
+            }
+            int port = ports.get(0).getPort();
             String url = "http://" + ip + ":" + port;
             logger.debug("Discovered transformer service via Kubernetes: {}", url);
             return url;

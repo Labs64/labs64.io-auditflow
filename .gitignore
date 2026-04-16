@@ -22,7 +22,34 @@
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 replay_pid*
+
+# IDE / OS
 .vscode
-target
 .idea
+.kiro
 .DS_Store
+
+# Maven build output
+target/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+.env
+# Temporary venv created by justfile check-updates recipe
+.check-updates-env/
+
+# pytest
+.pytest_cache/
+
+# Local Docker Compose overrides (personal, not shared)
+docker-compose.override.yml

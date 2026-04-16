@@ -1,5 +1,6 @@
 package io.labs64.audit.controller;
 
+import io.labs64.audit.exception.PublishException;
 import io.labs64.audit.v1.api.AuditEventApi;
 import io.labs64.audit.v1.model.AuditEvent;
 import io.labs64.audit.publisher.AuditPublisherService;
@@ -42,12 +43,11 @@ public class AuditEventController implements AuditEventApi {
         String eventId = event.getEventId() != null ? event.getEventId().toString() : "unknown";
         logger.debug("Received request to publish audit event; eventId={}", eventId);
 
-        OffsetDateTime receivedAt = OffsetDateTime.now();
-        event.setTimestamp(receivedAt);
+        event.setTimestamp(OffsetDateTime.now());
         boolean result = publisherService.publishMessage(event);
 
         if (!result) {
-            throw new IllegalStateException("Failed to publish audit event; eventId=" + eventId);
+            throw new PublishException("Failed to publish audit event to message broker; eventId=" + eventId);
         }
 
         logger.info("Audit event published successfully; eventId={}", eventId);

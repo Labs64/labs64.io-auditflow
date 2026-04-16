@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 import importlib
+import re
 import sys
 import os
 import logging
@@ -31,15 +32,15 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 # Add the 'sinks' folder for internal sink implementations
 internal_sinks_path = os.path.join(current_dir, 'sinks')
 sys.path.append(internal_sinks_path)
-app_logger.info(f"Added internal sinks path: {internal_sinks_path}")
+app_logger.info("Added internal sinks path: %s", internal_sinks_path)
 
 # Conditionally add the 'sinks_bootstrap' folder for external/custom sinks, if it exists
 external_sinks_path = os.path.join(current_dir, 'sinks_bootstrap')
 if os.path.exists(external_sinks_path):
     sys.path.append(external_sinks_path)
-    app_logger.info(f"Added external (bootstrap) sinks path: {external_sinks_path}")
+    app_logger.info("Added external (bootstrap) sinks path: %s", external_sinks_path)
 else:
-    app_logger.warning(f"External sinks directory not found: {external_sinks_path}. Skipping.")
+    app_logger.warning("External sinks directory not found: %s. Skipping.", external_sinks_path)
 
 
 @app.post('/sink/{sink_id}')
@@ -65,10 +66,18 @@ async def sink(
     - Success response with sink processing details
     """
     try:
+        # Validate sink_id: only allow alphanumeric characters and underscores
+        # to prevent arbitrary module injection or path traversal.
+        if not re.fullmatch(r'[a-zA-Z0-9_]+', sink_id):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid sink ID '{sink_id}'. Only alphanumeric characters and underscores are allowed."
+            )
+
         # Attempt to dynamically import the sink module using the sink_id
         try:
             sink_module = importlib.import_module(sink_id)
-            app_logger.info(f"Successfully loaded sink module: {sink_id}.py")
+            app_logger.info("Successfully loaded sink module: %s.py", sink_id)
         except ModuleNotFoundError:
             raise HTTPException(
                 status_code=404,
@@ -76,7 +85,7 @@ async def sink(
                        f"Please ensure {sink_id}.py exists in sinks/ or sinks_bootstrap/ directory."
             )
         except Exception as e:
-            app_logger.error(f"Error loading sink module '{sink_id}': {e}")
+            app_logger.error("Error loading sink module '%s': %s", sink_id, e)
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to load sink module '{sink_id}': {e}"
@@ -92,7 +101,7 @@ async def sink(
                        f"Each sink must implement a 'process(event_data, properties)' function."
             )
         except Exception as e:
-            app_logger.error(f"Error getting process function from module '{sink_module.__name__}': {e}")
+            app_logger.error("Error getting process function from module '%s': %s", sink_module.__name__, e)
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to get process function for sink '{sink_id}': {e}"
@@ -103,7 +112,7 @@ async def sink(
             properties = {}
 
         # Execute the sink processing
-        app_logger.info(f"Processing event through sink '{sink_id}'")
+        app_logger.info("Processing event through sink '%s'", sink_id)
         result = process_function(event_data, properties)
 
         # Return success response
@@ -121,7 +130,7 @@ async def sink(
         # Re-raise HTTPException to be handled by FastAPI's error handling
         raise http_exc
     except Exception as e:
-        app_logger.error(f"An unexpected error occurred in sink endpoint: {e}", exc_info=True)
+        app_logger.error("An unexpected error occurred in sink endpoint: %s", e, exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"An unexpected error occurred while processing event through sink '{sink_id}': {e}"

@@ -5,8 +5,7 @@ This sink sends transformed audit events to an OpenSearch cluster.
 """
 import logging
 import requests
-import json
-from datetime import datetime
+from datetime import datetime, timezone
 from requests.auth import HTTPBasicAuth
 
 logger = logging.getLogger(__name__)
@@ -47,9 +46,9 @@ def process(event_data: dict, properties: dict) -> dict:
         'Content-Type': 'application/json'
     }
 
-    # Add timestamp if not present
-    if 'meta' in event_data and 'timestamp' not in event_data['meta']:
-        event_data['meta']['timestamp'] = datetime.utcnow().isoformat() + 'Z'
+    # Add timestamp if not present at the top level
+    if 'timestamp' not in event_data:
+        event_data['timestamp'] = datetime.now(timezone.utc).isoformat()
 
     # Prepare authentication
     auth = None
@@ -58,7 +57,7 @@ def process(event_data: dict, properties: dict) -> dict:
 
     try:
         # Send event to OpenSearch
-        logger.info(f"Sending event to OpenSearch: {full_url}")
+        logger.info("Sending event to OpenSearch: %s", full_url)
         response = requests.post(
             full_url,
             json=event_data,
@@ -73,7 +72,7 @@ def process(event_data: dict, properties: dict) -> dict:
         # Parse response
         result = response.json()
 
-        logger.info(f"Event sent to OpenSearch successfully. Document ID: {result.get('_id', 'unknown')}")
+        logger.info("Event sent to OpenSearch successfully. Document ID: %s", result.get('_id', 'unknown'))
 
         return {
             "sent": True,
@@ -86,8 +85,8 @@ def process(event_data: dict, properties: dict) -> dict:
         }
 
     except requests.exceptions.RequestException as e:
-        logger.error(f"Failed to send event to OpenSearch: {e}")
+        logger.error("Failed to send event to OpenSearch: %s", e)
         raise RuntimeError(f"Failed to send event to OpenSearch at {full_url}: {e}")
     except Exception as e:
-        logger.error(f"Unexpected error sending event to OpenSearch: {e}")
+        logger.error("Unexpected error sending event to OpenSearch: %s", e)
         raise RuntimeError(f"Unexpected error: {e}")

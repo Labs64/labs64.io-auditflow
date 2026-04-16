@@ -1,27 +1,40 @@
-APP_NAME := "auditflow-sink"
+APP_NAME  := "auditflow-sink"
+REGISTRY  := "localhost:5005"
 USER_NAME := "l64user"
+PORT      := "8082"
 
-# build application
+# List available recipes
+default:
+    @just --list
+
+# Build Docker image and push to local registry
 docker:
     docker build -t {{APP_NAME}}:latest .
-    docker tag {{APP_NAME}}:latest localhost:5005/{{APP_NAME}}:latest
-    docker push localhost:5005/{{APP_NAME}}:latest
+    docker tag {{APP_NAME}}:latest {{REGISTRY}}/{{APP_NAME}}:latest
+    docker push {{REGISTRY}}/{{APP_NAME}}:latest
     docker images | grep "{{APP_NAME}}"
 
-# run docker image
-run: docker
-    docker run -p 8082:8082 -v ./sinks_bootstrap:/home/{{USER_NAME}}/sinks_bootstrap {{APP_NAME}}:latest
+# Run the Docker image (mounts sinks_bootstrap for custom sinks)
+run:
+    docker run --rm -p {{PORT}}:{{PORT}} \
+        -v ./sinks_bootstrap:/home/{{USER_NAME}}/sinks_bootstrap \
+        {{APP_NAME}}:latest
 
-# open documentation
+# Run directly on the host (no Docker) — requires Python 3 and pip
+run-local:
+    pip install -r requirements.txt --quiet
+    uvicorn sink:app --host 0.0.0.0 --port {{PORT}} --reload
+
+# Open API documentation in the browser (macOS / Linux with xdg-open)
 docu:
-    open "http://localhost:8082/redoc"
-    open "http://localhost:8082/docs"
+    open "http://localhost:{{PORT}}/redoc" 2>/dev/null || xdg-open "http://localhost:{{PORT}}/redoc"
+    open "http://localhost:{{PORT}}/docs"  2>/dev/null || xdg-open "http://localhost:{{PORT}}/docs"
 
-# check updates
+# Check for outdated Python dependencies and Docker image CVEs
 check-updates:
-    python3 -m venv temp_env
-    temp_env/bin/python3 -m pip install --upgrade pip
-    temp_env/bin/pip install -r requirements.txt
-    temp_env/bin/pip list --outdated
-    rm -rf temp_env
+    python3 -m venv .check-updates-env
+    .check-updates-env/bin/python3 -m pip install --upgrade pip --quiet
+    .check-updates-env/bin/pip install -r requirements.txt --quiet
+    .check-updates-env/bin/pip list --outdated
+    rm -rf .check-updates-env
     docker scout cves {{APP_NAME}}:latest

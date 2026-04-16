@@ -34,7 +34,10 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
         String correlationId = request.getHeader(CORRELATION_ID_HEADER);
-        if (correlationId == null || correlationId.isBlank()) {
+
+        // Validate the incoming correlation ID: accept only safe UUID-like values
+        // (hex digits and hyphens, max 64 chars) to prevent log injection and header injection.
+        if (correlationId == null || correlationId.isBlank() || !isValidCorrelationId(correlationId)) {
             correlationId = UUID.randomUUID().toString();
         }
 
@@ -46,5 +49,18 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
         } finally {
             MDC.remove(CORRELATION_ID_MDC_KEY);
         }
+    }
+
+    /**
+     * Validates that a correlation ID contains only safe characters.
+     * Accepts UUID format and similar alphanumeric-with-hyphens identifiers up to 64 characters.
+     * Rejects anything that could be used for log injection (newlines, CRLF) or header injection.
+     */
+    private boolean isValidCorrelationId(String correlationId) {
+        if (correlationId.length() > 64) {
+            return false;
+        }
+        // Allow only hex digits and hyphens (UUID format) or alphanumeric + hyphens/underscores
+        return correlationId.matches("[a-zA-Z0-9\\-_]+");
     }
 }

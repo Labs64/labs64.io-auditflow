@@ -1,25 +1,30 @@
 APP_NAME := "auditflow"
+REGISTRY  := "localhost:5005"
 
-# build application
+# List available recipes
+default:
+    @just --list
+
+# Compile and package (skip tests)
 build:
     mvn clean package -DskipTests
 
-# build and run tests
+# Compile, run tests, and package
 test:
     mvn clean verify
 
-# build docker image
+# Build Docker image and push to local registry
 docker: build
     docker build -t {{APP_NAME}}:latest .
-    docker tag {{APP_NAME}}:latest localhost:5005/{{APP_NAME}}:latest
-    docker push localhost:5005/{{APP_NAME}}:latest
+    docker tag {{APP_NAME}}:latest {{REGISTRY}}/{{APP_NAME}}:latest
+    docker push {{REGISTRY}}/{{APP_NAME}}:latest
     docker images | grep "{{APP_NAME}}"
 
-# run application
+# Run application locally with the 'local' Spring profile (requires infra-up + transformer + sink running)
 run: build
     mvn spring-boot:run -Dspring-boot.run.profiles=local
 
-# check maven dependencies/plugins/properties updates
+# Check for available Maven dependency, plugin, and property updates
 check-updates:
     mvn versions:display-plugin-updates -Dmaven.version.ignore='(?i).*[.-]?(alpha|beta|RC|M)\d*'
     mvn versions:display-property-updates -Dmaven.version.ignore='(?i).*[.-]?(alpha|beta|RC|M)\d*'

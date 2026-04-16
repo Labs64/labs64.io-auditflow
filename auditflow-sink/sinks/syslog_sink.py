@@ -108,7 +108,7 @@ def process(event_data: dict, properties: dict) -> dict:
         else:
             send_tcp(host, port, syslog_message)
 
-        logger.info(f"Event sent to Syslog server {host}:{port} via {protocol.upper()}")
+        logger.info("Event sent to Syslog server %s:%d via %s", host, port, protocol.upper())
 
         return {
             "sent": True,
@@ -122,13 +122,14 @@ def process(event_data: dict, properties: dict) -> dict:
         }
 
     except Exception as e:
-        logger.error(f"Failed to send event to Syslog: {e}")
+        logger.error("Failed to send event to Syslog: %s", e)
         raise RuntimeError(f"Failed to send event to Syslog at {host}:{port}: {e}")
 
 
 def send_udp(host: str, port: int, message: str):
     """Send message via UDP."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.settimeout(5)
     try:
         sock.sendto(message.encode('utf-8'), (host, port))
     finally:
@@ -138,6 +139,7 @@ def send_udp(host: str, port: int, message: str):
 def send_tcp(host: str, port: int, message: str):
     """Send message via TCP."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(5)
     try:
         sock.connect((host, port))
         sock.sendall(message.encode('utf-8') + b'\n')

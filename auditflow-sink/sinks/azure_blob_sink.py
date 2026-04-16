@@ -67,7 +67,6 @@ def process(event_data: dict, properties: dict) -> dict:
         blob_service_client = BlobServiceClient.from_connection_string(connection_string)
     else:
         account_url = f"https://{account_name}.blob.core.windows.net"
-        from azure.storage.blob import BlobServiceClient
         blob_service_client = BlobServiceClient(
             account_url=account_url,
             credential=account_key
@@ -79,7 +78,7 @@ def process(event_data: dict, properties: dict) -> dict:
 
         # Ensure container exists
         if not container_client.exists():
-            logger.info(f"Creating container: {container_name}")
+            logger.info("Creating container: %s", container_name)
             container_client.create_container()
 
         # Build blob name
@@ -113,7 +112,7 @@ def process(event_data: dict, properties: dict) -> dict:
         }
 
         # Upload
-        logger.info(f"Uploading event to Azure Blob Storage: {container_name}/{blob_name}")
+        logger.info("Uploading event to Azure Blob Storage: %s/%s", container_name, blob_name)
 
         blob_client.upload_blob(
             content_bytes,
@@ -122,7 +121,7 @@ def process(event_data: dict, properties: dict) -> dict:
             metadata=metadata
         )
 
-        logger.info(f"Event uploaded to Azure Blob Storage successfully")
+        logger.info("Event uploaded to Azure Blob Storage successfully")
 
         # Get blob properties
         blob_properties = blob_client.get_blob_properties()
@@ -139,10 +138,10 @@ def process(event_data: dict, properties: dict) -> dict:
         }
 
     except AzureError as e:
-        logger.error(f"Failed to upload to Azure Blob Storage: {e}")
+        logger.error("Failed to upload to Azure Blob Storage: %s", e)
         raise RuntimeError(f"Failed to upload to Azure Blob Storage container '{container_name}': {e}")
     except Exception as e:
-        logger.error(f"Unexpected error uploading to Azure Blob Storage: {e}")
+        logger.error("Unexpected error uploading to Azure Blob Storage: %s", e)
         raise RuntimeError(f"Unexpected error: {e}")
 
 

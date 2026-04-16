@@ -4,6 +4,7 @@ Webhook Sink - Send events to HTTP webhooks (Zapier, Make, n8n, etc.).
 This sink sends audit events to webhook URLs, supporting various webhook platforms.
 """
 import logging
+import time
 import requests
 import json
 import hmac
@@ -57,7 +58,7 @@ def process(event_data: dict, properties: dict) -> dict:
         try:
             headers.update(json.loads(additional_headers))
         except json.JSONDecodeError:
-            logger.warning(f"Failed to parse additional headers: {additional_headers}")
+            logger.warning("Failed to parse additional headers: %s", additional_headers)
 
     # Prepare payload
     payload = prepare_payload(event_data, content_type)
@@ -71,7 +72,7 @@ def process(event_data: dict, properties: dict) -> dict:
     last_error = None
     for attempt in range(retry_count):
         try:
-            logger.info(f"Sending webhook to {webhook_url} (attempt {attempt + 1}/{retry_count})")
+            logger.info("Sending webhook to %s (attempt %d/%d)", webhook_url, attempt + 1, retry_count)
 
             if method == 'POST':
                 response = requests.post(
@@ -95,7 +96,7 @@ def process(event_data: dict, properties: dict) -> dict:
 
             response.raise_for_status()
 
-            logger.info(f"Webhook sent successfully. Status: {response.status_code}")
+            logger.info("Webhook sent successfully. Status: %s", response.status_code)
 
             return {
                 "sent": True,
@@ -110,15 +111,14 @@ def process(event_data: dict, properties: dict) -> dict:
 
         except requests.exceptions.RequestException as e:
             last_error = e
-            logger.warning(f"Webhook attempt {attempt + 1} failed: {e}")
+            logger.warning("Webhook attempt %d failed: %s", attempt + 1, e)
             if attempt < retry_count - 1:
                 # Exponential backoff
-                import time
                 time.sleep(2 ** attempt)
             continue
 
     # All retries failed
-    logger.error(f"Failed to send webhook after {retry_count} attempts: {last_error}")
+    logger.error("Failed to send webhook after %d attempts: %s", retry_count, last_error)
     raise RuntimeError(f"Failed to send webhook to {webhook_url}: {last_error}")
 
 

@@ -69,10 +69,13 @@ def transform(input_data):
     transformed_data['source_system'] = input_data.get('sourceSystem')
     transformed_data['tenant_id'] = input_data.get('tenantId')
 
-    # Action fields (now in extra)
-    transformed_data['action_name'] = extra.get('action_name')
-    transformed_data['action_status'] = extra.get('action_status')
-    transformed_data['action_message'] = extra.get('action_message')
+    # Action fields (now in extra) — only include if present
+    if extra.get('action_name') is not None:
+        transformed_data['action_name'] = extra.get('action_name')
+    if extra.get('action_status') is not None:
+        transformed_data['action_status'] = extra.get('action_status')
+    if extra.get('action_message') is not None:
+        transformed_data['action_message'] = extra.get('action_message')
 
     # Geolocation fields - Combined for OpenSearch geo_point
     if geolocation and geolocation.get('lat') is not None and geolocation.get('lon') is not None:
@@ -80,23 +83,23 @@ def transform(input_data):
             "lat": geolocation['lat'],
             "lon": geolocation['lon']
         }
-    else:
-        # Ensure 'location' field is absent if geo data is incomplete,
-        # or set to None/empty dict if a mapping strictly expects it.
-        # For geo_point, typically omit if not fully present.
-        pass # If lat/lon are missing, 'location' key will not be added
 
-    # Retain other geolocation descriptive fields for filtering/display
-    transformed_data['location_city'] = geolocation.get('city')
-    transformed_data['location_region'] = geolocation.get('region')
-    transformed_data['location_country'] = geolocation.get('country')
-    transformed_data['location_country_code'] = geolocation.get('countryCode')
+    # Retain other geolocation descriptive fields for filtering/display (only if present)
+    for key, field in [
+        ('location_city', 'city'),
+        ('location_region', 'region'),
+        ('location_country', 'country'),
+        ('location_country_code', 'countryCode'),
+    ]:
+        value = geolocation.get(field)
+        if value is not None:
+            transformed_data[key] = value
 
-    # Extra - keep as a nested object (OpenSearch handles nested objects well)
-    if extra:
-        transformed_data['extra'] = extra
-    else:
-        transformed_data['extra'] = {} # Ensure it's an empty object if no extra
+    # Extra — keep as a nested object, but strip the action fields already promoted above
+    _ACTION_KEYS = {'action_name', 'action_status', 'action_message'}
+    remaining_extra = {k: v for k, v in extra.items() if k not in _ACTION_KEYS}
+    if remaining_extra:
+        transformed_data['extra'] = remaining_extra
 
-
-    return transformed_data
+    # Drop any remaining None values from the top-level output
+    return {k: v for k, v in transformed_data.items() if v is not None}

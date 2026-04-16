@@ -1,7 +1,6 @@
 package io.labs64.audit.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.stereotype.Component;
 
 import jakarta.annotation.PostConstruct;
 import java.util.List;
@@ -10,8 +9,7 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-@Component
-@ConfigurationProperties(prefix = "")
+@ConfigurationProperties(prefix = "auditflow")
 public class AuditFlowConfiguration {
 
     private static final Logger logger = LoggerFactory.getLogger(AuditFlowConfiguration.class);

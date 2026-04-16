@@ -72,46 +72,37 @@ def process(event_data: dict, properties: dict) -> dict:
         timestamp = int(time.time() * 1000)  # milliseconds
         message = json.dumps(event_data)
 
-        # Get sequence token
-        sequence_token = get_sequence_token(logs_client, log_group, log_stream)
-
         # Put log event
-        logger.info(f"Sending event to CloudWatch Logs: {log_group}/{log_stream}")
+        logger.info("Sending event to CloudWatch Logs: %s/%s", log_group, log_stream)
 
-        put_kwargs = {
-            'logGroupName': log_group,
-            'logStreamName': log_stream,
-            'logEvents': [
+        response = logs_client.put_log_events(
+            logGroupName=log_group,
+            logStreamName=log_stream,
+            logEvents=[
                 {
                     'timestamp': timestamp,
                     'message': message
                 }
             ]
-        }
+        )
 
-        if sequence_token:
-            put_kwargs['sequenceToken'] = sequence_token
-
-        response = logs_client.put_log_events(**put_kwargs)
-
-        logger.info(f"Event sent to CloudWatch Logs successfully")
+        logger.info("Event sent to CloudWatch Logs successfully")
 
         return {
             "sent": True,
             "destination": "cloudwatch",
             "log_group": log_group,
             "log_stream": log_stream,
-            "region": region,
-            "next_sequence_token": response.get('nextSequenceToken')
+            "region": region
         }
 
     except ClientError as e:
         error_code = e.response['Error']['Code']
         error_message = e.response['Error']['Message']
-        logger.error(f"Failed to send to CloudWatch Logs: {error_code} - {error_message}")
+        logger.error("Failed to send to CloudWatch Logs: %s - %s", error_code, error_message)
         raise RuntimeError(f"Failed to send to CloudWatch Logs: {error_code} - {error_message}")
     except Exception as e:
-        logger.error(f"Unexpected error sending to CloudWatch Logs: {e}")
+        logger.error("Unexpected error sending to CloudWatch Logs: %s", e)
         raise RuntimeError(f"Unexpected error: {e}")
 
 
@@ -119,18 +110,17 @@ def ensure_log_group(client, log_group: str):
     """Ensure log group exists, create if it doesn't."""
     try:
         response = client.describe_log_groups(logGroupNamePrefix=log_group)
-        # Check if the exact log group exists in the response
         log_groups = response.get('logGroups', [])
         exists = any(lg['logGroupName'] == log_group for lg in log_groups)
 
         if exists:
-            logger.debug(f"Log group '{log_group}' already exists")
+            logger.debug("Log group '%s' already exists", log_group)
         else:
-            logger.info(f"Creating log group: {log_group}")
+            logger.info("Creating log group: %s", log_group)
             client.create_log_group(logGroupName=log_group)
     except ClientError as e:
         if e.response['Error']['Code'] == 'ResourceAlreadyExistsException':
-            logger.debug(f"Log group '{log_group}' already exists")
+            logger.debug("Log group '%s' already exists", log_group)
         else:
             raise
 
@@ -142,35 +132,19 @@ def ensure_log_stream(client, log_group: str, log_stream: str):
             logGroupName=log_group,
             logStreamNamePrefix=log_stream
         )
-        # Check if the exact log stream exists in the response
         log_streams = response.get('logStreams', [])
         exists = any(ls['logStreamName'] == log_stream for ls in log_streams)
 
         if exists:
-            logger.debug(f"Log stream '{log_stream}' already exists")
+            logger.debug("Log stream '%s' already exists", log_stream)
         else:
-            logger.info(f"Creating log stream: {log_stream}")
+            logger.info("Creating log stream: %s", log_stream)
             client.create_log_stream(
                 logGroupName=log_group,
                 logStreamName=log_stream
             )
     except ClientError as e:
         if e.response['Error']['Code'] == 'ResourceAlreadyExistsException':
-            logger.debug(f"Log stream '{log_stream}' already exists")
+            logger.debug("Log stream '%s' already exists", log_stream)
         else:
             raise
-
-
-def get_sequence_token(client, log_group: str, log_stream: str) -> str:
-    """Get the current sequence token for the log stream."""
-    try:
-        response = client.describe_log_streams(
-            logGroupName=log_group,
-            logStreamNamePrefix=log_stream
-        )
-        streams = response.get('logStreams', [])
-        if streams:
-            return streams[0].get('uploadSequenceToken')
-    except ClientError:
-        pass
-    return None

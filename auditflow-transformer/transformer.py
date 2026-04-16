@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
-from typing import Any, Dict
 import importlib
+import re
 import sys
 import os
 import logging
@@ -32,15 +32,15 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 # Add the 'transformers' folder for internal transformations
 internal_transformers_path = os.path.join(current_dir, 'transformers')
 sys.path.append(internal_transformers_path)
-app_logger.info(f"Added internal transformers path: {internal_transformers_path}")
+app_logger.info("Added internal transformers path: %s", internal_transformers_path)
 
 # Conditionally add the 'transformers_bootstrap' folder for external transformations, if it exists
 external_transformers_path = os.path.join(current_dir, 'transformers_bootstrap')
 if os.path.exists(external_transformers_path):
     sys.path.append(external_transformers_path)
-    app_logger.info(f"Added external (bootstrap) transformers path: {external_transformers_path}")
+    app_logger.info("Added external (bootstrap) transformers path: %s", external_transformers_path)
 else:
-    app_logger.warning(f"External transformers directory not found: {external_transformers_path}. Skipping.")
+    app_logger.warning("External transformers directory not found: %s. Skipping.", external_transformers_path)
 
 
 @app.post('/transform/{transformer_id}')
@@ -61,14 +61,22 @@ async def transform(
     The JSON payload should contain the data to be transformed.
     """
     try:
+        # Validate transformer_id: only allow alphanumeric characters and underscores
+        # to prevent arbitrary module injection or path traversal.
+        if not re.fullmatch(r'[a-zA-Z0-9_]+', transformer_id):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid transformer ID '{transformer_id}'. Only alphanumeric characters and underscores are allowed."
+            )
+
         # Attempt to dynamically import the transformation module using the transformer_id directly.
         try:
             transform_module = importlib.import_module(transformer_id)
-            app_logger.info(f"Successfully loaded transformation module: {transformer_id}.py")
+            app_logger.info("Successfully loaded transformation module: %s.py", transformer_id)
         except ModuleNotFoundError:
             raise HTTPException(status_code=404, detail=f"Transformation module not found for ID: '{transformer_id}'!")
         except Exception as e:
-            app_logger.error(f"Error loading transformation module '{transformer_id}': {e}")
+            app_logger.error("Error loading transformation module '%s': %s", transformer_id, e)
             raise HTTPException(status_code=500, detail=f"Failed to load transformation for ID '{transformer_id}': {e}")
 
         try:
@@ -78,7 +86,7 @@ async def transform(
             raise HTTPException(status_code=500, detail=f"Transformation function 'transform' not found in module for ID: '{transformer_id}'. "
                                                         f"(Module: {transform_module.__name__}.py)")
         except Exception as e:
-            app_logger.error(f"Error getting transform function from module '{transform_module.__name__}': {e}")
+            app_logger.error("Error getting transform function from module '%s': %s", transform_module.__name__, e)
             raise HTTPException(status_code=500, detail=f"Failed to get transform function for ID '{transformer_id}': {e}")
 
         # Apply the dynamically loaded transformation, passing the automatically parsed json_data
@@ -90,7 +98,7 @@ async def transform(
         # Re-raise HTTPException to be handled by FastAPI's error handling
         raise http_exc
     except Exception as e:
-        app_logger.error(f"An unexpected error occurred in transform endpoint: {e}", exc_info=True)
+        app_logger.error("An unexpected error occurred in transform endpoint: %s", e, exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"An unexpected error occurred while processing event through transformer '{transformer_id}': {e}"

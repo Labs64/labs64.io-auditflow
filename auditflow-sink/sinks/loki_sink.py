@@ -70,9 +70,6 @@ def process(event_data: dict, properties: dict) -> dict:
             'source_system': event_data.get('sourceSystem', 'unknown'),
         }
 
-        # Build label string
-        label_str = ','.join([f'{k}="{v}"' for k, v in labels.items()])
-
         loki_data = {
             'streams': [
                 {
@@ -88,7 +85,7 @@ def process(event_data: dict, properties: dict) -> dict:
 
     try:
         # Send event to Loki
-        logger.info(f"Sending event to Loki: {full_url}")
+        logger.info("Sending event to Loki: %s", full_url)
         response = requests.post(
             full_url,
             json=loki_data,
@@ -99,7 +96,7 @@ def process(event_data: dict, properties: dict) -> dict:
 
         response.raise_for_status()
 
-        logger.info(f"Event sent to Loki successfully. Status: {response.status_code}")
+        logger.info("Event sent to Loki successfully. Status: %s", response.status_code)
 
         return {
             "sent": True,
@@ -110,8 +107,8 @@ def process(event_data: dict, properties: dict) -> dict:
         }
 
     except requests.exceptions.RequestException as e:
-        logger.error(f"Failed to send event to Loki: {e}")
+        logger.error("Failed to send event to Loki: %s", e)
         raise RuntimeError(f"Failed to send event to Loki at {full_url}: {e}")
     except Exception as e:
-        logger.error(f"Unexpected error sending event to Loki: {e}")
+        logger.error("Unexpected error sending event to Loki: %s", e)
         raise RuntimeError(f"Unexpected error: {e}")

@@ -37,8 +37,10 @@ spring:
   rabbitmq:
     host: rabbitmq.default.svc.cluster.local
     port: 5672
-    username: ${RABBITMQ_USERNAME:}
-    password: ${RABBITMQ_PASSWORD:}
+    # Credentials MUST be supplied via environment variables RABBITMQ_USERNAME and RABBITMQ_PASSWORD.
+    # Empty defaults are intentionally omitted to prevent accidental unauthenticated connections.
+    username: ${RABBITMQ_USERNAME}
+    password: ${RABBITMQ_PASSWORD}
     connection-timeout: 10s
 
 # Actuator Configuration
@@ -105,7 +107,9 @@ sink:
 
 # Pipeline Configuration
 # Example pipeline configuration (commented out by default):
-pipelines: []
+auditflow:
+  pipelines: []
+#  pipelines:
 #  - name: 'logs'
 #    enabled: true
 #    # Optional condition to filter events for this pipeline
