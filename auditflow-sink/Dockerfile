@@ -30,6 +30,7 @@ RUN python -m pip install --upgrade pip --no-cache-dir && \
 # Copy application files (after deps so layer is cached on code-only changes)
 COPY --chown=${USER_NAME}:${GROUP_NAME} sink.py .
 COPY --chown=${USER_NAME}:${GROUP_NAME} tracing.py .
+COPY --chown=${USER_NAME}:${GROUP_NAME} plugin_registry.py .
 COPY --chown=${USER_NAME}:${GROUP_NAME} sinks/ /home/${USER_NAME}/sinks/
 
 # sinks_bootstrap is intended to be mounted as a Kubernetes volume at runtime.

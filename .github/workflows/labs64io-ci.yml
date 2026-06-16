@@ -44,7 +44,7 @@ jobs:
   # Python transformer service
   # ─────────────────────────────────────────────────────────────────────────────
   build-transformer:
-    name: Build Docker image (transformer)
+    name: Build & Test (transformer)
     runs-on: ubuntu-latest
 
     steps:
@@ -58,7 +58,11 @@ jobs:
           cache-dependency-path: auditflow-transformer/requirements.txt
 
       - name: Install dependencies
-        run: pip install -r auditflow-transformer/requirements.txt
+        run: pip install -r auditflow-transformer/requirements-dev.txt
+
+      - name: Run tests
+        working-directory: auditflow-transformer
+        run: pytest -q
 
       - name: Build Docker image
         run: docker build auditflow-transformer --file auditflow-transformer/Dockerfile --tag auditflow-transformer:ci-${{ github.sha }}
@@ -67,7 +71,7 @@ jobs:
   # Python sink service
   # ─────────────────────────────────────────────────────────────────────────────
   build-sink:
-    name: Build Docker image (sink)
+    name: Build & Test (sink)
     runs-on: ubuntu-latest
 
     steps:
@@ -81,7 +85,11 @@ jobs:
           cache-dependency-path: auditflow-sink/requirements.txt
 
       - name: Install dependencies
-        run: pip install -r auditflow-sink/requirements.txt
+        run: pip install -r auditflow-sink/requirements-dev.txt
+
+      - name: Run tests
+        working-directory: auditflow-sink
+        run: pytest -q
 
       - name: Build Docker image
         run: docker build auditflow-sink --file auditflow-sink/Dockerfile --tag auditflow-sink:ci-${{ github.sha }}
