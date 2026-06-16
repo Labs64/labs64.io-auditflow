@@ -1,7 +1,6 @@
 package io.labs64.audit.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.labs64.audit.config.AuditFlowConfiguration.ConditionProperties;
 import io.labs64.audit.config.AuditFlowConfiguration.ConditionRule;
 import org.slf4j.Logger;
@@ -22,34 +21,18 @@ public class ConditionEvaluator {
 
     private static final Logger logger = LoggerFactory.getLogger(ConditionEvaluator.class);
 
-    private final ObjectMapper objectMapper;
-
-    public ConditionEvaluator(ObjectMapper objectMapper) {
-        this.objectMapper = objectMapper;
-    }
-
     /**
-     * Evaluate if an event matches the given condition.
+     * Evaluate if an already-parsed event matches the given condition.
      *
-     * @param message   The JSON event message
-     * @param condition The condition configuration (may be null)
+     * @param eventJson the parsed JSON event (never null — parsing happens upstream)
+     * @param condition the condition configuration (may be null)
      * @return true if the event matches the condition or if no condition is specified
      */
-    public boolean evaluate(String message, ConditionProperties condition) {
-        // No condition means always match
+    public boolean evaluate(JsonNode eventJson, ConditionProperties condition) {
         if (condition == null || condition.getRules() == null || condition.getRules().isEmpty()) {
             return true;
         }
-
-        try {
-            JsonNode eventJson = objectMapper.readTree(message);
-            return evaluateCondition(eventJson, condition);
-        } catch (Exception e) {
-            logger.error("Failed to parse event JSON for condition evaluation: {}", e.getMessage());
-            // On parse error, we might want to still process (fail open) or reject (fail closed)
-            // Default to fail open - process the event
-            return true;
-        }
+        return evaluateCondition(eventJson, condition);
     }
 
     private boolean evaluateCondition(JsonNode eventJson, ConditionProperties condition) {

@@ -1,5 +1,6 @@
 package io.labs64.audit.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.labs64.audit.config.AuditFlowConfiguration.ConditionProperties;
 import io.labs64.audit.config.AuditFlowConfiguration.ConditionRule;
@@ -46,16 +47,26 @@ class ConditionEvaluatorTest {
             }
             """;
 
+    private ObjectMapper mapper;
+
     @BeforeEach
     void setUp() {
-        ObjectMapper objectMapper = new ObjectMapper();
-        evaluator = new ConditionEvaluator(objectMapper);
+        mapper = new ObjectMapper();
+        evaluator = new ConditionEvaluator();
+    }
+
+    private JsonNode node() {
+        try {
+            return mapper.readTree(SAMPLE_EVENT);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Test
     @DisplayName("Should return true when no condition is specified")
     void shouldReturnTrueWhenNoCondition() {
-        assertTrue(evaluator.evaluate(SAMPLE_EVENT, null));
+        assertTrue(evaluator.evaluate(node(), null));
     }
 
     @Test
@@ -63,7 +74,7 @@ class ConditionEvaluatorTest {
     void shouldReturnTrueWhenNoRules() {
         ConditionProperties condition = new ConditionProperties();
         condition.setRules(Collections.emptyList());
-        assertTrue(evaluator.evaluate(SAMPLE_EVENT, condition));
+        assertTrue(evaluator.evaluate(node(), condition));
     }
 
     @Test
@@ -71,7 +82,7 @@ class ConditionEvaluatorTest {
     void shouldMatchWithEqOperator() {
         ConditionProperties condition = createCondition("all",
                 createRule("eventType", "eq", "api.call"));
-        assertTrue(evaluator.evaluate(SAMPLE_EVENT, condition));
+        assertTrue(evaluator.evaluate(node(), condition));
     }
 
     @Test
@@ -79,7 +90,7 @@ class ConditionEvaluatorTest {
     void shouldNotMatchWithEqOperatorWhenValueDiffers() {
         ConditionProperties condition = createCondition("all",
                 createRule("eventType", "eq", "user.created"));
-        assertFalse(evaluator.evaluate(SAMPLE_EVENT, condition));
+        assertFalse(evaluator.evaluate(node(), condition));
     }
 
     @Test
@@ -87,7 +98,7 @@ class ConditionEvaluatorTest {
     void shouldMatchWithNeqOperator() {
         ConditionProperties condition = createCondition("all",
                 createRule("eventType", "neq", "user.created"));
-        assertTrue(evaluator.evaluate(SAMPLE_EVENT, condition));
+        assertTrue(evaluator.evaluate(node(), condition));
     }
 
     @Test
@@ -95,7 +106,7 @@ class ConditionEvaluatorTest {
     void shouldMatchWithContainsOperator() {
         ConditionProperties condition = createCondition("all",
                 createRule("sourceSystem", "contains", "licensing"));
-        assertTrue(evaluator.evaluate(SAMPLE_EVENT, condition));
+        assertTrue(evaluator.evaluate(node(), condition));
     }
 
     @Test
@@ -103,7 +114,7 @@ class ConditionEvaluatorTest {
     void shouldMatchWithStartsWithOperator() {
         ConditionProperties condition = createCondition("all",
                 createRule("sourceSystem", "startsWith", "netlicensing"));
-        assertTrue(evaluator.evaluate(SAMPLE_EVENT, condition));
+        assertTrue(evaluator.evaluate(node(), condition));
     }
 
     @Test
@@ -111,7 +122,7 @@ class ConditionEvaluatorTest {
     void shouldMatchWithEndsWithOperator() {
         ConditionProperties condition = createCondition("all",
                 createRule("sourceSystem", "endsWith", "core"));
-        assertTrue(evaluator.evaluate(SAMPLE_EVENT, condition));
+        assertTrue(evaluator.evaluate(node(), condition));
     }
 
     @Test
@@ -119,7 +130,7 @@ class ConditionEvaluatorTest {
     void shouldMatchWithInOperator() {
         ConditionProperties condition = createCondition("all",
                 createRule("eventType", "in", "user.created,api.call,user.deleted"));
-        assertTrue(evaluator.evaluate(SAMPLE_EVENT, condition));
+        assertTrue(evaluator.evaluate(node(), condition));
     }
 
     @Test
@@ -127,7 +138,7 @@ class ConditionEvaluatorTest {
     void shouldNotMatchWithInOperatorWhenValueNotInList() {
         ConditionProperties condition = createCondition("all",
                 createRule("eventType", "in", "user.created,user.deleted"));
-        assertFalse(evaluator.evaluate(SAMPLE_EVENT, condition));
+        assertFalse(evaluator.evaluate(node(), condition));
     }
 
     @Test
@@ -135,7 +146,7 @@ class ConditionEvaluatorTest {
     void shouldMatchWithNotInOperator() {
         ConditionProperties condition = createCondition("all",
                 createRule("eventType", "not_in", "user.created,user.deleted"));
-        assertTrue(evaluator.evaluate(SAMPLE_EVENT, condition));
+        assertTrue(evaluator.evaluate(node(), condition));
     }
 
     @Test
@@ -143,7 +154,7 @@ class ConditionEvaluatorTest {
     void shouldMatchWithExistsOperator() {
         ConditionProperties condition = createCondition("all",
                 createRule("tenantId", "exists", null));
-        assertTrue(evaluator.evaluate(SAMPLE_EVENT, condition));
+        assertTrue(evaluator.evaluate(node(), condition));
     }
 
     @Test
@@ -151,7 +162,7 @@ class ConditionEvaluatorTest {
     void shouldNotMatchWithExistsOperatorForNonExistentField() {
         ConditionProperties condition = createCondition("all",
                 createRule("nonExistentField", "exists", null));
-        assertFalse(evaluator.evaluate(SAMPLE_EVENT, condition));
+        assertFalse(evaluator.evaluate(node(), condition));
     }
 
     @Test
@@ -159,7 +170,7 @@ class ConditionEvaluatorTest {
     void shouldMatchWithNotExistsOperator() {
         ConditionProperties condition = createCondition("all",
                 createRule("nonExistentField", "notExists", null));
-        assertTrue(evaluator.evaluate(SAMPLE_EVENT, condition));
+        assertTrue(evaluator.evaluate(node(), condition));
     }
 
     @Test
@@ -167,7 +178,7 @@ class ConditionEvaluatorTest {
     void shouldMatchWithRegexOperator() {
         ConditionProperties condition = createCondition("all",
                 createRule("tenantId", "regex", "V\\d+"));
-        assertTrue(evaluator.evaluate(SAMPLE_EVENT, condition));
+        assertTrue(evaluator.evaluate(node(), condition));
     }
 
     @Test
@@ -175,7 +186,7 @@ class ConditionEvaluatorTest {
     void shouldNavigateNestedFieldsWithDotNotation() {
         ConditionProperties condition = createCondition("all",
                 createRule("geolocation.countryCode", "eq", "DE"));
-        assertTrue(evaluator.evaluate(SAMPLE_EVENT, condition));
+        assertTrue(evaluator.evaluate(node(), condition));
     }
 
     @Test
@@ -183,7 +194,7 @@ class ConditionEvaluatorTest {
     void shouldNavigateDeeplyNestedFields() {
         ConditionProperties condition = createCondition("all",
                 createRule("extra.action_status", "eq", "SUCCESS"));
-        assertTrue(evaluator.evaluate(SAMPLE_EVENT, condition));
+        assertTrue(evaluator.evaluate(node(), condition));
     }
 
     @Test
@@ -191,7 +202,7 @@ class ConditionEvaluatorTest {
     void shouldAccessArrayElements() {
         ConditionProperties condition = createCondition("all",
                 createRule("items[0].name", "eq", "item1"));
-        assertTrue(evaluator.evaluate(SAMPLE_EVENT, condition));
+        assertTrue(evaluator.evaluate(node(), condition));
     }
 
     @Test
@@ -201,7 +212,7 @@ class ConditionEvaluatorTest {
                 createRule("eventType", "eq", "api.call"),
                 createRule("sourceSystem", "startsWith", "netlicensing"),
                 createRule("geolocation.countryCode", "eq", "DE"));
-        assertTrue(evaluator.evaluate(SAMPLE_EVENT, condition));
+        assertTrue(evaluator.evaluate(node(), condition));
     }
 
     @Test
@@ -210,7 +221,7 @@ class ConditionEvaluatorTest {
         ConditionProperties condition = createCondition("all",
                 createRule("eventType", "eq", "api.call"),
                 createRule("sourceSystem", "eq", "wrong-system"));
-        assertFalse(evaluator.evaluate(SAMPLE_EVENT, condition));
+        assertFalse(evaluator.evaluate(node(), condition));
     }
 
     @Test
@@ -219,7 +230,7 @@ class ConditionEvaluatorTest {
         ConditionProperties condition = createCondition("any",
                 createRule("eventType", "eq", "wrong.type"),
                 createRule("sourceSystem", "startsWith", "netlicensing"));
-        assertTrue(evaluator.evaluate(SAMPLE_EVENT, condition));
+        assertTrue(evaluator.evaluate(node(), condition));
     }
 
     @Test
@@ -228,7 +239,7 @@ class ConditionEvaluatorTest {
         ConditionProperties condition = createCondition("any",
                 createRule("eventType", "eq", "wrong.type"),
                 createRule("sourceSystem", "eq", "wrong-system"));
-        assertFalse(evaluator.evaluate(SAMPLE_EVENT, condition));
+        assertFalse(evaluator.evaluate(node(), condition));
     }
 
     @Test
@@ -236,7 +247,7 @@ class ConditionEvaluatorTest {
     void shouldMatchWithCaseInsensitiveEquals() {
         ConditionProperties condition = createCondition("all",
                 createRule("extra.action_status", "eqIgnoreCase", "success"));
-        assertTrue(evaluator.evaluate(SAMPLE_EVENT, condition));
+        assertTrue(evaluator.evaluate(node(), condition));
     }
 
     @Test
@@ -244,7 +255,7 @@ class ConditionEvaluatorTest {
     void shouldHandleNumericComparisonWithGtOperator() {
         ConditionProperties condition = createCondition("all",
                 createRule("extra.count", "gt", "40"));
-        assertTrue(evaluator.evaluate(SAMPLE_EVENT, condition));
+        assertTrue(evaluator.evaluate(node(), condition));
     }
 
     @Test
@@ -252,15 +263,7 @@ class ConditionEvaluatorTest {
     void shouldHandleNumericComparisonWithLtOperator() {
         ConditionProperties condition = createCondition("all",
                 createRule("extra.count", "lt", "50"));
-        assertTrue(evaluator.evaluate(SAMPLE_EVENT, condition));
-    }
-
-    @Test
-    @DisplayName("Should return true on invalid JSON (fail-open behavior)")
-    void shouldReturnTrueOnInvalidJson() {
-        ConditionProperties condition = createCondition("all",
-                createRule("eventType", "eq", "api.call"));
-        assertTrue(evaluator.evaluate("invalid json", condition));
+        assertTrue(evaluator.evaluate(node(), condition));
     }
 
     private ConditionProperties createCondition(String match, ConditionRule... rules) {
