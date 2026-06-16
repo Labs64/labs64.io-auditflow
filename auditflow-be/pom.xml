@@ -13,7 +13,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>4.0.5</version>
+        <version>4.1.0</version>
     </parent>
 
     <properties>
@@ -21,17 +21,17 @@
         <audit.version>v1</audit.version>
         <!-- DEPENDENCIES -->
         <java.version>25</java.version>
-        <spring-cloud.version>2025.1.1</spring-cloud.version>
+        <spring-cloud.version>2025.1.2</spring-cloud.version>
         <logstash.version>9.0</logstash.version>
         <springdoc.version>3.0.3</springdoc.version>
         <openapitools.version>0.2.10</openapitools.version>
         <commons-lang3.version>3.20.0</commons-lang3.version>
-        <kubernetes-client.version>7.6.1</kubernetes-client.version>
-        <opentelemetry-exporter-otlp.version>1.61.0</opentelemetry-exporter-otlp.version>
-        <lombok.version>1.18.44</lombok.version>
+        <kubernetes-client.version>7.7.0</kubernetes-client.version>
+        <opentelemetry-exporter-otlp.version>1.63.0</opentelemetry-exporter-otlp.version>
+        <lombok.version>1.18.46</lombok.version>
         <!-- PLUGINS -->
-        <maven-enforcer-plugin.version>3.6.2</maven-enforcer-plugin.version>
-        <openapi-generator-maven-plugin.version>7.21.0</openapi-generator-maven-plugin.version>
+        <maven-enforcer-plugin.version>3.6.3</maven-enforcer-plugin.version>
+        <openapi-generator-maven-plugin.version>7.23.0</openapi-generator-maven-plugin.version>
         <build-helper-maven-plugin.version>3.6.1</build-helper-maven-plugin.version>
     </properties>
 
