@@ -8,6 +8,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
 import reactor.netty.http.client.HttpClient;
 
 import java.time.Duration;
@@ -33,9 +34,11 @@ public class TransformationService {
         return webClientCache;
     }
 
-    public String transform(JsonNode message, String transformerName) {
+    public Mono<String> transform(JsonNode message, String transformerName) {
         logger.debug("Trigger transformer '{}' process for message", transformerName);
 
+        // Argument/configuration validation is fail-fast: it throws synchronously at assembly time.
+        // When called from a reactive chain (AuditService), Reactor converts the throw into an onError signal.
         if (transformerName == null || !transformerName.matches("[a-zA-Z0-9_]+")) {
             throw new IllegalArgumentException("Invalid transformer name: '" + transformerName
                     + "'. Only alphanumeric characters and underscores are allowed.");
@@ -48,14 +51,12 @@ public class TransformationService {
 
         logger.debug("Determined transformer '{}' at URL '{}'. Initiating transformation...", transformerName, transformerUrl);
 
-        try {
-            String result = transformMessage(message, transformerUrl, transformerName);
-            logger.info("Transformation successful for transformer '{}'. Response: {}", transformerName, result);
-            return result;
-        } catch (Exception e) {
-            logger.error("Transformation failed for transformer '{}' at URL '{}'. Error: {}", transformerName, transformerUrl, e.getMessage(), e);
-            throw new RuntimeException("Transformation failed: " + e.getMessage(), e);
-        }
+        return transformMessage(message, transformerUrl, transformerName)
+                .doOnNext(result -> logger.info("Transformation successful for transformer '{}'. Response: {}", transformerName, result))
+                .onErrorMap(e -> {
+                    logger.error("Transformation failed for transformer '{}' at URL '{}'. Error: {}", transformerName, transformerUrl, e.getMessage(), e);
+                    return new RuntimeException("Transformation failed: " + e.getMessage(), e);
+                });
     }
 
     /**
@@ -68,7 +69,7 @@ public class TransformationService {
      *                        This is appended to the URL path for the transformation request.
      * @return The transformed string.
      */
-    private String transformMessage(JsonNode message, String transformerUrl, String transformerName) {
+    private Mono<String> transformMessage(JsonNode message, String transformerUrl, String transformerName) {
         WebClient client = webClientCache.computeIfAbsent(transformerUrl, u ->
                 webClientBuilder.clone()
                         .clientConnector(new ReactorClientHttpConnector(
@@ -85,8 +86,7 @@ public class TransformationService {
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(message)
                 .retrieve()
-                .bodyToMono(String.class)
-                .block();
+                .bodyToMono(String.class);
     }
 
 }

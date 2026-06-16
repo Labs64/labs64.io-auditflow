@@ -10,6 +10,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -93,9 +94,10 @@ class TransformationServiceTest {
         // Inject the mock WebClient into the cache
         transformationService.getWebClientCache().put("http://localhost:8081", mockWebClient);
 
-        String result = transformationService.transform(node("{\"key\":\"value\"}"), "my_transformer");
+        StepVerifier.create(transformationService.transform(node("{\"key\":\"value\"}"), "my_transformer"))
+                .expectNext("{\"transformed\":true}")
+                .verifyComplete();
 
-        assertEquals("{\"transformed\":true}", result);
         verify(requestBodyUriSpec).uri("/transform/my_transformer");
     }
 
@@ -121,10 +123,9 @@ class TransformationServiceTest {
 
         transformationService.getWebClientCache().put("http://localhost:8081", mockWebClient);
 
-        RuntimeException ex = assertThrows(RuntimeException.class,
-                () -> transformationService.transform(node("{\"key\":\"value\"}"), "my_transformer"));
-
-        assertTrue(ex.getMessage().contains("Transformation failed"),
-                "Exception message should contain 'Transformation failed'");
+        StepVerifier.create(transformationService.transform(node("{\"key\":\"value\"}"), "my_transformer"))
+                .expectErrorMatches(e -> e instanceof RuntimeException
+                        && e.getMessage().contains("Transformation failed"))
+                .verify();
     }
 }

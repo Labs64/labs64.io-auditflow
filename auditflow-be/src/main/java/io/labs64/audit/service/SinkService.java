@@ -8,6 +8,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
 import reactor.netty.http.client.HttpClient;
 
 import java.time.Duration;
@@ -46,9 +47,11 @@ public class SinkService {
      * @param properties Configuration properties for the sink
      * @return Processing result from the sink
      */
-    public String sendToSink(JsonNode message, String sinkName, Map<String, String> properties) {
+    public Mono<String> sendToSink(JsonNode message, String sinkName, Map<String, String> properties) {
         logger.debug("Send event to sink '{}'", sinkName);
 
+        // Argument/configuration validation is fail-fast: it throws synchronously at assembly time.
+        // When called from a reactive chain (AuditService), Reactor converts the throw into an onError signal.
         if (sinkName == null || !sinkName.matches("[a-zA-Z0-9_]+")) {
             throw new IllegalArgumentException("Invalid sink name: '" + sinkName
                     + "'. Only alphanumeric characters and underscores are allowed.");
@@ -61,14 +64,12 @@ public class SinkService {
 
         logger.debug("Determined sink service '{}' at URL '{}'. Sending to sink...", sinkName, sinkUrl);
 
-        try {
-            String result = sendEventToSink(message, sinkUrl, sinkName, properties);
-            logger.info("Event sent to sink '{}' successfully. Response: {}", sinkName, result);
-            return result;
-        } catch (Exception e) {
-            logger.error("Failed to send event to sink '{}' at URL '{}'. Error: {}", sinkName, sinkUrl, e.getMessage(), e);
-            throw new RuntimeException("Failed to send event to sink: " + e.getMessage(), e);
-        }
+        return sendEventToSink(message, sinkUrl, sinkName, properties)
+                .doOnNext(result -> logger.info("Event sent to sink '{}' successfully. Response: {}", sinkName, result))
+                .onErrorMap(e -> {
+                    logger.error("Failed to send event to sink '{}' at URL '{}'. Error: {}", sinkName, sinkUrl, e.getMessage(), e);
+                    return new RuntimeException("Failed to send event to sink: " + e.getMessage(), e);
+                });
     }
 
     /**
@@ -80,7 +81,7 @@ public class SinkService {
      * @param properties Configuration properties
      * @return Response from the sink
      */
-    private String sendEventToSink(JsonNode message, String sinkUrl, String sinkName, Map<String, String> properties) {
+    private Mono<String> sendEventToSink(JsonNode message, String sinkUrl, String sinkName, Map<String, String> properties) {
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("event_data", message);
         requestBody.put("properties", properties != null ? properties : new HashMap<>());
@@ -103,7 +104,6 @@ public class SinkService {
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(requestBody)
                 .retrieve()
-                .bodyToMono(String.class)
-                .block();
+                .bodyToMono(String.class);
     }
 }

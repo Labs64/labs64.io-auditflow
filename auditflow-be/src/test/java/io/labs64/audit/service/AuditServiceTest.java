@@ -8,6 +8,7 @@ import io.labs64.audit.config.AuditFlowConfiguration.PipelineProperties;
 import io.labs64.audit.config.AuditFlowConfiguration.SinkProperties;
 import io.labs64.audit.config.AuditFlowConfiguration.TransformerProperties;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import reactor.core.publisher.Mono;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -59,8 +60,7 @@ class AuditServiceTest {
                 idempotencyService,
                 quarantineService,
                 new ObjectMapper(),
-                new SimpleMeterRegistry(),
-                Runnable::run
+                new SimpleMeterRegistry()
         );
     }
 
@@ -122,8 +122,8 @@ class AuditServiceTest {
         when(auditFlowConfiguration.getPipelines()).thenReturn(List.of(pipeline));
         when(idempotencyService.claim(anyString())).thenReturn(true);
         when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
-        when(transformationService.transform(any(JsonNode.class), eq("my_transformer"))).thenReturn("{\"transformed\":true}");
-        when(sinkService.sendToSink(any(JsonNode.class), eq("my_sink"), any())).thenReturn("ok");
+        when(transformationService.transform(any(JsonNode.class), eq("my_transformer"))).thenReturn(Mono.just("{\"transformed\":true}"));
+        when(sinkService.sendToSink(any(JsonNode.class), eq("my_sink"), any())).thenReturn(Mono.just("ok"));
 
         auditService.processAuditEvent(VALID_MESSAGE);
 
@@ -178,9 +178,9 @@ class AuditServiceTest {
         when(idempotencyService.claim(anyString())).thenReturn(true);
         when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
         when(transformationService.transform(any(JsonNode.class), eq("bad_transformer")))
-                .thenThrow(new RuntimeException("transformer unavailable"));
-        when(transformationService.transform(any(JsonNode.class), eq("good_transformer"))).thenReturn("{\"ok\":true}");
-        when(sinkService.sendToSink(any(JsonNode.class), eq("my_sink"), any())).thenReturn("ok");
+                .thenReturn(Mono.error(new RuntimeException("transformer unavailable")));
+        when(transformationService.transform(any(JsonNode.class), eq("good_transformer"))).thenReturn(Mono.just("{\"ok\":true}"));
+        when(sinkService.sendToSink(any(JsonNode.class), eq("my_sink"), any())).thenReturn(Mono.just("ok"));
 
         assertDoesNotThrow(() -> auditService.processAuditEvent(VALID_MESSAGE));
 
@@ -200,7 +200,7 @@ class AuditServiceTest {
         when(auditFlowConfiguration.getPipelines()).thenReturn(List.of(pipeline));
         when(idempotencyService.claim(anyString())).thenReturn(true);
         when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
-        when(sinkService.sendToSink(any(JsonNode.class), eq("my_sink"), any())).thenReturn("ok");
+        when(sinkService.sendToSink(any(JsonNode.class), eq("my_sink"), any())).thenReturn(Mono.just("ok"));
 
         auditService.processAuditEvent(VALID_MESSAGE);
 

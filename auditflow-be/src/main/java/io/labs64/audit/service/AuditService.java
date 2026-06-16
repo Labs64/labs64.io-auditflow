@@ -8,14 +8,12 @@ import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
 
 /**
  * Service responsible for processing audit events through configured pipelines.
@@ -34,7 +32,13 @@ public class AuditService {
     private final QuarantineService quarantineService;
     private final ObjectMapper objectMapper;
     private final Counter deduplicatedCounter;
-    private final Executor pipelineExecutor;
+
+    /**
+     * Max number of a single event's matching pipelines processed concurrently.
+     * Mirrors the bound of the retired {@code pipelineExecutor} thread pool; the work is
+     * I/O-bound, so concurrency is now expressed via Reactor's {@code flatMap} rather than threads.
+     */
+    private static final int PIPELINE_CONCURRENCY = 8;
 
     public AuditService(
             AuditFlowConfiguration auditFlowConfiguration,
@@ -44,8 +48,7 @@ public class AuditService {
             IdempotencyService idempotencyService,
             QuarantineService quarantineService,
             ObjectMapper objectMapper,
-            MeterRegistry meterRegistry,
-            @Qualifier("pipelineExecutor") Executor pipelineExecutor) {
+            MeterRegistry meterRegistry) {
         this.auditFlowConfiguration = auditFlowConfiguration;
         this.transformationService = transformationService;
         this.sinkService = sinkService;
@@ -54,7 +57,6 @@ public class AuditService {
         this.quarantineService = quarantineService;
         this.objectMapper = objectMapper;
         this.deduplicatedCounter = meterRegistry.counter("auditflow.events.deduplicated");
-        this.pipelineExecutor = pipelineExecutor;
     }
 
     @PostConstruct
@@ -114,67 +116,80 @@ public class AuditService {
     }
 
     private void dispatchToPipelines(JsonNode eventJson) {
-        if (auditFlowConfiguration.getPipelines() == null || auditFlowConfiguration.getPipelines().isEmpty()) {
+        List<AuditFlowConfiguration.PipelineProperties> pipelines = auditFlowConfiguration.getPipelines();
+        if (pipelines == null || pipelines.isEmpty()) {
             logger.warn("No audit pipelines configured, skipping event processing.");
             return;
         }
 
-        List<CompletableFuture<Void>> futures = new ArrayList<>();
-        for (AuditFlowConfiguration.PipelineProperties pipeline : auditFlowConfiguration.getPipelines()) {
-            if (!pipeline.isEnabled()) {
-                logger.debug("Pipeline '{}' is disabled, skipping processing.", pipeline.getName());
-                continue;
-            }
-            if (!conditionEvaluator.evaluate(eventJson, pipeline.getCondition())) {
-                logger.debug("Pipeline '{}' condition not matched, skipping processing.", pipeline.getName());
-                continue;
-            }
-            futures.add(CompletableFuture.runAsync(() -> {
-                try {
-                    processPipeline(pipeline, eventJson);
-                } catch (Exception e) {
+        // Fan a single event out across its matching pipelines concurrently via Reactor.
+        // The Spring Cloud Stream Consumer contract is blocking, so we subscribe once here;
+        // the transform/sink legs in between are fully non-blocking.
+        Flux.fromIterable(pipelines)
+                .flatMap(pipeline -> runPipeline(pipeline, eventJson), PIPELINE_CONCURRENCY)
+                .then()
+                .block();
+    }
+
+    /**
+     * Run a single pipeline reactively. Disabled or non-matching pipelines complete empty.
+     * A failure in one pipeline is logged and swallowed so the others still run — failure
+     * propagation to the broker DLQ is introduced separately (see plan item P0-1).
+     */
+    private Mono<Void> runPipeline(AuditFlowConfiguration.PipelineProperties pipeline, JsonNode eventJson) {
+        if (!pipeline.isEnabled()) {
+            logger.debug("Pipeline '{}' is disabled, skipping processing.", pipeline.getName());
+            return Mono.empty();
+        }
+        if (!conditionEvaluator.evaluate(eventJson, pipeline.getCondition())) {
+            logger.debug("Pipeline '{}' condition not matched, skipping processing.", pipeline.getName());
+            return Mono.empty();
+        }
+
+        logger.debug("Start event processing using pipeline '{}'", pipeline.getName());
+        // Mono.defer ensures a synchronous throw during chain assembly (e.g. transformer/sink
+        // argument validation) surfaces as an onError signal for THIS pipeline only, so
+        // onErrorResume can isolate it rather than failing the whole event's fan-out.
+        return Mono.defer(() -> processPipeline(pipeline, eventJson))
+                .doOnSuccess(result -> logger.debug("Successfully processed event through pipeline '{}'. Sink result: {}",
+                        pipeline.getName(), result))
+                .onErrorResume(e -> {
                     // One failing pipeline does not stop the others.
                     logger.error("Error processing audit pipeline '{}': {}", pipeline.getName(), e.getMessage(), e);
-                }
-            }, pipelineExecutor));
-        }
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+                    return Mono.empty();
+                })
+                .then();
     }
 
     /**
      * Process a single pipeline: transform and then send to sink.
      */
-    private void processPipeline(AuditFlowConfiguration.PipelineProperties pipeline, JsonNode eventJson) throws Exception {
-        logger.debug("Start event processing using pipeline '{}'", pipeline.getName());
-
-        // 1. Transform event using the configured transformer
-        JsonNode transformed = transformMessage(pipeline, eventJson);
-
-        // 2. Send to sink service
-        String sinkResult = sinkService.sendToSink(
-                transformed,
-                pipeline.getSink().getName(),
-                pipeline.getSink().getProperties());
-
-        logger.debug("Successfully processed event through pipeline '{}'. Sink result: {}",
-                pipeline.getName(), sinkResult);
+    private Mono<String> processPipeline(AuditFlowConfiguration.PipelineProperties pipeline, JsonNode eventJson) {
+        return transformMessage(pipeline, eventJson)
+                .flatMap(transformed -> sinkService.sendToSink(
+                        transformed,
+                        pipeline.getSink().getName(),
+                        pipeline.getSink().getProperties()));
     }
 
     /**
-     * Transform the event using the configured transformer.
+     * Transform the event using the configured transformer. A pipeline with no transformer
+     * passes the original message through unchanged.
      */
-    private JsonNode transformMessage(AuditFlowConfiguration.PipelineProperties pipeline, JsonNode eventJson) {
+    private Mono<JsonNode> transformMessage(AuditFlowConfiguration.PipelineProperties pipeline, JsonNode eventJson) {
         if (pipeline.getTransformer() == null || !StringUtils.hasText(pipeline.getTransformer().getName())) {
             logger.debug("No transformer configured for pipeline '{}', using original message", pipeline.getName());
-            return eventJson;
+            return Mono.just(eventJson);
         }
-        String result = transformationService.transform(eventJson, pipeline.getTransformer().getName());
-        try {
-            return objectMapper.readTree(result);
-        } catch (Exception e) {
-            throw new RuntimeException("Transformer '" + pipeline.getTransformer().getName()
-                    + "' returned invalid JSON: " + e.getMessage(), e);
-        }
+        return transformationService.transform(eventJson, pipeline.getTransformer().getName())
+                .map(result -> {
+                    try {
+                        return objectMapper.readTree(result);
+                    } catch (Exception e) {
+                        throw new RuntimeException("Transformer '" + pipeline.getTransformer().getName()
+                                + "' returned invalid JSON: " + e.getMessage(), e);
+                    }
+                });
     }
 
     /**

@@ -10,6 +10,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
 
 import java.util.Map;
 
@@ -79,7 +80,9 @@ class SinkServiceTest {
         sinkService.getWebClientCache().put("http://localhost:8082", mockWebClient);
 
         // Should not throw NullPointerException
-        assertDoesNotThrow(() -> sinkService.sendToSink(node("{\"key\":\"value\"}"), "my_sink", null));
+        StepVerifier.create(sinkService.sendToSink(node("{\"key\":\"value\"}"), "my_sink", null))
+                .expectNext("{\"status\":\"ok\"}")
+                .verifyComplete();
     }
 
     // -------------------------------------------------------------------------
@@ -95,9 +98,9 @@ class SinkServiceTest {
         WebClient mockWebClient = buildMockWebClientReturning("{\"status\":\"ok\"}");
         sinkService.getWebClientCache().put("http://localhost:8082", mockWebClient);
 
-        String result = sinkService.sendToSink(node("{\"key\":\"value\"}"), "my_sink", Map.of("prop", "val"));
-
-        assertEquals("{\"status\":\"ok\"}", result);
+        StepVerifier.create(sinkService.sendToSink(node("{\"key\":\"value\"}"), "my_sink", Map.of("prop", "val")))
+                .expectNext("{\"status\":\"ok\"}")
+                .verifyComplete();
     }
 
     @Test
@@ -122,11 +125,10 @@ class SinkServiceTest {
 
         sinkService.getWebClientCache().put("http://localhost:8082", mockWebClient);
 
-        RuntimeException ex = assertThrows(RuntimeException.class,
-                () -> sinkService.sendToSink(node("{\"key\":\"value\"}"), "my_sink", Map.of()));
-
-        assertTrue(ex.getMessage().contains("Failed to send event to sink"),
-                "Exception message should contain 'Failed to send event to sink'");
+        StepVerifier.create(sinkService.sendToSink(node("{\"key\":\"value\"}"), "my_sink", Map.of()))
+                .expectErrorMatches(e -> e instanceof RuntimeException
+                        && e.getMessage().contains("Failed to send event to sink"))
+                .verify();
     }
 
     // -------------------------------------------------------------------------
