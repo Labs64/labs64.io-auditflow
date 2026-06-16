@@ -18,6 +18,10 @@ spring:
           destination: labs64-audit-topic
           binder: rabbit
           content-type: application/json
+        quarantine-out-0:
+          destination: labs64-audit-quarantine
+          binder: rabbit
+          content-type: application/json
       binders:
         rabbit:
           type: rabbit
@@ -32,6 +36,9 @@ spring:
               autoBindDlq: true
               republishToDlq: true
               requeueRejected: false
+          quarantine-out-0:
+            producer:
+              exchangeType: topic
 
   # RabbitMQ Configuration
   rabbitmq:
@@ -42,6 +49,12 @@ spring:
     username: ${RABBITMQ_USERNAME}
     password: ${RABBITMQ_PASSWORD}
     connection-timeout: 10s
+
+  # Redis (idempotency / dedup)
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
 
 # Actuator Configuration
 management:
@@ -109,6 +122,10 @@ sink:
 # Example pipeline configuration (commented out by default):
 auditflow:
   pipelines: []
+  # Idempotency / dedup TTLs (ISO-8601 durations)
+  idempotency:
+    claim-ttl: PT5M
+    done-ttl: PT24H
 #  pipelines:
 #  - name: 'logs'
 #    enabled: true
