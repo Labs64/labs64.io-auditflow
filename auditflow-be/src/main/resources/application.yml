@@ -18,6 +18,8 @@ spring:
           destination: labs64-audit-topic
           binder: rabbit
           content-type: application/json
+          consumer:
+            concurrency: 4
         quarantine-out-0:
           destination: labs64-audit-quarantine
           binder: rabbit
@@ -36,6 +38,8 @@ spring:
               autoBindDlq: true
               republishToDlq: true
               requeueRejected: false
+              maxConcurrency: 8
+              prefetch: 16
           quarantine-out-0:
             producer:
               exchangeType: topic
