@@ -8,8 +8,14 @@ import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 /**
  * Service responsible for processing audit events through configured pipelines.
@@ -28,6 +34,7 @@ public class AuditService {
     private final QuarantineService quarantineService;
     private final ObjectMapper objectMapper;
     private final Counter deduplicatedCounter;
+    private final Executor pipelineExecutor;
 
     public AuditService(
             AuditFlowConfiguration auditFlowConfiguration,
@@ -37,7 +44,8 @@ public class AuditService {
             IdempotencyService idempotencyService,
             QuarantineService quarantineService,
             ObjectMapper objectMapper,
-            MeterRegistry meterRegistry) {
+            MeterRegistry meterRegistry,
+            @Qualifier("pipelineExecutor") Executor pipelineExecutor) {
         this.auditFlowConfiguration = auditFlowConfiguration;
         this.transformationService = transformationService;
         this.sinkService = sinkService;
@@ -46,6 +54,7 @@ public class AuditService {
         this.quarantineService = quarantineService;
         this.objectMapper = objectMapper;
         this.deduplicatedCounter = meterRegistry.counter("auditflow.events.deduplicated");
+        this.pipelineExecutor = pipelineExecutor;
     }
 
     @PostConstruct
@@ -110,6 +119,7 @@ public class AuditService {
             return;
         }
 
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
         for (AuditFlowConfiguration.PipelineProperties pipeline : auditFlowConfiguration.getPipelines()) {
             if (!pipeline.isEnabled()) {
                 logger.debug("Pipeline '{}' is disabled, skipping processing.", pipeline.getName());
@@ -119,13 +129,16 @@ public class AuditService {
                 logger.debug("Pipeline '{}' condition not matched, skipping processing.", pipeline.getName());
                 continue;
             }
-            try {
-                processPipeline(pipeline, eventJson);
-            } catch (Exception e) {
-                // One failing pipeline does not stop the others (unchanged behaviour).
-                logger.error("Error processing audit pipeline '{}': {}", pipeline.getName(), e.getMessage(), e);
-            }
+            futures.add(CompletableFuture.runAsync(() -> {
+                try {
+                    processPipeline(pipeline, eventJson);
+                } catch (Exception e) {
+                    // One failing pipeline does not stop the others.
+                    logger.error("Error processing audit pipeline '{}': {}", pipeline.getName(), e.getMessage(), e);
+                }
+            }, pipelineExecutor));
         }
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
     }
 
     /**

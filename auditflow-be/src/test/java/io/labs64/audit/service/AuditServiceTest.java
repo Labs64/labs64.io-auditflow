@@ -59,7 +59,8 @@ class AuditServiceTest {
                 idempotencyService,
                 quarantineService,
                 new ObjectMapper(),
-                new SimpleMeterRegistry()
+                new SimpleMeterRegistry(),
+                Runnable::run
         );
     }
 
