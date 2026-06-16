@@ -26,6 +26,9 @@ app = FastAPI(
     swagger_ui_parameters={"displayRequestDuration": True}
 )
 
+from tracing import setup_tracing
+setup_tracing(app, service_name="auditflow-transformer")
+
 # Define base directory
 current_dir = os.path.dirname(os.path.abspath(__file__))
 
