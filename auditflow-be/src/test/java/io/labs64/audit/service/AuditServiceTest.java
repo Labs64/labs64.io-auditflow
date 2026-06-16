@@ -1,10 +1,13 @@
 package io.labs64.audit.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.labs64.audit.config.AuditFlowConfiguration;
 import io.labs64.audit.config.AuditFlowConfiguration.ConditionProperties;
 import io.labs64.audit.config.AuditFlowConfiguration.PipelineProperties;
 import io.labs64.audit.config.AuditFlowConfiguration.SinkProperties;
 import io.labs64.audit.config.AuditFlowConfiguration.TransformerProperties;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -35,9 +38,16 @@ class AuditServiceTest {
     @Mock
     private ConditionEvaluator conditionEvaluator;
 
+    @Mock
+    private IdempotencyService idempotencyService;
+
+    @Mock
+    private QuarantineService quarantineService;
+
     private AuditService auditService;
 
-    private static final String VALID_MESSAGE = "{\"eventType\":\"api.call\",\"sourceSystem\":\"test\"}";
+    private static final String VALID_MESSAGE =
+            "{\"eventId\":\"11111111-1111-1111-1111-111111111111\",\"eventType\":\"api.call\",\"sourceSystem\":\"test\"}";
 
     @BeforeEach
     void setUp() {
@@ -45,7 +55,11 @@ class AuditServiceTest {
                 auditFlowConfiguration,
                 transformationService,
                 sinkService,
-                conditionEvaluator
+                conditionEvaluator,
+                idempotencyService,
+                quarantineService,
+                new ObjectMapper(),
+                new SimpleMeterRegistry()
         );
     }
 
@@ -81,6 +95,7 @@ class AuditServiceTest {
     @Test
     @DisplayName("processAuditEvent with null pipelines logs warning and does not throw")
     void shouldSkipWhenPipelinesNull() {
+        when(idempotencyService.claim(anyString())).thenReturn(true);
         when(auditFlowConfiguration.getPipelines()).thenReturn(null);
         assertDoesNotThrow(() -> auditService.processAuditEvent(VALID_MESSAGE));
         verifyNoInteractions(transformationService, sinkService, conditionEvaluator);
@@ -89,6 +104,7 @@ class AuditServiceTest {
     @Test
     @DisplayName("processAuditEvent with empty pipelines list logs warning and does not throw")
     void shouldSkipWhenPipelinesEmpty() {
+        when(idempotencyService.claim(anyString())).thenReturn(true);
         when(auditFlowConfiguration.getPipelines()).thenReturn(Collections.emptyList());
         assertDoesNotThrow(() -> auditService.processAuditEvent(VALID_MESSAGE));
         verifyNoInteractions(transformationService, sinkService, conditionEvaluator);
@@ -103,7 +119,8 @@ class AuditServiceTest {
     void shouldInvokeTransformerAndSinkWhenConditionMatches() {
         PipelineProperties pipeline = buildPipeline("test-pipeline", true, "my_transformer", "my_sink");
         when(auditFlowConfiguration.getPipelines()).thenReturn(List.of(pipeline));
-        when(conditionEvaluator.evaluate(eq(VALID_MESSAGE), any())).thenReturn(true);
+        when(idempotencyService.claim(anyString())).thenReturn(true);
+        when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
         when(transformationService.transform(VALID_MESSAGE, "my_transformer")).thenReturn("{\"transformed\":true}");
         when(sinkService.sendToSink(anyString(), eq("my_sink"), any())).thenReturn("ok");
 
@@ -122,7 +139,8 @@ class AuditServiceTest {
     void shouldSkipTransformerAndSinkWhenConditionDoesNotMatch() {
         PipelineProperties pipeline = buildPipeline("test-pipeline", true, "my_transformer", "my_sink");
         when(auditFlowConfiguration.getPipelines()).thenReturn(List.of(pipeline));
-        when(conditionEvaluator.evaluate(eq(VALID_MESSAGE), any())).thenReturn(false);
+        when(idempotencyService.claim(anyString())).thenReturn(true);
+        when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(false);
 
         auditService.processAuditEvent(VALID_MESSAGE);
 
@@ -138,6 +156,7 @@ class AuditServiceTest {
     void shouldSkipDisabledPipeline() {
         PipelineProperties pipeline = buildPipeline("disabled-pipeline", false, "my_transformer", "my_sink");
         when(auditFlowConfiguration.getPipelines()).thenReturn(List.of(pipeline));
+        when(idempotencyService.claim(anyString())).thenReturn(true);
 
         auditService.processAuditEvent(VALID_MESSAGE);
 
@@ -155,7 +174,8 @@ class AuditServiceTest {
         PipelineProperties goodPipeline = buildPipeline("good-pipeline", true, "good_transformer", "my_sink");
 
         when(auditFlowConfiguration.getPipelines()).thenReturn(List.of(failingPipeline, goodPipeline));
-        when(conditionEvaluator.evaluate(eq(VALID_MESSAGE), any())).thenReturn(true);
+        when(idempotencyService.claim(anyString())).thenReturn(true);
+        when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
         when(transformationService.transform(VALID_MESSAGE, "bad_transformer"))
                 .thenThrow(new RuntimeException("transformer unavailable"));
         when(transformationService.transform(VALID_MESSAGE, "good_transformer")).thenReturn("{\"ok\":true}");
@@ -177,13 +197,38 @@ class AuditServiceTest {
     void shouldSendOriginalMessageWhenNoTransformerConfigured() {
         PipelineProperties pipeline = buildPipelineNoTransformer("no-transformer-pipeline", "my_sink");
         when(auditFlowConfiguration.getPipelines()).thenReturn(List.of(pipeline));
-        when(conditionEvaluator.evaluate(eq(VALID_MESSAGE), any())).thenReturn(true);
+        when(idempotencyService.claim(anyString())).thenReturn(true);
+        when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
         when(sinkService.sendToSink(anyString(), eq("my_sink"), any())).thenReturn("ok");
 
         auditService.processAuditEvent(VALID_MESSAGE);
 
         verifyNoInteractions(transformationService);
         verify(sinkService).sendToSink(VALID_MESSAGE, "my_sink", Map.of());
+    }
+
+    // -------------------------------------------------------------------------
+    // Fail-closed quarantine + dedup
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("Unparseable message is quarantined and never reaches pipelines")
+    void shouldQuarantineUnparseableMessage() {
+        auditService.processAuditEvent("{not valid json");
+
+        verify(quarantineService).quarantine(eq("{not valid json"), anyString());
+        verifyNoInteractions(transformationService, sinkService, conditionEvaluator, idempotencyService);
+    }
+
+    @Test
+    @DisplayName("Duplicate eventId (claim refused) is dropped before any pipeline runs")
+    void shouldDropDuplicateEvent() {
+        when(idempotencyService.claim(anyString())).thenReturn(false);
+
+        auditService.processAuditEvent(VALID_MESSAGE);
+
+        verifyNoInteractions(transformationService, sinkService, conditionEvaluator);
+        verify(idempotencyService, never()).markProcessed(anyString());
     }
 
     // -------------------------------------------------------------------------

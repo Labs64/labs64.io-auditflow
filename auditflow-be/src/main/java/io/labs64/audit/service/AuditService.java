@@ -1,6 +1,10 @@
 package io.labs64.audit.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.labs64.audit.config.AuditFlowConfiguration;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,16 +24,28 @@ public class AuditService {
     private final TransformationService transformationService;
     private final SinkService sinkService;
     private final ConditionEvaluator conditionEvaluator;
+    private final IdempotencyService idempotencyService;
+    private final QuarantineService quarantineService;
+    private final ObjectMapper objectMapper;
+    private final Counter deduplicatedCounter;
 
     public AuditService(
             AuditFlowConfiguration auditFlowConfiguration,
             TransformationService transformationService,
             SinkService sinkService,
-            ConditionEvaluator conditionEvaluator) {
+            ConditionEvaluator conditionEvaluator,
+            IdempotencyService idempotencyService,
+            QuarantineService quarantineService,
+            ObjectMapper objectMapper,
+            MeterRegistry meterRegistry) {
         this.auditFlowConfiguration = auditFlowConfiguration;
         this.transformationService = transformationService;
         this.sinkService = sinkService;
         this.conditionEvaluator = conditionEvaluator;
+        this.idempotencyService = idempotencyService;
+        this.quarantineService = quarantineService;
+        this.objectMapper = objectMapper;
+        this.deduplicatedCounter = meterRegistry.counter("auditflow.events.deduplicated");
     }
 
     @PostConstruct
@@ -54,30 +70,60 @@ public class AuditService {
             return;
         }
 
+        // Parse once, up front. Fail closed: an unparseable event is quarantined, never matched.
+        JsonNode eventJson;
+        try {
+            eventJson = objectMapper.readTree(message);
+        } catch (Exception e) {
+            quarantineService.quarantine(message, "Unparseable JSON: " + e.getMessage());
+            return;
+        }
+
+        // Idempotency: claim by eventId. A duplicate (or in-flight redelivery) is dropped.
+        String eventId = eventJson.path("eventId").asText(null);
+        if (!StringUtils.hasText(eventId)) {
+            logger.warn("Audit event has no eventId; processing without dedup guarantee.");
+        } else if (!idempotencyService.claim(eventId)) {
+            logger.debug("Duplicate audit event eventId='{}', dropping.", eventId);
+            deduplicatedCounter.increment();
+            return;
+        }
+
+        try {
+            dispatchToPipelines(message, eventJson);
+            if (StringUtils.hasText(eventId)) {
+                idempotencyService.markProcessed(eventId);
+            }
+        } catch (RuntimeException e) {
+            // Event-level failure (not a single-pipeline failure): release the claim so an
+            // at-least-once redelivery can retry, then rethrow so the broker DLQs after retries.
+            if (StringUtils.hasText(eventId)) {
+                idempotencyService.release(eventId);
+            }
+            throw e;
+        }
+    }
+
+    private void dispatchToPipelines(String message, JsonNode eventJson) {
         if (auditFlowConfiguration.getPipelines() == null || auditFlowConfiguration.getPipelines().isEmpty()) {
             logger.warn("No audit pipelines configured, skipping event processing.");
             return;
         }
 
-        logger.debug("Processing audit event through {} pipeline(s)",
-                auditFlowConfiguration.getPipelines().stream()
-                        .filter(AuditFlowConfiguration.PipelineProperties::isEnabled).count());
-
         for (AuditFlowConfiguration.PipelineProperties pipeline : auditFlowConfiguration.getPipelines()) {
-            if (pipeline.isEnabled()) {
-                // Check if pipeline condition matches the event
-                if (!conditionEvaluator.evaluate(message, pipeline.getCondition())) {
-                    logger.debug("Pipeline '{}' condition not matched, skipping processing.", pipeline.getName());
-                    continue;
-                }
-                try {
-                    processPipeline(pipeline, message);
-                } catch (Exception e) {
-                    logger.error("Error processing audit pipeline '{}': {}", pipeline.getName(), e.getMessage(), e);
-                    // Continue processing other pipelines even if one fails
-                }
-            } else {
+            if (!pipeline.isEnabled()) {
                 logger.debug("Pipeline '{}' is disabled, skipping processing.", pipeline.getName());
+                continue;
+            }
+            if (!conditionEvaluator.evaluate(eventJson, pipeline.getCondition())) {
+                logger.debug("Pipeline '{}' condition not matched, skipping processing.", pipeline.getName());
+                continue;
+            }
+            try {
+                processPipeline(pipeline, message);
+            } catch (Exception e) {
+                // One failing pipeline does not stop the others (unchanged behaviour).
+                logger.error("Error processing audit pipeline '{}': {}", pipeline.getName(), e.getMessage(), e);
             }
         }
     }
