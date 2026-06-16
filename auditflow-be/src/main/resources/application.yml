@@ -53,6 +53,11 @@ spring:
     username: ${RABBITMQ_USERNAME}
     password: ${RABBITMQ_PASSWORD}
     connection-timeout: 10s
+    listener:
+      simple:
+        observation-enabled: true
+    template:
+      observation-enabled: true
 
   # Redis (idempotency / dedup)
   data:

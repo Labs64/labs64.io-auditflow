@@ -32,7 +32,7 @@ class SinkServiceTest {
 
     @BeforeEach
     void setUp() {
-        sinkService = new SinkService(sinkDiscovery);
+        sinkService = new SinkService(sinkDiscovery, WebClient.builder());
     }
 
     private com.fasterxml.jackson.databind.JsonNode node(String json) {

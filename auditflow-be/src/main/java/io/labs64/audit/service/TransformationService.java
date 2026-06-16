@@ -20,10 +20,12 @@ public class TransformationService {
     private static final Logger logger = LoggerFactory.getLogger(TransformationService.class);
 
     private final TransformerDiscovery transformerDiscovery;
+    private final WebClient.Builder webClientBuilder;
     private final Map<String, WebClient> webClientCache = new ConcurrentHashMap<>();
 
-    public TransformationService(TransformerDiscovery transformerDiscovery) {
+    public TransformationService(TransformerDiscovery transformerDiscovery, WebClient.Builder webClientBuilder) {
         this.transformerDiscovery = transformerDiscovery;
+        this.webClientBuilder = webClientBuilder;
     }
 
     /** Package-private accessor for testing — allows injecting mock WebClient instances. */
@@ -68,7 +70,7 @@ public class TransformationService {
      */
     private String transformMessage(JsonNode message, String transformerUrl, String transformerName) {
         WebClient client = webClientCache.computeIfAbsent(transformerUrl, u ->
-                WebClient.builder()
+                webClientBuilder.clone()
                         .clientConnector(new ReactorClientHttpConnector(
                                 HttpClient.create()
                                         .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5_000)

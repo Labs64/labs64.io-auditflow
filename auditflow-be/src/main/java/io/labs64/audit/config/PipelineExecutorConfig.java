@@ -1,7 +1,9 @@
 package io.labs64.audit.config;
 
+import io.micrometer.context.ContextSnapshotFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.task.support.ContextPropagatingTaskDecorator;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.util.concurrent.Executor;
@@ -17,6 +19,7 @@ public class PipelineExecutorConfig {
         executor.setMaxPoolSize(8);
         executor.setQueueCapacity(64);
         executor.setThreadNamePrefix("pipeline-");
+        executor.setTaskDecorator(new ContextPropagatingTaskDecorator(ContextSnapshotFactory.builder().build()));
         executor.initialize();
         return executor;
     }

@@ -33,7 +33,7 @@ class TransformationServiceTest {
 
     @BeforeEach
     void setUp() {
-        transformationService = new TransformationService(transformerDiscovery);
+        transformationService = new TransformationService(transformerDiscovery, WebClient.builder());
     }
 
     private com.fasterxml.jackson.databind.JsonNode node(String json) {

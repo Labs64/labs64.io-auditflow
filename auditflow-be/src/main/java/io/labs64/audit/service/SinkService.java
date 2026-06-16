@@ -25,10 +25,12 @@ public class SinkService {
     private static final Logger logger = LoggerFactory.getLogger(SinkService.class);
 
     private final SinkDiscovery sinkDiscovery;
+    private final WebClient.Builder webClientBuilder;
     private final Map<String, WebClient> webClientCache = new ConcurrentHashMap<>();
 
-    public SinkService(SinkDiscovery sinkDiscovery) {
+    public SinkService(SinkDiscovery sinkDiscovery, WebClient.Builder webClientBuilder) {
         this.sinkDiscovery = sinkDiscovery;
+        this.webClientBuilder = webClientBuilder;
     }
 
     /** Package-private accessor for testing — allows injecting mock WebClient instances. */
@@ -86,7 +88,7 @@ public class SinkService {
         logger.trace("Sending event to sink '{}' at URL '{}'", sinkName, sinkUrl);
 
         WebClient client = webClientCache.computeIfAbsent(sinkUrl, u ->
-                WebClient.builder()
+                webClientBuilder.clone()
                         .clientConnector(new ReactorClientHttpConnector(
                                 HttpClient.create()
                                         .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5_000)
