@@ -1,6 +1,8 @@
 package io.labs64.audit.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.labs64.audit.config.HttpRetryProperties;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -9,10 +11,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
+import java.time.Duration;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -33,7 +38,10 @@ class SinkServiceTest {
 
     @BeforeEach
     void setUp() {
-        sinkService = new SinkService(sinkDiscovery, WebClient.builder());
+        HttpRetryProperties retryProperties = new HttpRetryProperties();
+        retryProperties.setMinBackoff(Duration.ofMillis(1)); // keep retry tests fast
+        sinkService = new SinkService(
+                sinkDiscovery, WebClient.builder(), retryProperties, new SimpleMeterRegistry());
     }
 
     private com.fasterxml.jackson.databind.JsonNode node(String json) {
@@ -132,11 +140,58 @@ class SinkServiceTest {
     }
 
     // -------------------------------------------------------------------------
+    // Retry / backoff (P0-3)
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("sendToSink() retries transient 5xx failures then succeeds")
+    void shouldRetryOn5xxThenSucceed() {
+        when(sinkDiscovery.getSinkUrl()).thenReturn("http://localhost:8082");
+
+        AtomicInteger attempts = new AtomicInteger();
+        WebClient mockWebClient = buildMockWebClientReturning(Mono.defer(() ->
+                attempts.incrementAndGet() < 3
+                        ? Mono.error(new WebClientResponseException(503, "Service Unavailable", null, null, null))
+                        : Mono.just("{\"status\":\"ok\"}")));
+        sinkService.getWebClientCache().put("http://localhost:8082", mockWebClient);
+
+        StepVerifier.create(sinkService.sendToSink(node("{\"key\":\"value\"}"), "my_sink", Map.of()))
+                .expectNext("{\"status\":\"ok\"}")
+                .verifyComplete();
+
+        assertEquals(3, attempts.get(), "should retry twice (3rd attempt succeeds)");
+    }
+
+    @Test
+    @DisplayName("sendToSink() does not retry on 4xx")
+    void shouldNotRetryOn4xx() {
+        when(sinkDiscovery.getSinkUrl()).thenReturn("http://localhost:8082");
+
+        AtomicInteger attempts = new AtomicInteger();
+        WebClient mockWebClient = buildMockWebClientReturning(Mono.defer(() -> {
+            attempts.incrementAndGet();
+            return Mono.error(new WebClientResponseException(400, "Bad Request", null, null, null));
+        }));
+        sinkService.getWebClientCache().put("http://localhost:8082", mockWebClient);
+
+        StepVerifier.create(sinkService.sendToSink(node("{\"key\":\"value\"}"), "my_sink", Map.of()))
+                .expectError()
+                .verify();
+
+        assertEquals(1, attempts.get(), "4xx must not be retried");
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 
     @SuppressWarnings("unchecked")
     private WebClient buildMockWebClientReturning(String responseBody) {
+        return buildMockWebClientReturning(Mono.just(responseBody));
+    }
+
+    @SuppressWarnings("unchecked")
+    private WebClient buildMockWebClientReturning(Mono<String> body) {
         WebClient mockWebClient = mock(WebClient.class);
         WebClient.RequestBodyUriSpec requestBodyUriSpec = mock(WebClient.RequestBodyUriSpec.class);
         WebClient.RequestBodySpec requestBodySpec = mock(WebClient.RequestBodySpec.class);
@@ -148,7 +203,7 @@ class SinkServiceTest {
         when(requestBodySpec.contentType(any(MediaType.class))).thenReturn(requestBodySpec);
         when(requestBodySpec.bodyValue(any())).thenReturn(requestHeadersSpec);
         when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
-        when(responseSpec.bodyToMono(String.class)).thenReturn(Mono.just(responseBody));
+        when(responseSpec.bodyToMono(String.class)).thenReturn(body);
 
         return mockWebClient;
     }

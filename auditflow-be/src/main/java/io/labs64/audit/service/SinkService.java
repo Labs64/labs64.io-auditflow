@@ -1,6 +1,8 @@
 package io.labs64.audit.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.labs64.audit.config.HttpRetryProperties;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.netty.channel.ChannelOption;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 import reactor.netty.http.client.HttpClient;
+import reactor.util.retry.Retry;
 
 import java.time.Duration;
 import java.util.HashMap;
@@ -28,10 +31,18 @@ public class SinkService {
     private final SinkDiscovery sinkDiscovery;
     private final WebClient.Builder webClientBuilder;
     private final Map<String, WebClient> webClientCache = new ConcurrentHashMap<>();
+    private final Retry retrySpec;
 
-    public SinkService(SinkDiscovery sinkDiscovery, WebClient.Builder webClientBuilder) {
+    public SinkService(SinkDiscovery sinkDiscovery,
+                       WebClient.Builder webClientBuilder,
+                       HttpRetryProperties retryProperties,
+                       MeterRegistry meterRegistry) {
         this.sinkDiscovery = sinkDiscovery;
         this.webClientBuilder = webClientBuilder;
+        this.retrySpec = retryProperties.isEnabled()
+                ? HttpRetrySupport.spec(retryProperties,
+                        meterRegistry.counter("auditflow.http.retries", "service", "sink"))
+                : null;
     }
 
     /** Package-private accessor for testing — allows injecting mock WebClient instances. */
@@ -99,11 +110,15 @@ public class SinkService {
                         .build()
         );
 
-        return client.post()
+        Mono<String> response = client.post()
                 .uri("/sink/" + sinkName)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(requestBody)
                 .retrieve()
                 .bodyToMono(String.class);
+
+        // Retry transient failures (5xx, transport errors) before the error is mapped/wrapped,
+        // so the retry filter can inspect the original WebClient exception type.
+        return retrySpec != null ? response.retryWhen(retrySpec) : response;
     }
 }

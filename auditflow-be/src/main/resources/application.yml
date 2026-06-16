@@ -135,6 +135,13 @@ auditflow:
   idempotency:
     claim-ttl: PT5M
     done-ttl: PT24H
+  # Retry/backoff for outbound transformer & sink HTTP calls.
+  # Only transient failures (5xx, connection/timeout) are retried; 4xx is never retried.
+  http:
+    retry:
+      enabled: true
+      max-attempts: 3        # retries after the initial try (total tries = 1 + max-attempts)
+      min-backoff: PT0.2S    # grows exponentially with jitter on each subsequent retry
 #  pipelines:
 #  - name: 'logs'
 #    enabled: true
