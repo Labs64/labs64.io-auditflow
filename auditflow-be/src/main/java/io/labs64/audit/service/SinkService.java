@@ -6,6 +6,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.netty.channel.ChannelOption;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cloud.client.circuitbreaker.ReactiveCircuitBreakerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Service;
@@ -30,15 +31,18 @@ public class SinkService {
 
     private final SinkDiscovery sinkDiscovery;
     private final WebClient.Builder webClientBuilder;
+    private final ReactiveCircuitBreakerFactory<?, ?> circuitBreakerFactory;
     private final Map<String, WebClient> webClientCache = new ConcurrentHashMap<>();
     private final Retry retrySpec;
 
     public SinkService(SinkDiscovery sinkDiscovery,
                        WebClient.Builder webClientBuilder,
+                       ReactiveCircuitBreakerFactory<?, ?> circuitBreakerFactory,
                        HttpRetryProperties retryProperties,
                        MeterRegistry meterRegistry) {
         this.sinkDiscovery = sinkDiscovery;
         this.webClientBuilder = webClientBuilder;
+        this.circuitBreakerFactory = circuitBreakerFactory;
         this.retrySpec = retryProperties.isEnabled()
                 ? HttpRetrySupport.spec(retryProperties,
                         meterRegistry.counter("auditflow.http.retries", "service", "sink"))
@@ -79,7 +83,7 @@ public class SinkService {
                 .doOnNext(result -> logger.info("Event sent to sink '{}' successfully. Response: {}", sinkName, result))
                 .onErrorMap(e -> {
                     logger.error("Failed to send event to sink '{}' at URL '{}'. Error: {}", sinkName, sinkUrl, e.getMessage(), e);
-                    return new RuntimeException("Failed to send event to sink: " + e.getMessage(), e);
+                    return DeliveryErrors.classify("Failed to send event to sink", e);
                 });
     }
 
@@ -119,6 +123,11 @@ public class SinkService {
 
         // Retry transient failures (5xx, transport errors) before the error is mapped/wrapped,
         // so the retry filter can inspect the original WebClient exception type.
-        return retrySpec != null ? response.retryWhen(retrySpec) : response;
+        Mono<String> withRetry = retrySpec != null ? response.retryWhen(retrySpec) : response;
+
+        // Circuit breaker sits OUTSIDE the retry so it counts post-retry outcomes; when open it
+        // fast-fails with CallNotPermittedException, which DeliveryErrors maps to a retryable failure.
+        return circuitBreakerFactory.create("sink:" + sinkUrl + "/" + sinkName)
+                .run(withRetry, Mono::error);
     }
 }

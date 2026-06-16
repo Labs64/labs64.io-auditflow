@@ -56,7 +56,24 @@ public class IdempotencyService {
         redisTemplate.delete(key(eventId));
     }
 
+    /**
+     * Mark a single pipeline as successfully delivered for this event. Survives a redelivery
+     * (uses the longer done TTL) so the pipeline is not delivered to twice.
+     */
+    public void markPipelineDone(String eventId, String pipelineName) {
+        redisTemplate.opsForValue().set(pipelineKey(eventId, pipelineName), "done", doneTtl);
+    }
+
+    /** @return true if this pipeline already delivered successfully for this event on a prior attempt. */
+    public boolean isPipelineDone(String eventId, String pipelineName) {
+        return Boolean.TRUE.equals(redisTemplate.hasKey(pipelineKey(eventId, pipelineName)));
+    }
+
     private String key(String eventId) {
         return KEY_PREFIX + eventId;
+    }
+
+    private String pipelineKey(String eventId, String pipelineName) {
+        return KEY_PREFIX + eventId + ":pipe:" + pipelineName;
     }
 }

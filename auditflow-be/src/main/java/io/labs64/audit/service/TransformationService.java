@@ -6,6 +6,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.netty.channel.ChannelOption;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cloud.client.circuitbreaker.ReactiveCircuitBreakerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Service;
@@ -25,15 +26,18 @@ public class TransformationService {
 
     private final TransformerDiscovery transformerDiscovery;
     private final WebClient.Builder webClientBuilder;
+    private final ReactiveCircuitBreakerFactory<?, ?> circuitBreakerFactory;
     private final Map<String, WebClient> webClientCache = new ConcurrentHashMap<>();
     private final Retry retrySpec;
 
     public TransformationService(TransformerDiscovery transformerDiscovery,
                                  WebClient.Builder webClientBuilder,
+                                 ReactiveCircuitBreakerFactory<?, ?> circuitBreakerFactory,
                                  HttpRetryProperties retryProperties,
                                  MeterRegistry meterRegistry) {
         this.transformerDiscovery = transformerDiscovery;
         this.webClientBuilder = webClientBuilder;
+        this.circuitBreakerFactory = circuitBreakerFactory;
         this.retrySpec = retryProperties.isEnabled()
                 ? HttpRetrySupport.spec(retryProperties,
                         meterRegistry.counter("auditflow.http.retries", "service", "transformer"))
@@ -66,7 +70,7 @@ public class TransformationService {
                 .doOnNext(result -> logger.info("Transformation successful for transformer '{}'. Response: {}", transformerName, result))
                 .onErrorMap(e -> {
                     logger.error("Transformation failed for transformer '{}' at URL '{}'. Error: {}", transformerName, transformerUrl, e.getMessage(), e);
-                    return new RuntimeException("Transformation failed: " + e.getMessage(), e);
+                    return DeliveryErrors.classify("Transformation failed", e);
                 });
     }
 
@@ -101,7 +105,12 @@ public class TransformationService {
 
         // Retry transient failures (5xx, transport errors) before the error is mapped/wrapped,
         // so the retry filter can inspect the original WebClient exception type.
-        return retrySpec != null ? response.retryWhen(retrySpec) : response;
+        Mono<String> withRetry = retrySpec != null ? response.retryWhen(retrySpec) : response;
+
+        // Circuit breaker sits OUTSIDE the retry so it counts post-retry outcomes; when open it
+        // fast-fails with CallNotPermittedException, which DeliveryErrors maps to a retryable failure.
+        return circuitBreakerFactory.create("transformer:" + transformerUrl + "/" + transformerName)
+                .run(withRetry, Mono::error);
     }
 
 }

@@ -9,6 +9,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.cloud.client.circuitbreaker.ReactiveCircuitBreaker;
+import org.springframework.cloud.client.circuitbreaker.ReactiveCircuitBreakerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -39,11 +41,20 @@ class TransformationServiceTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @BeforeEach
+    @SuppressWarnings({"unchecked", "rawtypes"})
     void setUp() {
         HttpRetryProperties retryProperties = new HttpRetryProperties();
         retryProperties.setMinBackoff(Duration.ofMillis(1)); // keep retry tests fast
+
+        // Pass-through circuit breaker: run the supplied Mono unchanged (breaker behaviour itself
+        // is Resilience4j's; classification of an open circuit is covered by DeliveryErrorsTest).
+        ReactiveCircuitBreakerFactory cbFactory = mock(ReactiveCircuitBreakerFactory.class);
+        ReactiveCircuitBreaker cb = mock(ReactiveCircuitBreaker.class);
+        lenient().when(cbFactory.create(anyString())).thenReturn(cb);
+        lenient().when(cb.run(any(Mono.class), any())).thenAnswer(inv -> inv.getArgument(0));
+
         transformationService = new TransformationService(
-                transformerDiscovery, WebClient.builder(), retryProperties, new SimpleMeterRegistry());
+                transformerDiscovery, WebClient.builder(), cbFactory, retryProperties, new SimpleMeterRegistry());
     }
 
     private com.fasterxml.jackson.databind.JsonNode node(String json) {

@@ -7,6 +7,7 @@ import io.labs64.audit.config.AuditFlowConfiguration.ConditionProperties;
 import io.labs64.audit.config.AuditFlowConfiguration.PipelineProperties;
 import io.labs64.audit.config.AuditFlowConfiguration.SinkProperties;
 import io.labs64.audit.config.AuditFlowConfiguration.TransformerProperties;
+import io.labs64.audit.exception.RetryableDeliveryException;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import reactor.core.publisher.Mono;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -165,12 +167,12 @@ class AuditServiceTest {
     }
 
     // -------------------------------------------------------------------------
-    // Pipeline throws → exception logged, remaining pipelines still processed
+    // Retryable failure propagates (for DLQ); other pipelines still run; poison does not
     // -------------------------------------------------------------------------
 
     @Test
-    @DisplayName("Exception in one pipeline is caught and remaining pipelines are still processed")
-    void shouldContinueProcessingAfterPipelineFailure() {
+    @DisplayName("Retryable failure in one pipeline propagates (for DLQ) while others still run")
+    void shouldPropagateRetryableFailureButStillRunOtherPipelines() {
         PipelineProperties failingPipeline = buildPipeline("failing-pipeline", true, "bad_transformer", "my_sink");
         PipelineProperties goodPipeline = buildPipeline("good-pipeline", true, "good_transformer", "my_sink");
 
@@ -182,11 +184,50 @@ class AuditServiceTest {
         when(transformationService.transform(any(JsonNode.class), eq("good_transformer"))).thenReturn(Mono.just("{\"ok\":true}"));
         when(sinkService.sendToSink(any(JsonNode.class), eq("my_sink"), any())).thenReturn(Mono.just("ok"));
 
-        assertDoesNotThrow(() -> auditService.processAuditEvent(VALID_MESSAGE));
+        // Retryable failure must propagate so the broker redelivers / DLQs the event.
+        assertThrows(RetryableDeliveryException.class, () -> auditService.processAuditEvent(VALID_MESSAGE));
 
         // Good pipeline must still be processed
         verify(transformationService).transform(any(JsonNode.class), eq("good_transformer"));
         verify(sinkService).sendToSink(any(JsonNode.class), eq("my_sink"), eq(Map.of()));
+        // Claim released for redelivery; event NOT marked processed.
+        verify(idempotencyService).release("11111111-1111-1111-1111-111111111111");
+        verify(idempotencyService, never()).markProcessed(anyString());
+    }
+
+    @Test
+    @DisplayName("Poison failure (malformed transform output) does not fail the event")
+    void shouldNotFailEventOnPoison() {
+        PipelineProperties pipeline = buildPipeline("test-pipeline", true, "my_transformer", "my_sink");
+        when(auditFlowConfiguration.getPipelines()).thenReturn(List.of(pipeline));
+        when(idempotencyService.claim(anyString())).thenReturn(true);
+        when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
+        when(transformationService.transform(any(JsonNode.class), eq("my_transformer")))
+                .thenReturn(Mono.just("<<not valid json>>"));
+
+        // Poison is logged/counted but the event succeeds — retrying could never parse it.
+        assertDoesNotThrow(() -> auditService.processAuditEvent(VALID_MESSAGE));
+
+        verify(sinkService, never()).sendToSink(any(JsonNode.class), anyString(), any());
+        verify(idempotencyService).markProcessed("11111111-1111-1111-1111-111111111111");
+        verify(idempotencyService, never()).release(anyString());
+    }
+
+    @Test
+    @DisplayName("Pipeline already delivered on a prior attempt is skipped (no duplicate delivery)")
+    void shouldSkipAlreadyDeliveredPipelineOnRedelivery() {
+        PipelineProperties pipeline = buildPipeline("test-pipeline", true, "my_transformer", "my_sink");
+        when(auditFlowConfiguration.getPipelines()).thenReturn(List.of(pipeline));
+        when(idempotencyService.claim(anyString())).thenReturn(true);
+        when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
+        when(idempotencyService.isPipelineDone("11111111-1111-1111-1111-111111111111", "test-pipeline"))
+                .thenReturn(true);
+
+        auditService.processAuditEvent(VALID_MESSAGE);
+
+        // Already delivered → transformer/sink not called again.
+        verifyNoInteractions(transformationService, sinkService);
+        verify(idempotencyService).markProcessed("11111111-1111-1111-1111-111111111111");
     }
 
     // -------------------------------------------------------------------------

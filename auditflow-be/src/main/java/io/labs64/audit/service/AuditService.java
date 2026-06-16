@@ -3,6 +3,8 @@ package io.labs64.audit.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.labs64.audit.config.AuditFlowConfiguration;
+import io.labs64.audit.exception.PoisonDeliveryException;
+import io.labs64.audit.exception.RetryableDeliveryException;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
@@ -14,6 +16,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Service responsible for processing audit events through configured pipelines.
@@ -31,6 +34,7 @@ public class AuditService {
     private final IdempotencyService idempotencyService;
     private final QuarantineService quarantineService;
     private final ObjectMapper objectMapper;
+    private final MeterRegistry meterRegistry;
     private final Counter deduplicatedCounter;
 
     /**
@@ -39,6 +43,18 @@ public class AuditService {
      * I/O-bound, so concurrency is now expressed via Reactor's {@code flatMap} rather than threads.
      */
     private static final int PIPELINE_CONCURRENCY = 8;
+
+    /** Terminal disposition of a single pipeline for one event. */
+    private enum PipelineOutcome {
+        /** Delivered successfully (or skipped because a prior delivery already succeeded). */
+        SUCCESS,
+        /** Disabled or condition did not match — nothing to do. */
+        SKIPPED,
+        /** Permanent failure (4xx / malformed transform output); retrying cannot help. */
+        POISON,
+        /** Transient failure that survived HTTP retries / open circuit; event must be redelivered. */
+        RETRYABLE_FAILURE
+    }
 
     public AuditService(
             AuditFlowConfiguration auditFlowConfiguration,
@@ -56,6 +72,7 @@ public class AuditService {
         this.idempotencyService = idempotencyService;
         this.quarantineService = quarantineService;
         this.objectMapper = objectMapper;
+        this.meterRegistry = meterRegistry;
         this.deduplicatedCounter = meterRegistry.counter("auditflow.events.deduplicated");
     }
 
@@ -101,13 +118,14 @@ public class AuditService {
         }
 
         try {
-            dispatchToPipelines(eventJson);
+            dispatchToPipelines(eventJson, eventId);
             if (StringUtils.hasText(eventId)) {
                 idempotencyService.markProcessed(eventId);
             }
         } catch (RuntimeException e) {
-            // Event-level failure (not a single-pipeline failure): release the claim so an
-            // at-least-once redelivery can retry, then rethrow so the broker DLQs after retries.
+            // Event-level failure: release the claim so an at-least-once redelivery can retry,
+            // then rethrow so the broker retries and ultimately routes to the DLQ. Per-pipeline
+            // dedup keys ensure already-succeeded pipelines are NOT re-delivered on redelivery.
             if (StringUtils.hasText(eventId)) {
                 idempotencyService.release(eventId);
             }
@@ -115,7 +133,7 @@ public class AuditService {
         }
     }
 
-    private void dispatchToPipelines(JsonNode eventJson) {
+    private void dispatchToPipelines(JsonNode eventJson, String eventId) {
         List<AuditFlowConfiguration.PipelineProperties> pipelines = auditFlowConfiguration.getPipelines();
         if (pipelines == null || pipelines.isEmpty()) {
             logger.warn("No audit pipelines configured, skipping event processing.");
@@ -125,40 +143,84 @@ public class AuditService {
         // Fan a single event out across its matching pipelines concurrently via Reactor.
         // The Spring Cloud Stream Consumer contract is blocking, so we subscribe once here;
         // the transform/sink legs in between are fully non-blocking.
-        Flux.fromIterable(pipelines)
-                .flatMap(pipeline -> runPipeline(pipeline, eventJson), PIPELINE_CONCURRENCY)
-                .then()
+        List<PipelineOutcome> outcomes = Flux.fromIterable(pipelines)
+                .flatMap(pipeline -> runPipeline(pipeline, eventJson, eventId), PIPELINE_CONCURRENCY)
+                .collectList()
                 .block();
+
+        // If any pipeline ended in a retryable failure, fail the whole event so the broker
+        // redelivers and ultimately dead-letters it. Poison failures are logged/counted only —
+        // retrying or dead-lettering them would loop forever without ever succeeding.
+        long retryable = outcomes == null ? 0
+                : outcomes.stream().filter(o -> o == PipelineOutcome.RETRYABLE_FAILURE).count();
+        if (retryable > 0) {
+            throw new RetryableDeliveryException(retryable + " of " + outcomes.size()
+                    + " pipeline(s) failed with a retryable error; redelivering event"
+                    + (StringUtils.hasText(eventId) ? " eventId=" + eventId : ""));
+        }
     }
 
     /**
-     * Run a single pipeline reactively. Disabled or non-matching pipelines complete empty.
-     * A failure in one pipeline is logged and swallowed so the others still run — failure
-     * propagation to the broker DLQ is introduced separately (see plan item P0-1).
+     * Run a single pipeline reactively, returning its terminal {@link PipelineOutcome}. Disabled
+     * or non-matching pipelines are SKIPPED; a pipeline that already succeeded on a prior delivery
+     * (per-pipeline dedup key) is SUCCESS without re-delivering. Failures are classified into
+     * POISON (never retryable) or RETRYABLE_FAILURE and never escape this method.
      */
-    private Mono<Void> runPipeline(AuditFlowConfiguration.PipelineProperties pipeline, JsonNode eventJson) {
+    private Mono<PipelineOutcome> runPipeline(
+            AuditFlowConfiguration.PipelineProperties pipeline, JsonNode eventJson, String eventId) {
+        String name = pipeline.getName();
+
         if (!pipeline.isEnabled()) {
-            logger.debug("Pipeline '{}' is disabled, skipping processing.", pipeline.getName());
-            return Mono.empty();
+            logger.debug("Pipeline '{}' is disabled, skipping processing.", name);
+            return Mono.just(recordOutcome(name, PipelineOutcome.SKIPPED));
         }
         if (!conditionEvaluator.evaluate(eventJson, pipeline.getCondition())) {
-            logger.debug("Pipeline '{}' condition not matched, skipping processing.", pipeline.getName());
-            return Mono.empty();
+            logger.debug("Pipeline '{}' condition not matched, skipping processing.", name);
+            return Mono.just(recordOutcome(name, PipelineOutcome.SKIPPED));
+        }
+        // Per-pipeline dedup: on a redelivery, skip pipelines that already delivered successfully
+        // so a single failing pipeline does not cause duplicate deliveries to the healthy ones.
+        if (StringUtils.hasText(eventId) && idempotencyService.isPipelineDone(eventId, name)) {
+            logger.debug("Pipeline '{}' already delivered for eventId='{}' on a prior attempt, skipping.", name, eventId);
+            return Mono.just(recordOutcome(name, PipelineOutcome.SUCCESS));
         }
 
-        logger.debug("Start event processing using pipeline '{}'", pipeline.getName());
+        logger.debug("Start event processing using pipeline '{}'", name);
+        long startNanos = System.nanoTime();
         // Mono.defer ensures a synchronous throw during chain assembly (e.g. transformer/sink
-        // argument validation) surfaces as an onError signal for THIS pipeline only, so
-        // onErrorResume can isolate it rather than failing the whole event's fan-out.
+        // argument validation) surfaces as an onError signal for THIS pipeline only.
         return Mono.defer(() -> processPipeline(pipeline, eventJson))
-                .doOnSuccess(result -> logger.debug("Successfully processed event through pipeline '{}'. Sink result: {}",
-                        pipeline.getName(), result))
-                .onErrorResume(e -> {
-                    // One failing pipeline does not stop the others.
-                    logger.error("Error processing audit pipeline '{}': {}", pipeline.getName(), e.getMessage(), e);
-                    return Mono.empty();
-                })
-                .then();
+                .doOnNext(result -> logger.debug("Successfully processed event through pipeline '{}'. Sink result: {}",
+                        name, result))
+                .then(Mono.fromSupplier(() -> {
+                    if (StringUtils.hasText(eventId)) {
+                        idempotencyService.markPipelineDone(eventId, name);
+                    }
+                    return PipelineOutcome.SUCCESS;
+                }))
+                .onErrorResume(e -> Mono.just(classifyFailure(name, e)))
+                .map(outcome -> {
+                    meterRegistry.timer("auditflow.pipeline.duration", "pipeline", name, "outcome", outcome.name())
+                            .record(System.nanoTime() - startNanos, TimeUnit.NANOSECONDS);
+                    return recordOutcome(name, outcome);
+                });
+    }
+
+    /** Map a pipeline failure to an outcome, logging at the appropriate level. */
+    private PipelineOutcome classifyFailure(String pipelineName, Throwable e) {
+        if (e instanceof PoisonDeliveryException) {
+            logger.error("Pipeline '{}' produced a poison event (not retryable): {}", pipelineName, e.getMessage());
+            return PipelineOutcome.POISON;
+        }
+        // RetryableDeliveryException and anything unclassified — fail safe toward redelivery.
+        logger.error("Pipeline '{}' failed with a retryable error: {}", pipelineName, e.getMessage(), e);
+        return PipelineOutcome.RETRYABLE_FAILURE;
+    }
+
+    private PipelineOutcome recordOutcome(String pipelineName, PipelineOutcome outcome) {
+        meterRegistry.counter("auditflow.pipeline.outcomes", "pipeline", pipelineName, "outcome", outcome.name())
+                .increment();
+        return outcome;
     }
 
     /**
@@ -186,7 +248,8 @@ public class AuditService {
                     try {
                         return objectMapper.readTree(result);
                     } catch (Exception e) {
-                        throw new RuntimeException("Transformer '" + pipeline.getTransformer().getName()
+                        // Malformed transformer output will never parse on retry — treat as poison.
+                        throw new PoisonDeliveryException("Transformer '" + pipeline.getTransformer().getName()
                                 + "' returned invalid JSON: " + e.getMessage(), e);
                     }
                 });
