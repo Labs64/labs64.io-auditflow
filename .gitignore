@@ -53,7 +53,8 @@ env/
 
 # Local Docker Compose overrides (personal, not shared)
 docker-compose.override.yml
-/docs/
+docs/
 
 # graphify knowledge-graph output (local exploration aid, regenerable)
-/graphify-out/
+graphify-out/cache
+graphify-out/cost.json
