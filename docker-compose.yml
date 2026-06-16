@@ -34,6 +34,20 @@ services:
     networks:
       - auditflow-net
 
+  redis:
+    image: redis:7-alpine
+    container_name: auditflow-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - auditflow-net
+
   # ─────────────────────────────────────────────────────────────────────────────
   # Transformer service
   # ─────────────────────────────────────────────────────────────────────────────
@@ -89,6 +103,7 @@ services:
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
       SPRING_RABBITMQ_HOST: rabbitmq
+      REDIS_HOST: redis
       # Point discovery at the compose service names
       TRANSFORMER_LOCAL_URL: http://transformer:8081
       SINK_LOCAL_URL: http://sink:8082
@@ -105,6 +120,8 @@ services:
         -Dspring.rabbitmq.host=rabbitmq
     depends_on:
       rabbitmq:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       transformer:
         condition: service_healthy
