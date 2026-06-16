@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.OffsetDateTime;
+import java.util.UUID;
 
 /**
  * REST Controller for handling audit event publication.
@@ -40,7 +41,10 @@ public class AuditEventController implements AuditEventApi {
      */
     @Override
     public ResponseEntity<String> publishEvent(@Valid AuditEvent event) {
-        String eventId = event.getEventId() != null ? event.getEventId().toString() : "unknown";
+        if (event.getEventId() == null) {
+            event.setEventId(UUID.randomUUID());
+        }
+        String eventId = event.getEventId().toString();
         logger.debug("Received request to publish audit event; eventId={}", eventId);
 
         event.setTimestamp(OffsetDateTime.now());
