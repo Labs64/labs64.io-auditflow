@@ -224,35 +224,57 @@ public class AuditService {
     }
 
     /**
-     * Process a single pipeline: transform and then send to sink.
+     * Process a single pipeline: apply the transformer stage(s) in order, then deliver to the
+     * sink (falling back to the configured fallback sink on a retryable primary-sink failure).
      */
     private Mono<String> processPipeline(AuditFlowConfiguration.PipelineProperties pipeline, JsonNode eventJson) {
-        return transformMessage(pipeline, eventJson)
-                .flatMap(transformed -> sinkService.sendToSink(
-                        transformed,
-                        pipeline.getSink().getName(),
-                        pipeline.getSink().getProperties()));
+        return applyTransformers(pipeline, eventJson)
+                .flatMap(transformed -> sendWithFallback(pipeline.getSink(), pipeline.getName(), transformed));
     }
 
     /**
-     * Transform the event using the configured transformer. A pipeline with no transformer
-     * passes the original message through unchanged.
+     * Apply the pipeline's transformer stages in order (multi-stage chaining). A pipeline with no
+     * transformer passes the original message through unchanged.
      */
-    private Mono<JsonNode> transformMessage(AuditFlowConfiguration.PipelineProperties pipeline, JsonNode eventJson) {
-        if (pipeline.getTransformer() == null || !StringUtils.hasText(pipeline.getTransformer().getName())) {
-            logger.debug("No transformer configured for pipeline '{}', using original message", pipeline.getName());
-            return Mono.just(eventJson);
+    private Mono<JsonNode> applyTransformers(AuditFlowConfiguration.PipelineProperties pipeline, JsonNode eventJson) {
+        Mono<JsonNode> chain = Mono.just(eventJson);
+        for (AuditFlowConfiguration.TransformerProperties stage : pipeline.getEffectiveTransformers()) {
+            if (stage == null || !StringUtils.hasText(stage.getName())) {
+                continue;
+            }
+            String transformerName = stage.getName();
+            chain = chain.flatMap(current -> transformationService.transform(current, transformerName)
+                    .map(result -> parseTransformerOutput(transformerName, result)));
         }
-        return transformationService.transform(eventJson, pipeline.getTransformer().getName())
-                .map(result -> {
-                    try {
-                        return objectMapper.readTree(result);
-                    } catch (Exception e) {
-                        // Malformed transformer output will never parse on retry — treat as poison.
-                        throw new PoisonDeliveryException("Transformer '" + pipeline.getTransformer().getName()
-                                + "' returned invalid JSON: " + e.getMessage(), e);
-                    }
-                });
+        return chain;
+    }
+
+    private JsonNode parseTransformerOutput(String transformerName, String result) {
+        try {
+            return objectMapper.readTree(result);
+        } catch (Exception e) {
+            // Malformed transformer output will never parse on retry — treat as poison.
+            throw new PoisonDeliveryException("Transformer '" + transformerName
+                    + "' returned invalid JSON: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Deliver to the primary sink; on a <em>retryable</em> failure, attempt the configured
+     * fallback sink before giving up. A poison failure is not retried on the fallback.
+     */
+    private Mono<String> sendWithFallback(AuditFlowConfiguration.SinkProperties sink, String pipelineName, JsonNode event) {
+        Mono<String> primary = sinkService.sendToSink(event, sink.getName(), sink.getProperties());
+
+        AuditFlowConfiguration.SinkProperties fallback = sink.getFallback();
+        if (fallback == null || !StringUtils.hasText(fallback.getName())) {
+            return primary;
+        }
+        return primary.onErrorResume(RetryableDeliveryException.class, e -> {
+            logger.warn("Pipeline '{}' primary sink '{}' failed ({}); attempting fallback sink '{}'",
+                    pipelineName, sink.getName(), e.getMessage(), fallback.getName());
+            return sinkService.sendToSink(event, fallback.getName(), fallback.getProperties());
+        });
     }
 
     /**

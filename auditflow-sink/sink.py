@@ -132,3 +132,22 @@ async def list_sinks():
         },
         status_code=200
     )
+
+
+@app.get('/registry')
+async def registry_details():
+    """Detailed registry view: per-sink version, description, and documented properties."""
+    return JSONResponse(
+        content={"sinks": registry.details(), "errors": registry.errors()},
+        status_code=200
+    )
+
+
+@app.post('/registry/reload')
+async def registry_reload():
+    """Re-scan the sink directories (hot-reload of newly mounted bootstrap modules)."""
+    registry.reload()
+    return JSONResponse(
+        content={"reloaded": True, "count": len(registry.list_available()), "errors": registry.errors()},
+        status_code=200
+    )

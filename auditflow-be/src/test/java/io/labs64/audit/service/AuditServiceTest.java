@@ -14,6 +14,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -271,6 +272,71 @@ class AuditServiceTest {
 
         verifyNoInteractions(transformationService, sinkService, conditionEvaluator);
         verify(idempotencyService, never()).markProcessed(anyString());
+    }
+
+    // -------------------------------------------------------------------------
+    // Declarative routing: multi-stage transforms + fallback sink (P2-6)
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("Multi-stage transformers are chained in order, feeding each stage's output forward")
+    void shouldChainMultipleTransformersInOrder() {
+        PipelineProperties pipeline = new PipelineProperties();
+        pipeline.setName("multi");
+        pipeline.setEnabled(true);
+        pipeline.setCondition(new ConditionProperties());
+        TransformerProperties t1 = new TransformerProperties();
+        t1.setName("t1");
+        TransformerProperties t2 = new TransformerProperties();
+        t2.setName("t2");
+        pipeline.setTransformers(List.of(t1, t2));
+        SinkProperties sink = new SinkProperties();
+        sink.setName("my_sink");
+        sink.setProperties(Map.of());
+        pipeline.setSink(sink);
+
+        when(auditFlowConfiguration.getPipelines()).thenReturn(List.of(pipeline));
+        when(idempotencyService.claim(anyString())).thenReturn(true);
+        when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
+        when(transformationService.transform(any(JsonNode.class), eq("t1"))).thenReturn(Mono.just("{\"stage\":1}"));
+        when(transformationService.transform(any(JsonNode.class), eq("t2"))).thenReturn(Mono.just("{\"stage\":2}"));
+        when(sinkService.sendToSink(any(JsonNode.class), eq("my_sink"), any())).thenReturn(Mono.just("ok"));
+
+        auditService.processAuditEvent(VALID_MESSAGE);
+
+        // Stage 2 must receive stage 1's output.
+        ArgumentCaptor<JsonNode> stage2Input = ArgumentCaptor.forClass(JsonNode.class);
+        verify(transformationService).transform(stage2Input.capture(), eq("t2"));
+        org.junit.jupiter.api.Assertions.assertEquals(1, stage2Input.getValue().path("stage").asInt());
+        // Sink receives stage 2's output.
+        ArgumentCaptor<JsonNode> sinkInput = ArgumentCaptor.forClass(JsonNode.class);
+        verify(sinkService).sendToSink(sinkInput.capture(), eq("my_sink"), any());
+        org.junit.jupiter.api.Assertions.assertEquals(2, sinkInput.getValue().path("stage").asInt());
+    }
+
+    @Test
+    @DisplayName("Retryable primary-sink failure falls back to the configured fallback sink")
+    void shouldUseFallbackSinkOnRetryableFailure() {
+        PipelineProperties pipeline = buildPipeline("fb", true, "my_transformer", "primary_sink");
+        SinkProperties fallback = new SinkProperties();
+        fallback.setName("fallback_sink");
+        fallback.setProperties(Map.of());
+        pipeline.getSink().setFallback(fallback);
+
+        when(auditFlowConfiguration.getPipelines()).thenReturn(List.of(pipeline));
+        when(idempotencyService.claim(anyString())).thenReturn(true);
+        when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
+        when(transformationService.transform(any(JsonNode.class), eq("my_transformer"))).thenReturn(Mono.just("{\"x\":1}"));
+        when(sinkService.sendToSink(any(JsonNode.class), eq("primary_sink"), any()))
+                .thenReturn(Mono.error(new RetryableDeliveryException("primary down")));
+        when(sinkService.sendToSink(any(JsonNode.class), eq("fallback_sink"), any())).thenReturn(Mono.just("ok-fallback"));
+
+        // Fallback succeeds → event is processed, not failed.
+        assertDoesNotThrow(() -> auditService.processAuditEvent(VALID_MESSAGE));
+
+        verify(sinkService).sendToSink(any(JsonNode.class), eq("primary_sink"), any());
+        verify(sinkService).sendToSink(any(JsonNode.class), eq("fallback_sink"), any());
+        verify(idempotencyService).markProcessed("11111111-1111-1111-1111-111111111111");
     }
 
     // -------------------------------------------------------------------------

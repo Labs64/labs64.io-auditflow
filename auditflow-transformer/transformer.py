@@ -115,3 +115,22 @@ async def list_transformers():
         },
         status_code=200
     )
+
+
+@app.get('/registry')
+async def registry_details():
+    """Detailed registry view: per-transformer version, description, and documented properties."""
+    return JSONResponse(
+        content={"transformers": registry.details(), "errors": registry.errors()},
+        status_code=200
+    )
+
+
+@app.post('/registry/reload')
+async def registry_reload():
+    """Re-scan the transformer directories (hot-reload of newly mounted bootstrap modules)."""
+    registry.reload()
+    return JSONResponse(
+        content={"reloaded": True, "count": len(registry.list_available()), "errors": registry.errors()},
+        status_code=200
+    )

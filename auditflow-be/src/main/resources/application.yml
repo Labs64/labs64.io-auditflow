@@ -142,6 +142,19 @@ auditflow:
       enabled: true
       max-attempts: 3        # retries after the initial try (total tries = 1 + max-attempts)
       min-backoff: PT0.2S    # grows exponentially with jitter on each subsequent retry
+  # PII de-identification applied at ingest, BEFORE publish, so raw PII never enters the broker.
+  # Global (not per-pipeline). Field paths use dot/array notation. Disabled by default.
+  redaction:
+    enabled: false
+    mask: "***"
+    rules: []
+#    rules:
+#      - field: 'actor'
+#        action: 'hash'           # mask | hash | drop
+#      - field: 'extra.userEmail'
+#        action: 'mask'
+#      - field: 'extra.ssn'
+#        action: 'drop'
 #  pipelines:
 #  - name: 'logs'
 #    enabled: true

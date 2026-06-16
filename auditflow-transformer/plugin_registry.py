@@ -69,6 +69,10 @@ class PluginRegistry:
             logger.warning("Plugins excluded due to errors: %s", self._errors)
         return self
 
+    def reload(self):
+        """Re-run discovery (hot-reload of newly mounted bootstrap plugins). Returns self."""
+        return self.discover()
+
     def _load_one(self, plugin_id, kind, rel_path):
         try:
             module = importlib.import_module(plugin_id)
@@ -78,6 +82,10 @@ class PluginRegistry:
                     f"module does not define a callable '{self.entry_point}(...)'")
             self._plugins[plugin_id] = {
                 "callable": entry, "kind": kind, "path": rel_path, "module": module,
+                # Optional SDK metadata — surfaced by the registry, never required.
+                "version": str(getattr(module, "__version__", "0.0.0")),
+                "description": (module.__doc__ or "").strip().splitlines()[0] if module.__doc__ else "",
+                "properties": getattr(module, "PROPERTIES", None),
             }
             self._errors.pop(plugin_id, None)
         except Exception as exc:  # noqa: BLE001 - any failure excludes the plugin, never crashes
@@ -100,6 +108,20 @@ class PluginRegistry:
         """List the allow-listed plugins (id, type, path)."""
         return [
             {"id": pid, "type": meta["kind"], "path": meta["path"]}
+            for pid, meta in sorted(self._plugins.items())
+        ]
+
+    def details(self):
+        """Full registry view including optional SDK metadata (version, description, properties)."""
+        return [
+            {
+                "id": pid,
+                "type": meta["kind"],
+                "path": meta["path"],
+                "version": meta["version"],
+                "description": meta["description"],
+                "properties": meta["properties"],
+            }
             for pid, meta in sorted(self._plugins.items())
         ]
 

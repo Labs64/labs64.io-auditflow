@@ -7,6 +7,14 @@ Useful for debugging and development.
 import logging
 import json
 
+__version__ = "1.0.0"
+
+# Documented configuration properties (surfaced via GET /registry).
+PROPERTIES = {
+    "log-level": "Log level: DEBUG/INFO/WARNING/ERROR (default: INFO)",
+    "format": "Output format: 'json' or 'text' (default: json)",
+}
+
 logger = logging.getLogger(__name__)
 
 

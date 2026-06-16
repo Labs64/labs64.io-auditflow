@@ -62,3 +62,28 @@ def test_import_error_is_excluded_without_crashing(plugin_dir):
 
     assert "broken_plugin" in registry.errors()
     assert "broken_plugin" not in [p["id"] for p in registry.list_available()]
+
+
+def test_details_captures_optional_metadata(plugin_dir):
+    _write(plugin_dir, "good_plugin", textwrap.dedent('''
+        """A demo plugin."""
+        __version__ = "2.3.4"
+        PROPERTIES = {"key": "a documented property"}
+        def run(x):
+            return x
+    '''))
+    registry = _registry(plugin_dir)
+    detail = next(d for d in registry.details() if d["id"] == "good_plugin")
+
+    assert detail["version"] == "2.3.4"
+    assert detail["description"] == "A demo plugin."
+    assert detail["properties"] == {"key": "a documented property"}
+
+
+def test_reload_picks_up_new_plugin(plugin_dir):
+    registry = _registry(plugin_dir)
+    assert "late_plugin" not in [p["id"] for p in registry.list_available()]
+
+    _write(plugin_dir, "late_plugin", "def run(x):\n    return x\n")
+    registry.reload()
+    assert "late_plugin" in [p["id"] for p in registry.list_available()]

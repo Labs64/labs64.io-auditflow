@@ -34,6 +34,7 @@ public class AuditFlowConfiguration {
         private boolean enabled;
         private ConditionProperties condition;
         private TransformerProperties transformer;
+        private List<TransformerProperties> transformers = new ArrayList<>();
         private SinkProperties sink;
 
         public String getName() {
@@ -66,6 +67,29 @@ public class AuditFlowConfiguration {
 
         public void setTransformer(TransformerProperties transformer) {
             this.transformer = transformer;
+        }
+
+        public List<TransformerProperties> getTransformers() {
+            return transformers;
+        }
+
+        public void setTransformers(List<TransformerProperties> transformers) {
+            this.transformers = transformers;
+        }
+
+        /**
+         * The ordered transformer stages to apply. Backward compatible: the multi-stage
+         * {@code transformers} list takes precedence; otherwise the singular {@code transformer}
+         * is used as a single stage; if neither is set the event passes through unchanged.
+         */
+        public List<TransformerProperties> getEffectiveTransformers() {
+            if (transformers != null && !transformers.isEmpty()) {
+                return transformers;
+            }
+            if (transformer != null) {
+                return List.of(transformer);
+            }
+            return List.of();
         }
 
         public SinkProperties getSink() {
@@ -168,6 +192,8 @@ public class AuditFlowConfiguration {
     public static class SinkProperties {
         private String name;
         private Map<String, String> properties;
+        /** Optional fallback sink, attempted when the primary sink fails with a retryable error. */
+        private SinkProperties fallback;
 
         public String getName() {
             return name;
@@ -184,6 +210,14 @@ public class AuditFlowConfiguration {
 
         public void setProperties(Map<String, String> properties) {
             this.properties = properties;
+        }
+
+        public SinkProperties getFallback() {
+            return fallback;
+        }
+
+        public void setFallback(SinkProperties fallback) {
+            this.fallback = fallback;
         }
     }
 
