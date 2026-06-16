@@ -121,13 +121,13 @@ class AuditServiceTest {
         when(auditFlowConfiguration.getPipelines()).thenReturn(List.of(pipeline));
         when(idempotencyService.claim(anyString())).thenReturn(true);
         when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
-        when(transformationService.transform(VALID_MESSAGE, "my_transformer")).thenReturn("{\"transformed\":true}");
-        when(sinkService.sendToSink(anyString(), eq("my_sink"), any())).thenReturn("ok");
+        when(transformationService.transform(any(JsonNode.class), eq("my_transformer"))).thenReturn("{\"transformed\":true}");
+        when(sinkService.sendToSink(any(JsonNode.class), eq("my_sink"), any())).thenReturn("ok");
 
         auditService.processAuditEvent(VALID_MESSAGE);
 
-        verify(transformationService).transform(VALID_MESSAGE, "my_transformer");
-        verify(sinkService).sendToSink("{\"transformed\":true}", "my_sink", Map.of());
+        verify(transformationService).transform(any(JsonNode.class), eq("my_transformer"));
+        verify(sinkService).sendToSink(any(JsonNode.class), eq("my_sink"), eq(Map.of()));
     }
 
     // -------------------------------------------------------------------------
@@ -176,16 +176,16 @@ class AuditServiceTest {
         when(auditFlowConfiguration.getPipelines()).thenReturn(List.of(failingPipeline, goodPipeline));
         when(idempotencyService.claim(anyString())).thenReturn(true);
         when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
-        when(transformationService.transform(VALID_MESSAGE, "bad_transformer"))
+        when(transformationService.transform(any(JsonNode.class), eq("bad_transformer")))
                 .thenThrow(new RuntimeException("transformer unavailable"));
-        when(transformationService.transform(VALID_MESSAGE, "good_transformer")).thenReturn("{\"ok\":true}");
-        when(sinkService.sendToSink(anyString(), eq("my_sink"), any())).thenReturn("ok");
+        when(transformationService.transform(any(JsonNode.class), eq("good_transformer"))).thenReturn("{\"ok\":true}");
+        when(sinkService.sendToSink(any(JsonNode.class), eq("my_sink"), any())).thenReturn("ok");
 
         assertDoesNotThrow(() -> auditService.processAuditEvent(VALID_MESSAGE));
 
         // Good pipeline must still be processed
-        verify(transformationService).transform(VALID_MESSAGE, "good_transformer");
-        verify(sinkService).sendToSink("{\"ok\":true}", "my_sink", Map.of());
+        verify(transformationService).transform(any(JsonNode.class), eq("good_transformer"));
+        verify(sinkService).sendToSink(any(JsonNode.class), eq("my_sink"), eq(Map.of()));
     }
 
     // -------------------------------------------------------------------------
@@ -199,12 +199,12 @@ class AuditServiceTest {
         when(auditFlowConfiguration.getPipelines()).thenReturn(List.of(pipeline));
         when(idempotencyService.claim(anyString())).thenReturn(true);
         when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
-        when(sinkService.sendToSink(anyString(), eq("my_sink"), any())).thenReturn("ok");
+        when(sinkService.sendToSink(any(JsonNode.class), eq("my_sink"), any())).thenReturn("ok");
 
         auditService.processAuditEvent(VALID_MESSAGE);
 
         verifyNoInteractions(transformationService);
-        verify(sinkService).sendToSink(VALID_MESSAGE, "my_sink", Map.of());
+        verify(sinkService).sendToSink(any(JsonNode.class), eq("my_sink"), eq(Map.of()));
     }
 
     // -------------------------------------------------------------------------

@@ -33,7 +33,11 @@ class TransformationServiceTest {
 
     @BeforeEach
     void setUp() {
-        transformationService = new TransformationService(transformerDiscovery, objectMapper);
+        transformationService = new TransformationService(transformerDiscovery);
+    }
+
+    private com.fasterxml.jackson.databind.JsonNode node(String json) {
+        try { return objectMapper.readTree(json); } catch (Exception e) { throw new RuntimeException(e); }
     }
 
     // -------------------------------------------------------------------------
@@ -46,7 +50,7 @@ class TransformationServiceTest {
         when(transformerDiscovery.getTransformerUrl()).thenReturn(null);
 
         IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> transformationService.transform("{\"key\":\"value\"}", "my_transformer"));
+                () -> transformationService.transform(node("{\"key\":\"value\"}"), "my_transformer"));
 
         assertTrue(ex.getMessage().contains("Transformer URL is empty or null"));
     }
@@ -57,27 +61,9 @@ class TransformationServiceTest {
         when(transformerDiscovery.getTransformerUrl()).thenReturn("");
 
         IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> transformationService.transform("{\"key\":\"value\"}", "my_transformer"));
+                () -> transformationService.transform(node("{\"key\":\"value\"}"), "my_transformer"));
 
         assertTrue(ex.getMessage().contains("Transformer URL is empty or null"));
-    }
-
-    // -------------------------------------------------------------------------
-    // Invalid JSON input
-    // -------------------------------------------------------------------------
-
-    @Test
-    @DisplayName("transform() throws RuntimeException wrapping IllegalArgumentException for invalid JSON")
-    void shouldThrowForInvalidJson() {
-        when(transformerDiscovery.getTransformerUrl()).thenReturn("http://localhost:8081");
-
-        RuntimeException ex = assertThrows(RuntimeException.class,
-                () -> transformationService.transform("not-valid-json", "my_transformer"));
-
-        // The service wraps the IllegalArgumentException in a RuntimeException
-        assertTrue(ex.getMessage().contains("Transformation failed") ||
-                        ex.getCause() instanceof IllegalArgumentException,
-                "Expected RuntimeException wrapping an IllegalArgumentException for invalid JSON");
     }
 
     // -------------------------------------------------------------------------
@@ -107,7 +93,7 @@ class TransformationServiceTest {
         // Inject the mock WebClient into the cache
         transformationService.getWebClientCache().put("http://localhost:8081", mockWebClient);
 
-        String result = transformationService.transform("{\"key\":\"value\"}", "my_transformer");
+        String result = transformationService.transform(node("{\"key\":\"value\"}"), "my_transformer");
 
         assertEquals("{\"transformed\":true}", result);
         verify(requestBodyUriSpec).uri("/transform/my_transformer");
@@ -136,7 +122,7 @@ class TransformationServiceTest {
         transformationService.getWebClientCache().put("http://localhost:8081", mockWebClient);
 
         RuntimeException ex = assertThrows(RuntimeException.class,
-                () -> transformationService.transform("{\"key\":\"value\"}", "my_transformer"));
+                () -> transformationService.transform(node("{\"key\":\"value\"}"), "my_transformer"));
 
         assertTrue(ex.getMessage().contains("Transformation failed"),
                 "Exception message should contain 'Transformation failed'");

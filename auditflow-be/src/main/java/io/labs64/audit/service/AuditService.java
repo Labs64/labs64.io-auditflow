@@ -90,7 +90,7 @@ public class AuditService {
         }
 
         try {
-            dispatchToPipelines(message, eventJson);
+            dispatchToPipelines(eventJson);
             if (StringUtils.hasText(eventId)) {
                 idempotencyService.markProcessed(eventId);
             }
@@ -104,7 +104,7 @@ public class AuditService {
         }
     }
 
-    private void dispatchToPipelines(String message, JsonNode eventJson) {
+    private void dispatchToPipelines(JsonNode eventJson) {
         if (auditFlowConfiguration.getPipelines() == null || auditFlowConfiguration.getPipelines().isEmpty()) {
             logger.warn("No audit pipelines configured, skipping event processing.");
             return;
@@ -120,7 +120,7 @@ public class AuditService {
                 continue;
             }
             try {
-                processPipeline(pipeline, message);
+                processPipeline(pipeline, eventJson);
             } catch (Exception e) {
                 // One failing pipeline does not stop the others (unchanged behaviour).
                 logger.error("Error processing audit pipeline '{}': {}", pipeline.getName(), e.getMessage(), e);
@@ -131,33 +131,37 @@ public class AuditService {
     /**
      * Process a single pipeline: transform and then send to sink.
      */
-    private void processPipeline(AuditFlowConfiguration.PipelineProperties pipeline, String message) throws Exception {
+    private void processPipeline(AuditFlowConfiguration.PipelineProperties pipeline, JsonNode eventJson) throws Exception {
         logger.debug("Start event processing using pipeline '{}'", pipeline.getName());
 
-        // 1. Transform message using the configured transformer
-        String transformedMessage = transformMessage(pipeline, message);
+        // 1. Transform event using the configured transformer
+        JsonNode transformed = transformMessage(pipeline, eventJson);
 
         // 2. Send to sink service
         String sinkResult = sinkService.sendToSink(
-                transformedMessage,
+                transformed,
                 pipeline.getSink().getName(),
-                pipeline.getSink().getProperties()
-        );
+                pipeline.getSink().getProperties());
 
         logger.debug("Successfully processed event through pipeline '{}'. Sink result: {}",
                 pipeline.getName(), sinkResult);
     }
 
     /**
-     * Transform the message using the configured transformer.
+     * Transform the event using the configured transformer.
      */
-    private String transformMessage(AuditFlowConfiguration.PipelineProperties pipeline, String message) {
+    private JsonNode transformMessage(AuditFlowConfiguration.PipelineProperties pipeline, JsonNode eventJson) {
         if (pipeline.getTransformer() == null || !StringUtils.hasText(pipeline.getTransformer().getName())) {
             logger.debug("No transformer configured for pipeline '{}', using original message", pipeline.getName());
-            return message;
+            return eventJson;
         }
-
-        return transformationService.transform(message, pipeline.getTransformer().getName());
+        String result = transformationService.transform(eventJson, pipeline.getTransformer().getName());
+        try {
+            return objectMapper.readTree(result);
+        } catch (Exception e) {
+            throw new RuntimeException("Transformer '" + pipeline.getTransformer().getName()
+                    + "' returned invalid JSON: " + e.getMessage(), e);
+        }
     }
 
     /**

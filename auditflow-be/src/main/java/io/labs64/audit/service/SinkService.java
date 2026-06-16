@@ -1,7 +1,6 @@
 package io.labs64.audit.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import io.netty.channel.ChannelOption;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,12 +25,10 @@ public class SinkService {
     private static final Logger logger = LoggerFactory.getLogger(SinkService.class);
 
     private final SinkDiscovery sinkDiscovery;
-    private final ObjectMapper objectMapper;
     private final Map<String, WebClient> webClientCache = new ConcurrentHashMap<>();
 
-    public SinkService(SinkDiscovery sinkDiscovery, ObjectMapper objectMapper) {
+    public SinkService(SinkDiscovery sinkDiscovery) {
         this.sinkDiscovery = sinkDiscovery;
-        this.objectMapper = objectMapper;
     }
 
     /** Package-private accessor for testing — allows injecting mock WebClient instances. */
@@ -42,12 +39,12 @@ public class SinkService {
     /**
      * Send a transformed event to a sink for processing.
      *
-     * @param message    The transformed event message (JSON string)
+     * @param message    The transformed event (parsed JSON)
      * @param sinkName   The name of the sink to use
      * @param properties Configuration properties for the sink
      * @return Processing result from the sink
      */
-    public String sendToSink(String message, String sinkName, Map<String, String> properties) {
+    public String sendToSink(JsonNode message, String sinkName, Map<String, String> properties) {
         logger.debug("Send event to sink '{}'", sinkName);
 
         if (sinkName == null || !sinkName.matches("[a-zA-Z0-9_]+")) {
@@ -75,23 +72,15 @@ public class SinkService {
     /**
      * Send an event to a specific sink via HTTP POST.
      *
-     * @param message    The event message (JSON string)
+     * @param message    The event (parsed JSON)
      * @param sinkUrl    The base URL of the sink service
      * @param sinkName   The name of the sink
      * @param properties Configuration properties
      * @return Response from the sink
      */
-    private String sendEventToSink(String message, String sinkUrl, String sinkName, Map<String, String> properties) {
+    private String sendEventToSink(JsonNode message, String sinkUrl, String sinkName, Map<String, String> properties) {
         Map<String, Object> requestBody = new HashMap<>();
-
-        try {
-            // Parse the JSON string into a Map to preserve the actual structure
-            Object eventData = objectMapper.readValue(message, Object.class);
-            requestBody.put("event_data", eventData);
-        } catch (JsonProcessingException e) {
-            throw new IllegalArgumentException("Invalid JSON message for sink: " + e.getMessage(), e);
-        }
-
+        requestBody.put("event_data", message);
         requestBody.put("properties", properties != null ? properties : new HashMap<>());
 
         logger.trace("Sending event to sink '{}' at URL '{}'", sinkName, sinkUrl);

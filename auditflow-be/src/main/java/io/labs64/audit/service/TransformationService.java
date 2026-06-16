@@ -1,6 +1,6 @@
 package io.labs64.audit.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import io.netty.channel.ChannelOption;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,12 +20,10 @@ public class TransformationService {
     private static final Logger logger = LoggerFactory.getLogger(TransformationService.class);
 
     private final TransformerDiscovery transformerDiscovery;
-    private final ObjectMapper objectMapper;
     private final Map<String, WebClient> webClientCache = new ConcurrentHashMap<>();
 
-    public TransformationService(TransformerDiscovery transformerDiscovery, ObjectMapper objectMapper) {
+    public TransformationService(TransformerDiscovery transformerDiscovery) {
         this.transformerDiscovery = transformerDiscovery;
-        this.objectMapper = objectMapper;
     }
 
     /** Package-private accessor for testing — allows injecting mock WebClient instances. */
@@ -33,7 +31,7 @@ public class TransformationService {
         return webClientCache;
     }
 
-    public String transform(String message, String transformerName) {
+    public String transform(JsonNode message, String transformerName) {
         logger.debug("Trigger transformer '{}' process for message", transformerName);
 
         if (transformerName == null || !transformerName.matches("[a-zA-Z0-9_]+")) {
@@ -59,24 +57,16 @@ public class TransformationService {
     }
 
     /**
-     * Transforms a JSON string by sending it to a specific transformer pod URL.
+     * Transforms an already-parsed JSON event by sending it to a specific transformer pod URL.
      *
-     * @param message         The JSON string to transform.
+     * @param message         The parsed JSON event to transform.
      * @param transformerUrl  The full URL of the specific transformer pod (e.g., "http://&lt;pod-ip&gt;:8080").
      *                        This should not include the path.
      * @param transformerName The name of the transformer to use.
      *                        This is appended to the URL path for the transformation request.
      * @return The transformed string.
      */
-    private String transformMessage(String message, String transformerUrl, String transformerName) {
-        Object requestBody;
-        try {
-            // Parse JSON string to Object to ensure proper serialization
-            requestBody = objectMapper.readValue(message, Object.class);
-        } catch (Exception e) {
-            throw new IllegalArgumentException("Invalid JSON message for transformer: " + e.getMessage(), e);
-        }
-
+    private String transformMessage(JsonNode message, String transformerUrl, String transformerName) {
         WebClient client = webClientCache.computeIfAbsent(transformerUrl, u ->
                 WebClient.builder()
                         .clientConnector(new ReactorClientHttpConnector(
@@ -91,7 +81,7 @@ public class TransformationService {
         return client.post()
                 .uri("/transform/" + transformerName)
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(requestBody)
+                .bodyValue(message)
                 .retrieve()
                 .bodyToMono(String.class)
                 .block();

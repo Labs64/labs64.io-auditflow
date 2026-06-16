@@ -32,7 +32,11 @@ class SinkServiceTest {
 
     @BeforeEach
     void setUp() {
-        sinkService = new SinkService(sinkDiscovery, objectMapper);
+        sinkService = new SinkService(sinkDiscovery);
+    }
+
+    private com.fasterxml.jackson.databind.JsonNode node(String json) {
+        try { return objectMapper.readTree(json); } catch (Exception e) { throw new RuntimeException(e); }
     }
 
     // -------------------------------------------------------------------------
@@ -45,7 +49,7 @@ class SinkServiceTest {
         when(sinkDiscovery.getSinkUrl()).thenReturn(null);
 
         IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> sinkService.sendToSink("{\"key\":\"value\"}", "my_sink", Map.of()));
+                () -> sinkService.sendToSink(node("{\"key\":\"value\"}"), "my_sink", Map.of()));
 
         assertTrue(ex.getMessage().contains("Sink service URL is empty or null"));
     }
@@ -56,26 +60,9 @@ class SinkServiceTest {
         when(sinkDiscovery.getSinkUrl()).thenReturn("");
 
         IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> sinkService.sendToSink("{\"key\":\"value\"}", "my_sink", Map.of()));
+                () -> sinkService.sendToSink(node("{\"key\":\"value\"}"), "my_sink", Map.of()));
 
         assertTrue(ex.getMessage().contains("Sink service URL is empty or null"));
-    }
-
-    // -------------------------------------------------------------------------
-    // Invalid JSON input
-    // -------------------------------------------------------------------------
-
-    @Test
-    @DisplayName("sendToSink() throws RuntimeException wrapping IllegalArgumentException for invalid JSON")
-    void shouldThrowForInvalidJson() {
-        when(sinkDiscovery.getSinkUrl()).thenReturn("http://localhost:8082");
-
-        RuntimeException ex = assertThrows(RuntimeException.class,
-                () -> sinkService.sendToSink("not-valid-json", "my_sink", Map.of()));
-
-        assertTrue(ex.getMessage().contains("Failed to send event to sink") ||
-                        ex.getCause() instanceof IllegalArgumentException,
-                "Expected RuntimeException wrapping an IllegalArgumentException for invalid JSON");
     }
 
     // -------------------------------------------------------------------------
@@ -92,7 +79,7 @@ class SinkServiceTest {
         sinkService.getWebClientCache().put("http://localhost:8082", mockWebClient);
 
         // Should not throw NullPointerException
-        assertDoesNotThrow(() -> sinkService.sendToSink("{\"key\":\"value\"}", "my_sink", null));
+        assertDoesNotThrow(() -> sinkService.sendToSink(node("{\"key\":\"value\"}"), "my_sink", null));
     }
 
     // -------------------------------------------------------------------------
@@ -108,7 +95,7 @@ class SinkServiceTest {
         WebClient mockWebClient = buildMockWebClientReturning("{\"status\":\"ok\"}");
         sinkService.getWebClientCache().put("http://localhost:8082", mockWebClient);
 
-        String result = sinkService.sendToSink("{\"key\":\"value\"}", "my_sink", Map.of("prop", "val"));
+        String result = sinkService.sendToSink(node("{\"key\":\"value\"}"), "my_sink", Map.of("prop", "val"));
 
         assertEquals("{\"status\":\"ok\"}", result);
     }
@@ -136,7 +123,7 @@ class SinkServiceTest {
         sinkService.getWebClientCache().put("http://localhost:8082", mockWebClient);
 
         RuntimeException ex = assertThrows(RuntimeException.class,
-                () -> sinkService.sendToSink("{\"key\":\"value\"}", "my_sink", Map.of()));
+                () -> sinkService.sendToSink(node("{\"key\":\"value\"}"), "my_sink", Map.of()));
 
         assertTrue(ex.getMessage().contains("Failed to send event to sink"),
                 "Exception message should contain 'Failed to send event to sink'");
