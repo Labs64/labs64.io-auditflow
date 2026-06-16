@@ -53,3 +53,4 @@ env/
 
 # Local Docker Compose overrides (personal, not shared)
 docker-compose.override.yml
+/docs/
