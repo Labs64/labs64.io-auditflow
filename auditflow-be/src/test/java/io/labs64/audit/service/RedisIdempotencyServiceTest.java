@@ -17,7 +17,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
-class IdempotencyServiceTest {
+class RedisIdempotencyServiceTest {
 
     @Mock
     private StringRedisTemplate redisTemplate;
@@ -25,11 +25,11 @@ class IdempotencyServiceTest {
     @Mock
     private ValueOperations<String, String> valueOps;
 
-    private IdempotencyService service;
+    private RedisIdempotencyService service;
 
     @BeforeEach
     void setUp() {
-        service = new IdempotencyService(redisTemplate, Duration.ofMinutes(5), Duration.ofHours(24));
+        service = new RedisIdempotencyService(redisTemplate, Duration.ofMinutes(5), Duration.ofHours(24));
     }
 
     @Test

@@ -21,8 +21,9 @@ This is a **polyglot monorepo** with three independently deployable services.
 | `auditflow-sink/` | Sink | Python 3.13, FastAPI, Uvicorn | 8082 | Dynamically-loaded sink/delivery modules |
 
 Root-level orchestration:
-- `justfile` — top-level task runner (`just up`, `just e2e`, `just logs`, `just down`).
-- `docker-compose.yml` — full local stack (3 services + RabbitMQ) with a pre-wired happy-path pipeline.
+- `justfile` — top-level task runner (`just up`, `just up-lite`, `just e2e`, `just logs`, `just down`).
+- `docker-compose.yml` — full local stack (3 services + RabbitMQ + Redis + Jaeger) with a pre-wired happy-path pipeline.
+- `docker-compose-lite.yml` — trimmed local stack (`just up-lite`): 3 services + RabbitMQ only (no Redis, no Jaeger). Sets `auditflow.idempotency.store=memory` so the dedup guard runs in-process (single-process; not for clustered use).
 - `docker-compose-infra.yml` — RabbitMQ only, for running services on the host.
 - `.env.example` — copy to `.env`; supplies `RABBITMQ_USERNAME` / `RABBITMQ_PASSWORD`.
 - `.github/workflows/` — CI (build + test all three) and Docker publish.
