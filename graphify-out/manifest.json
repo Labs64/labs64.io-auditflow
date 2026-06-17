@@ -60,9 +60,9 @@
     "semantic_hash": "77538f6de033e2d3f4690cc7c06ece0e"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-be/src/main/java/io/labs64/audit/service/IdempotencyService.java": {
-    "mtime": 1781646454.2833898,
-    "ast_hash": "69f11081a46e92ea28123e1d3349daed",
-    "semantic_hash": "69f11081a46e92ea28123e1d3349daed"
+    "mtime": 1781669901.3348813,
+    "ast_hash": "6cd732d7be371af2b3b54edf66b42787",
+    "semantic_hash": "6cd732d7be371af2b3b54edf66b42787"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-be/src/main/java/io/labs64/audit/service/KubernetesDiscoveryService.java": {
     "mtime": 1776363716.6398582,
@@ -123,11 +123,6 @@
     "mtime": 1781602922.9106839,
     "ast_hash": "91433107d2b371152902d2887a5041e1",
     "semantic_hash": "91433107d2b371152902d2887a5041e1"
-  },
-  "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-be/src/test/java/io/labs64/audit/service/IdempotencyServiceTest.java": {
-    "mtime": 1781602780.7274423,
-    "ast_hash": "9b1a0e0031bb30cf0a3e2ce0b64617da",
-    "semantic_hash": "9b1a0e0031bb30cf0a3e2ce0b64617da"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-be/src/test/java/io/labs64/audit/service/KubernetesSinkDiscoveryTest.java": {
     "mtime": 1776315232.8341222,
@@ -245,9 +240,9 @@
     "semantic_hash": "3d8a3bc01c628f2d082d5c6caeda8823"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/AGENTS.md": {
-    "mtime": 1781425832.3431685,
-    "ast_hash": "d157646e18df629a6bf19fa349f902fd",
-    "semantic_hash": "d157646e18df629a6bf19fa349f902fd"
+    "mtime": 1781670130.9354572,
+    "ast_hash": "ba152c7a45dcc6e2df83197d3d577ae4",
+    "semantic_hash": "ba152c7a45dcc6e2df83197d3d577ae4"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/CLAUDE.md": {
     "mtime": 1781425914.9573016,
@@ -265,9 +260,9 @@
     "semantic_hash": "2288e7ace8efdbc03417bf46697574f6"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-be/src/main/resources/application.yml": {
-    "mtime": 1781648379.1867278,
-    "ast_hash": "80e005244d450c4c7c8535ff03cbd87f",
-    "semantic_hash": "80e005244d450c4c7c8535ff03cbd87f"
+    "mtime": 1781669998.824294,
+    "ast_hash": "0d21ed06a01a08457d0ee524bbee9de3",
+    "semantic_hash": "0d21ed06a01a08457d0ee524bbee9de3"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-be/src/main/resources/banner.txt": {
     "mtime": 1749418708.0,
@@ -423,5 +418,30 @@
     "mtime": 1781647657.2543063,
     "ast_hash": "e69ab35900afe68126c6112293254462",
     "semantic_hash": "e69ab35900afe68126c6112293254462"
+  },
+  "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-be/src/main/java/io/labs64/audit/service/InMemoryIdempotencyService.java": {
+    "mtime": 1781669931.7055082,
+    "ast_hash": "1b2f5f769288f95ecb96883575902e67",
+    "semantic_hash": "1b2f5f769288f95ecb96883575902e67"
+  },
+  "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-be/src/main/java/io/labs64/audit/service/RedisIdempotencyService.java": {
+    "mtime": 1781669914.776889,
+    "ast_hash": "800a8d9c8ab474b7bf5803236c2ddc17",
+    "semantic_hash": "800a8d9c8ab474b7bf5803236c2ddc17"
+  },
+  "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-be/src/test/java/io/labs64/audit/service/InMemoryIdempotencyServiceTest.java": {
+    "mtime": 1781669977.5056846,
+    "ast_hash": "62ce97c5967e18d456d4989792d4a6fe",
+    "semantic_hash": "62ce97c5967e18d456d4989792d4a6fe"
+  },
+  "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-be/src/test/java/io/labs64/audit/service/RedisIdempotencyServiceTest.java": {
+    "mtime": 1781669963.03034,
+    "ast_hash": "df1eeb43c74e62aa237041ad1d931500",
+    "semantic_hash": "df1eeb43c74e62aa237041ad1d931500"
+  },
+  "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/docker-compose-lite.yml": {
+    "mtime": 1781670575.0550082,
+    "ast_hash": "87caf657e5d30d37796e1b717082e74e",
+    "semantic_hash": "87caf657e5d30d37796e1b717082e74e"
   }
 }
