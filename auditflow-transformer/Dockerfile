@@ -32,6 +32,7 @@ COPY --chown=${USER_NAME}:${GROUP_NAME} transformer.py .
 COPY --chown=${USER_NAME}:${GROUP_NAME} tracing.py .
 COPY --chown=${USER_NAME}:${GROUP_NAME} plugin_registry.py .
 COPY --chown=${USER_NAME}:${GROUP_NAME} auditflow_sdk.py .
+COPY --chown=${USER_NAME}:${GROUP_NAME} health.py .
 COPY --chown=${USER_NAME}:${GROUP_NAME} transformers/ /home/${USER_NAME}/transformers/
 
 # transformers_bootstrap is intended to be mounted as a Kubernetes volume at runtime.

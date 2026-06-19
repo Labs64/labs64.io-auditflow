@@ -49,7 +49,7 @@ services:
       - auditflow-net
 
   jaeger:
-    image: jaegertracing/all-in-one:1.62.0
+    image: jaegertracing/all-in-one:1.76.0
     container_name: auditflow-jaeger
     ports:
       - "16686:16686"   # Jaeger UI
@@ -75,7 +75,7 @@ services:
     networks:
       - auditflow-net
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/registry"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/health"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -97,7 +97,7 @@ services:
     networks:
       - auditflow-net
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8082/registry"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8082/health"]
       interval: 10s
       timeout: 5s
       retries: 3

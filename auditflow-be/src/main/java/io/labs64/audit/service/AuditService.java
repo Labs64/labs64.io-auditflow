@@ -3,6 +3,8 @@ package io.labs64.audit.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.labs64.audit.config.AuditFlowConfiguration;
+import io.labs64.audit.config.ConsumerHealthIndicator;
+import io.labs64.audit.config.PipelineRateLimiterRegistry;
 import io.labs64.audit.exception.PoisonDeliveryException;
 import io.labs64.audit.exception.RetryableDeliveryException;
 import io.micrometer.core.instrument.Counter;
@@ -36,6 +38,8 @@ public class AuditService {
     private final ObjectMapper objectMapper;
     private final MeterRegistry meterRegistry;
     private final Counter deduplicatedCounter;
+    private final ConsumerHealthIndicator consumerHealthIndicator;
+    private final PipelineRateLimiterRegistry pipelineRateLimiterRegistry;
 
     /**
      * Max number of a single event's matching pipelines processed concurrently.
@@ -64,7 +68,9 @@ public class AuditService {
             IdempotencyService idempotencyService,
             QuarantineService quarantineService,
             ObjectMapper objectMapper,
-            MeterRegistry meterRegistry) {
+            MeterRegistry meterRegistry,
+            ConsumerHealthIndicator consumerHealthIndicator,
+            PipelineRateLimiterRegistry pipelineRateLimiterRegistry) {
         this.auditFlowConfiguration = auditFlowConfiguration;
         this.transformationService = transformationService;
         this.sinkService = sinkService;
@@ -74,6 +80,8 @@ public class AuditService {
         this.objectMapper = objectMapper;
         this.meterRegistry = meterRegistry;
         this.deduplicatedCounter = meterRegistry.counter("auditflow.events.deduplicated");
+        this.consumerHealthIndicator = consumerHealthIndicator;
+        this.pipelineRateLimiterRegistry = pipelineRateLimiterRegistry;
     }
 
     @PostConstruct
@@ -98,11 +106,21 @@ public class AuditService {
             return;
         }
 
+        // Reject events during shutdown to allow graceful drain
+        if (consumerHealthIndicator.isShutdownRequested()) {
+            logger.warn("Shutdown requested, rejecting new event for processing");
+            throw new RetryableDeliveryException("Shutdown in progress; event will be redelivered");
+        }
+
+        // Track in-flight events for graceful shutdown
+        consumerHealthIndicator.recordEventStarted();
+
         // Parse once, up front. Fail closed: an unparseable event is quarantined, never matched.
         JsonNode eventJson;
         try {
             eventJson = objectMapper.readTree(message);
         } catch (Exception e) {
+            consumerHealthIndicator.recordEventFailed();
             quarantineService.quarantine(message, "Unparseable JSON: " + e.getMessage());
             return;
         }
@@ -113,6 +131,7 @@ public class AuditService {
             logger.warn("Audit event has no eventId; processing without dedup guarantee.");
         } else if (!idempotencyService.claim(eventId)) {
             logger.debug("Duplicate audit event eventId='{}', dropping.", eventId);
+            consumerHealthIndicator.recordEventFailed();
             deduplicatedCounter.increment();
             return;
         }
@@ -122,7 +141,9 @@ public class AuditService {
             if (StringUtils.hasText(eventId)) {
                 idempotencyService.markProcessed(eventId);
             }
+            consumerHealthIndicator.recordEventProcessed("all");
         } catch (RuntimeException e) {
+            consumerHealthIndicator.recordEventFailed();
             // Event-level failure: release the claim so an at-least-once redelivery can retry,
             // then rethrow so the broker retries and ultimately routes to the DLQ. Per-pipeline
             // dedup keys ensure already-succeeded pipelines are NOT re-delivered on redelivery.
@@ -185,6 +206,15 @@ public class AuditService {
             return Mono.just(recordOutcome(name, PipelineOutcome.SUCCESS));
         }
 
+        // Rate limiting: reject events if pipeline rate limit is exceeded
+        if (!pipelineRateLimiterRegistry.tryAcquirePermission(name)) {
+            logger.warn("Pipeline '{}' rate limit exceeded, rejecting event", name);
+            meterRegistry.counter("auditflow.pipeline.rate.limited", "pipeline", name).increment();
+            // Treat as retryable so the broker redelivers later when the rate limit resets
+            return Mono.error(new RetryableDeliveryException(
+                    "Pipeline '" + name + "' rate limit exceeded; will retry on redelivery"));
+        }
+
         logger.debug("Start event processing using pipeline '{}'", name);
         long startNanos = System.nanoTime();
         // Mono.defer ensures a synchronous throw during chain assembly (e.g. transformer/sink
@@ -220,6 +250,9 @@ public class AuditService {
     private PipelineOutcome recordOutcome(String pipelineName, PipelineOutcome outcome) {
         meterRegistry.counter("auditflow.pipeline.outcomes", "pipeline", pipelineName, "outcome", outcome.name())
                 .increment();
+        if (outcome == PipelineOutcome.SUCCESS) {
+            consumerHealthIndicator.recordEventProcessed(pipelineName);
+        }
         return outcome;
     }
 

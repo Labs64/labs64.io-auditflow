@@ -5,6 +5,7 @@ import os
 import logging
 
 from plugin_registry import PluginRegistry, PluginNotFoundError, VALID_ID
+from health import set_ready, health, readiness, liveness, service_info
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -26,8 +27,20 @@ app = FastAPI(
     swagger_ui_parameters={"displayRequestDuration": True}
 )
 
+# Health check endpoints
+app.get('/health')(health)
+app.get('/ready')(readiness)
+app.get('/live')(liveness)
+app.get('/info')(service_info)
+
 from tracing import setup_tracing
 setup_tracing(app, service_name="auditflow-sink")
+
+@app.on_event("startup")
+async def startup_event():
+    """Set service as ready after startup completes."""
+    set_ready(True)
+    app_logger.info("Sink service started and ready")
 
 # Define base directory
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -57,8 +70,7 @@ registry = PluginRegistry(
 @app.post('/sink/{sink_id}')
 async def sink(
         sink_id: str,
-        event_data: dict,
-        properties: dict = None
+        request_body: dict
 ):
     """
     Send transformed audit events to a destination sink.
@@ -88,9 +100,8 @@ async def sink(
                 detail=f"Sink '{sink_id}' is not available. See GET /sinks for the registered sinks."
             )
 
-        # Initialize properties if not provided
-        if properties is None:
-            properties = {}
+        event_data = request_body.get("event_data", {})
+        properties = request_body.get("properties", {})
 
         # Execute the sink processing
         app_logger.info("Processing event through sink '%s'", sink_id)

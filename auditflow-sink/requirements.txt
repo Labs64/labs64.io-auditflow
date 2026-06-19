@@ -1,11 +1,11 @@
-fastapi==0.137.1
+fastapi==0.137.2
 uvicorn==0.49.0
 
 requests==2.34.2
 python-multipart==0.0.32
 
 # AWS sinks
-boto3==1.43.30
+boto3==1.43.33
 
 # Google Cloud sinks
 google-cloud-storage==3.12.0
@@ -14,6 +14,6 @@ google-cloud-storage==3.12.0
 azure-storage-blob==12.30.0
 
 # OpenTelemetry (distributed tracing)
-opentelemetry-sdk==1.29.0
-opentelemetry-exporter-otlp-proto-http==1.29.0
-opentelemetry-instrumentation-fastapi==0.50b0
+opentelemetry-sdk==1.42.1
+opentelemetry-exporter-otlp-proto-http==1.42.1
+opentelemetry-instrumentation-fastapi==0.63b1

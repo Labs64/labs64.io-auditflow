@@ -53,7 +53,7 @@ up-lite: build-be
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Verification stack: lite + two test pipelines + redaction
-# Supports all four test cases in manual-verification.md
+# Supports all four test cases in DEVELOPERS.md
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Start the verification stack (lite + verify overlay)
@@ -62,7 +62,7 @@ verify: build-be
     docker compose -f docker-compose-infra.yml down 2>/dev/null || true
     docker compose -f docker-compose-lite.yml -f docker-compose-verify.yml up --build -d
     @echo ""
-    @echo "  Verification stack up. Follow manual-verification.md for TC-1 through TC-4."
+    @echo "  Verification stack up. Follow DEVELOPERS.md for TC-1 through TC-4."
     @echo "  Backend API:        http://localhost:8080/api/v1"
     @echo "  RabbitMQ UI:        http://localhost:15673  (guest/guest)"
     @echo "  just log sink       (watch delivered events)"

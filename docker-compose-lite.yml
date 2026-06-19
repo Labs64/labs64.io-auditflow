@@ -45,7 +45,7 @@ services:
     networks:
       - auditflow-net
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/registry"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/health"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -62,7 +62,7 @@ services:
     networks:
       - auditflow-net
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8082/registry"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8082/health"]
       interval: 10s
       timeout: 5s
       retries: 3

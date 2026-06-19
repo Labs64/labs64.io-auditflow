@@ -7,6 +7,8 @@ import io.labs64.audit.config.AuditFlowConfiguration.ConditionProperties;
 import io.labs64.audit.config.AuditFlowConfiguration.PipelineProperties;
 import io.labs64.audit.config.AuditFlowConfiguration.SinkProperties;
 import io.labs64.audit.config.AuditFlowConfiguration.TransformerProperties;
+import io.labs64.audit.config.ConsumerHealthIndicator;
+import io.labs64.audit.config.PipelineRateLimiterRegistry;
 import io.labs64.audit.exception.RetryableDeliveryException;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import reactor.core.publisher.Mono;
@@ -55,6 +57,7 @@ class AuditServiceTest {
 
     @BeforeEach
     void setUp() {
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
         auditService = new AuditService(
                 auditFlowConfiguration,
                 transformationService,
@@ -63,7 +66,13 @@ class AuditServiceTest {
                 idempotencyService,
                 quarantineService,
                 new ObjectMapper(),
-                new SimpleMeterRegistry()
+                meterRegistry,
+                new ConsumerHealthIndicator(meterRegistry),
+                new PipelineRateLimiterRegistry(
+                        new io.labs64.audit.config.RateLimitProperties(),
+                        io.github.resilience4j.ratelimiter.RateLimiterRegistry.ofDefaults(),
+                        meterRegistry
+                )
         );
     }
 

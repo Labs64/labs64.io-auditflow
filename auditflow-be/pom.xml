@@ -27,6 +27,8 @@
         <openapitools.version>0.2.10</openapitools.version>
         <commons-lang3.version>3.20.0</commons-lang3.version>
         <kubernetes-client.version>7.7.0</kubernetes-client.version>
+        <bouncycastle.version>1.84</bouncycastle.version>
+        <vertx.version>4.5.27</vertx.version>
         <opentelemetry-exporter-otlp.version>1.63.0</opentelemetry-exporter-otlp.version>
         <lombok.version>1.18.46</lombok.version>
         <!-- PLUGINS -->
@@ -43,6 +45,31 @@
                 <version>${spring-cloud.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcprov-jdk18on</artifactId>
+                <version>${bouncycastle.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.vertx</groupId>
+                <artifactId>vertx-core</artifactId>
+                <version>${vertx.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.vertx</groupId>
+                <artifactId>vertx-web-client</artifactId>
+                <version>${vertx.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.vertx</groupId>
+                <artifactId>vertx-web-common</artifactId>
+                <version>${vertx.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.vertx</groupId>
+                <artifactId>vertx-auth-common</artifactId>
+                <version>${vertx.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
