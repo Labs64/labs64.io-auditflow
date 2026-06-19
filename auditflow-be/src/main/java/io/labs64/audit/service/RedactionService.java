@@ -74,7 +74,12 @@ public class RedactionService {
             return null;
         }
         if (node.isArray() && isInteger(token)) {
-            return node.get(Integer.parseInt(token));
+            try {
+                return node.get(Integer.parseInt(token));
+            } catch (NumberFormatException ex) {
+                logger.debug("Invalid array index token '{}' while traversing redaction path", token, ex);
+                return null;
+            }
         }
         if (node.isObject()) {
             return node.get(token);
