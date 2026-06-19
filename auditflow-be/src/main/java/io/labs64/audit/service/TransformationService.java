@@ -1,14 +1,19 @@
 package io.labs64.audit.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.labs64.audit.config.HttpRetryProperties;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.netty.channel.ChannelOption;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cloud.client.circuitbreaker.ReactiveCircuitBreakerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
 import reactor.netty.http.client.HttpClient;
+import reactor.util.retry.Retry;
 
 import java.time.Duration;
 import java.util.Map;
@@ -21,11 +26,22 @@ public class TransformationService {
 
     private final TransformerDiscovery transformerDiscovery;
     private final WebClient.Builder webClientBuilder;
+    private final ReactiveCircuitBreakerFactory<?, ?> circuitBreakerFactory;
     private final Map<String, WebClient> webClientCache = new ConcurrentHashMap<>();
+    private final Retry retrySpec;
 
-    public TransformationService(TransformerDiscovery transformerDiscovery, WebClient.Builder webClientBuilder) {
+    public TransformationService(TransformerDiscovery transformerDiscovery,
+                                 WebClient.Builder webClientBuilder,
+                                 ReactiveCircuitBreakerFactory<?, ?> circuitBreakerFactory,
+                                 HttpRetryProperties retryProperties,
+                                 MeterRegistry meterRegistry) {
         this.transformerDiscovery = transformerDiscovery;
         this.webClientBuilder = webClientBuilder;
+        this.circuitBreakerFactory = circuitBreakerFactory;
+        this.retrySpec = retryProperties.isEnabled()
+                ? HttpRetrySupport.spec(retryProperties,
+                        meterRegistry.counter("auditflow.http.retries", "service", "transformer"))
+                : null;
     }
 
     /** Package-private accessor for testing — allows injecting mock WebClient instances. */
@@ -33,9 +49,11 @@ public class TransformationService {
         return webClientCache;
     }
 
-    public String transform(JsonNode message, String transformerName) {
+    public Mono<String> transform(JsonNode message, String transformerName) {
         logger.debug("Trigger transformer '{}' process for message", transformerName);
 
+        // Argument/configuration validation is fail-fast: it throws synchronously at assembly time.
+        // When called from a reactive chain (AuditService), Reactor converts the throw into an onError signal.
         if (transformerName == null || !transformerName.matches("[a-zA-Z0-9_]+")) {
             throw new IllegalArgumentException("Invalid transformer name: '" + transformerName
                     + "'. Only alphanumeric characters and underscores are allowed.");
@@ -48,14 +66,12 @@ public class TransformationService {
 
         logger.debug("Determined transformer '{}' at URL '{}'. Initiating transformation...", transformerName, transformerUrl);
 
-        try {
-            String result = transformMessage(message, transformerUrl, transformerName);
-            logger.info("Transformation successful for transformer '{}'. Response: {}", transformerName, result);
-            return result;
-        } catch (Exception e) {
-            logger.error("Transformation failed for transformer '{}' at URL '{}'. Error: {}", transformerName, transformerUrl, e.getMessage(), e);
-            throw new RuntimeException("Transformation failed: " + e.getMessage(), e);
-        }
+        return transformMessage(message, transformerUrl, transformerName)
+                .doOnNext(result -> logger.info("Transformation successful for transformer '{}'. Response: {}", transformerName, result))
+                .onErrorMap(e -> {
+                    logger.error("Transformation failed for transformer '{}' at URL '{}'. Error: {}", transformerName, transformerUrl, e.getMessage(), e);
+                    return DeliveryErrors.classify("Transformation failed", e);
+                });
     }
 
     /**
@@ -68,7 +84,7 @@ public class TransformationService {
      *                        This is appended to the URL path for the transformation request.
      * @return The transformed string.
      */
-    private String transformMessage(JsonNode message, String transformerUrl, String transformerName) {
+    private Mono<String> transformMessage(JsonNode message, String transformerUrl, String transformerName) {
         WebClient client = webClientCache.computeIfAbsent(transformerUrl, u ->
                 webClientBuilder.clone()
                         .clientConnector(new ReactorClientHttpConnector(
@@ -80,13 +96,21 @@ public class TransformationService {
                         .build()
         );
 
-        return client.post()
+        Mono<String> response = client.post()
                 .uri("/transform/" + transformerName)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(message)
                 .retrieve()
-                .bodyToMono(String.class)
-                .block();
+                .bodyToMono(String.class);
+
+        // Retry transient failures (5xx, transport errors) before the error is mapped/wrapped,
+        // so the retry filter can inspect the original WebClient exception type.
+        Mono<String> withRetry = retrySpec != null ? response.retryWhen(retrySpec) : response;
+
+        // Circuit breaker sits OUTSIDE the retry so it counts post-retry outcomes; when open it
+        // fast-fails with CallNotPermittedException, which DeliveryErrors maps to a retryable failure.
+        return circuitBreakerFactory.create("transformer:" + transformerUrl + "/" + transformerName)
+                .run(withRetry, Mono::error);
     }
 
 }

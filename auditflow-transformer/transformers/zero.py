@@ -1,3 +1,8 @@
+"""Pass-through transformer: returns the input event unchanged."""
+
+__version__ = "1.0.0"
+
+
 def transform(input_data):
     """
     This is the 'zero' transformation.

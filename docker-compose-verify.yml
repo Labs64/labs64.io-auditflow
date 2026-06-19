@@ -1,0 +1,44 @@
+# AuditFlow — Verification compose override
+#
+# Extends docker-compose-lite.yml with two pre-wired test pipelines and redaction enabled.
+# Supports all four manual verification test cases (TC-1 through TC-4) from a single stack.
+#
+# Usage:
+#   docker compose -f docker-compose-lite.yml -f docker-compose-verify.yml up --build -d
+#
+# What this adds on top of lite:
+#   Pipeline 0: e2e-logging  — no condition, logs at DEBUG  (TC-1 happy path)
+#   Pipeline 1: security-alerts — condition: eventType = "security.alert", logs at WARN  (TC-2)
+#   Redaction:  extra.userId → masked (***), extra.sessionId → dropped  (TC-3)
+#   Idempotency: in-memory store inherited from lite  (TC-4)
+
+services:
+  backend:
+    environment:
+      JAVA_OPTS: >-
+        -Dauditflow.idempotency.store=memory
+        -Dspring.autoconfigure.exclude=org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration,org.springframework.boot.data.redis.autoconfigure.DataRedisReactiveAutoConfiguration,org.springframework.boot.data.redis.autoconfigure.health.DataRedisHealthContributorAutoConfiguration,org.springframework.boot.data.redis.autoconfigure.health.DataRedisReactiveHealthContributorAutoConfiguration
+        -Dauditflow.pipelines[0].name=e2e-logging
+        -Dauditflow.pipelines[0].enabled=true
+        -Dauditflow.pipelines[0].transformer.name=zero
+        -Dauditflow.pipelines[0].sink.name=logging_sink
+        -Dauditflow.pipelines[0].sink.properties.log-level=DEBUG
+        -Dauditflow.pipelines[0].sink.properties.format=json
+        -Dauditflow.pipelines[1].name=security-alerts
+        -Dauditflow.pipelines[1].enabled=true
+        -Dauditflow.pipelines[1].condition.match=all
+        -Dauditflow.pipelines[1].condition.rules[0].field=eventType
+        -Dauditflow.pipelines[1].condition.rules[0].operator=eq
+        -Dauditflow.pipelines[1].condition.rules[0].value=security.alert
+        -Dauditflow.pipelines[1].transformer.name=zero
+        -Dauditflow.pipelines[1].sink.name=logging_sink
+        -Dauditflow.pipelines[1].sink.properties.log-level=WARN
+        -Dauditflow.pipelines[1].sink.properties.format=json
+        -Dauditflow.redaction.enabled=true
+        -Dauditflow.redaction.rules[0].field=extra.userId
+        -Dauditflow.redaction.rules[0].action=mask
+        -Dauditflow.redaction.rules[1].field=extra.sessionId
+        -Dauditflow.redaction.rules[1].action=drop
+        -Dtransformer.local.url=http://transformer:8081
+        -Dsink.local.url=http://sink:8082
+        -Dspring.rabbitmq.host=rabbitmq

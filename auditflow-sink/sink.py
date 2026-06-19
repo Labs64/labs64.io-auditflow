@@ -1,10 +1,10 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
-import importlib
-import re
 import sys
 import os
 import logging
+
+from plugin_registry import PluginRegistry, PluginNotFoundError, VALID_ID
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -45,6 +45,14 @@ if os.path.exists(external_sinks_path):
 else:
     app_logger.warning("External sinks directory not found: %s. Skipping.", external_sinks_path)
 
+# Discover and validate sinks once at startup into an allow-list.
+# Only allow-listed ids are resolvable; unknown ids are rejected before any import.
+registry = PluginRegistry(
+    base_dir=current_dir,
+    dir_specs=[("sinks", "internal"), ("sinks_bootstrap", "external")],
+    entry_point="process",
+).discover()
+
 
 @app.post('/sink/{sink_id}')
 async def sink(
@@ -55,59 +63,29 @@ async def sink(
     """
     Send transformed audit events to a destination sink.
 
-    This endpoint dynamically loads and executes a sink implementation
-    based on the `sink_id` provided in the URL path.
+    The sink is resolved from the startup allow-list (modules shipped in 'sinks/' or mounted in
+    'sinks_bootstrap/'). An id that is not on the allow-list returns 404 and is never imported.
 
-    It searches for a module named `{sink_id}.py` in configured paths
-    (internal 'sinks/' and optionally 'sinks_bootstrap/').
-
-    The sink module must provide a 'process' function that accepts:
-    - event_data: The transformed event data (dict)
-    - properties: Configuration properties for the sink (dict)
+    The sink module must provide a 'process(event_data, properties)' function.
 
     Returns:
     - Success response with sink processing details
     """
     try:
-        # Validate sink_id: only allow alphanumeric characters and underscores
-        # to prevent arbitrary module injection or path traversal.
-        if not re.fullmatch(r'[a-zA-Z0-9_]+', sink_id):
+        # Reject malformed ids (path traversal / arbitrary import) with 400 before resolving.
+        if not VALID_ID.fullmatch(sink_id):
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid sink ID '{sink_id}'. Only alphanumeric characters and underscores are allowed."
             )
 
-        # Attempt to dynamically import the sink module using the sink_id
+        # Resolve against the allow-list. Unknown ids return 404 and never trigger an import.
         try:
-            sink_module = importlib.import_module(sink_id)
-            app_logger.info("Successfully loaded sink module: %s.py", sink_id)
-        except ModuleNotFoundError:
+            process_function = registry.resolve(sink_id)
+        except PluginNotFoundError:
             raise HTTPException(
                 status_code=404,
-                detail=f"Sink module not found for ID: '{sink_id}'. "
-                       f"Please ensure {sink_id}.py exists in sinks/ or sinks_bootstrap/ directory."
-            )
-        except Exception as e:
-            app_logger.error("Error loading sink module '%s': %s", sink_id, e)
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to load sink module '{sink_id}': {e}"
-            )
-
-        # Get the process function from the sink module
-        try:
-            process_function = getattr(sink_module, 'process')
-        except AttributeError:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Process function 'process' not found in sink module '{sink_id}'. "
-                       f"Each sink must implement a 'process(event_data, properties)' function."
-            )
-        except Exception as e:
-            app_logger.error("Error getting process function from module '%s': %s", sink_module.__name__, e)
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to get process function for sink '{sink_id}': {e}"
+                detail=f"Sink '{sink_id}' is not available. See GET /sinks for the registered sinks."
             )
 
         # Initialize properties if not provided
@@ -140,43 +118,20 @@ async def sink(
         )
 
 
-@app.get('/sinks')
-async def list_sinks():
-    """
-    List all available sink modules.
-
-    Returns a list of available sink IDs that can be used in the /sink/{sink_id} endpoint.
-    """
-    available_sinks = []
-
-    # Check internal sinks
-    internal_sinks_path = os.path.join(current_dir, 'sinks')
-    if os.path.exists(internal_sinks_path):
-        for file in os.listdir(internal_sinks_path):
-            if file.endswith('.py') and not file.startswith('__'):
-                sink_id = file[:-3]  # Remove .py extension
-                available_sinks.append({
-                    "id": sink_id,
-                    "type": "internal",
-                    "path": f"sinks/{file}"
-                })
-
-    # Check external sinks
-    external_sinks_path = os.path.join(current_dir, 'sinks_bootstrap')
-    if os.path.exists(external_sinks_path):
-        for file in os.listdir(external_sinks_path):
-            if file.endswith('.py') and not file.startswith('__'):
-                sink_id = file[:-3]  # Remove .py extension
-                available_sinks.append({
-                    "id": sink_id,
-                    "type": "external",
-                    "path": f"sinks_bootstrap/{file}"
-                })
-
+@app.get('/registry')
+async def registry_details():
+    """Detailed registry view: per-sink version, description, and documented properties. Also doubles as the container healthcheck."""
     return JSONResponse(
-        content={
-            "available_sinks": available_sinks,
-            "count": len(available_sinks)
-        },
+        content={"sinks": registry.details(), "errors": registry.errors()},
+        status_code=200
+    )
+
+
+@app.post('/registry/reload')
+async def registry_reload():
+    """Re-scan the sink directories (hot-reload of newly mounted bootstrap modules)."""
+    registry.reload()
+    return JSONResponse(
+        content={"reloaded": True, "count": len(registry.list_available()), "errors": registry.errors()},
         status_code=200
     )

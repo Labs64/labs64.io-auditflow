@@ -31,8 +31,28 @@ up: build-be
     @echo "  Sink API:           http://localhost:8082/docs"
     @echo "  RabbitMQ UI:        http://localhost:15673  (guest/guest)"
 
-# Stop and remove all containers (keeps images)
+# ─────────────────────────────────────────────────────────────────────────────
+# Lite stack: RabbitMQ + transformer + sink + backend — no Redis, no Jaeger
+# In-memory idempotency store; faster start, fewer containers for local iteration.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Build the JAR, then build images and start the trimmed lite stack
+up-lite: build-be
+    @# Stop the full / infra-only stacks to free the shared ports
+    docker compose down 2>/dev/null || true
+    docker compose -f docker-compose-infra.yml down 2>/dev/null || true
+    docker compose -f docker-compose-lite.yml up --build -d
+    @echo ""
+    @echo "  Lite stack up (no Redis, no Jaeger; in-memory dedup)."
+    @echo "  Backend API:        http://localhost:8080/api/v1"
+    @echo "  Backend Swagger UI: http://localhost:8080/swagger-ui.html"
+    @echo "  Transformer API:    http://localhost:8081/docs"
+    @echo "  Sink API:           http://localhost:8082/docs"
+    @echo "  RabbitMQ UI:        http://localhost:15673  (guest/guest)"
+
+# Stop and remove all containers (keeps images) — covers both full and lite stacks
 down:
+    docker compose -f docker-compose-lite.yml down 2>/dev/null || true
     docker compose down
 
 # Stop and remove containers AND volumes (full clean)
@@ -106,6 +126,7 @@ e2e:
             "sourceSystem": "auditflow/e2e", \
             "tenantId": "LOCAL-DEV", \
             "extra": { \
+                "sessionId": "dev-session-01", \
                 "userId": "dev-user", \
                 "action_name": "e2e_test", \
                 "action_status": "SUCCESS", \

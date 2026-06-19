@@ -25,6 +25,11 @@ run-local:
     pip install -r requirements.txt --quiet
     uvicorn sink:app --host 0.0.0.0 --port {{PORT}} --reload
 
+# Run the test suite
+test:
+    pip install -r requirements-dev.txt --quiet
+    pytest -q
+
 # Open API documentation in the browser (macOS / Linux with xdg-open)
 docu:
     open "http://localhost:{{PORT}}/redoc" 2>/dev/null || xdg-open "http://localhost:{{PORT}}/redoc"

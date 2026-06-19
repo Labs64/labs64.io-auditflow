@@ -1,17 +1,23 @@
 package io.labs64.audit.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.labs64.audit.config.HttpRetryProperties;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.netty.channel.ChannelOption;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cloud.client.circuitbreaker.ReactiveCircuitBreakerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
 import reactor.netty.http.client.HttpClient;
+import reactor.util.retry.Retry;
 
 import java.time.Duration;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -26,11 +32,25 @@ public class SinkService {
 
     private final SinkDiscovery sinkDiscovery;
     private final WebClient.Builder webClientBuilder;
+    private final ReactiveCircuitBreakerFactory<?, ?> circuitBreakerFactory;
     private final Map<String, WebClient> webClientCache = new ConcurrentHashMap<>();
+    private final Retry retrySpec;
+    private final ObjectMapper objectMapper;
 
-    public SinkService(SinkDiscovery sinkDiscovery, WebClient.Builder webClientBuilder) {
+    public SinkService(SinkDiscovery sinkDiscovery,
+                       WebClient.Builder webClientBuilder,
+                       ReactiveCircuitBreakerFactory<?, ?> circuitBreakerFactory,
+                       HttpRetryProperties retryProperties,
+                       MeterRegistry meterRegistry,
+                       ObjectMapper objectMapper) {
         this.sinkDiscovery = sinkDiscovery;
         this.webClientBuilder = webClientBuilder;
+        this.circuitBreakerFactory = circuitBreakerFactory;
+        this.retrySpec = retryProperties.isEnabled()
+                ? HttpRetrySupport.spec(retryProperties,
+                        meterRegistry.counter("auditflow.http.retries", "service", "sink"))
+                : null;
+        this.objectMapper = objectMapper;
     }
 
     /** Package-private accessor for testing — allows injecting mock WebClient instances. */
@@ -46,9 +66,11 @@ public class SinkService {
      * @param properties Configuration properties for the sink
      * @return Processing result from the sink
      */
-    public String sendToSink(JsonNode message, String sinkName, Map<String, String> properties) {
+    public Mono<String> sendToSink(JsonNode message, String sinkName, Map<String, String> properties) {
         logger.debug("Send event to sink '{}'", sinkName);
 
+        // Argument/configuration validation is fail-fast: it throws synchronously at assembly time.
+        // When called from a reactive chain (AuditService), Reactor converts the throw into an onError signal.
         if (sinkName == null || !sinkName.matches("[a-zA-Z0-9_]+")) {
             throw new IllegalArgumentException("Invalid sink name: '" + sinkName
                     + "'. Only alphanumeric characters and underscores are allowed.");
@@ -61,14 +83,12 @@ public class SinkService {
 
         logger.debug("Determined sink service '{}' at URL '{}'. Sending to sink...", sinkName, sinkUrl);
 
-        try {
-            String result = sendEventToSink(message, sinkUrl, sinkName, properties);
-            logger.info("Event sent to sink '{}' successfully. Response: {}", sinkName, result);
-            return result;
-        } catch (Exception e) {
-            logger.error("Failed to send event to sink '{}' at URL '{}'. Error: {}", sinkName, sinkUrl, e.getMessage(), e);
-            throw new RuntimeException("Failed to send event to sink: " + e.getMessage(), e);
-        }
+        return sendEventToSink(message, sinkUrl, sinkName, properties)
+                .doOnNext(result -> logger.info("Event sent to sink '{}' successfully. Response: {}", sinkName, result))
+                .onErrorMap(e -> {
+                    logger.error("Failed to send event to sink '{}' at URL '{}'. Error: {}", sinkName, sinkUrl, e.getMessage(), e);
+                    return DeliveryErrors.classify("Failed to send event to sink", e);
+                });
     }
 
     /**
@@ -80,10 +100,16 @@ public class SinkService {
      * @param properties Configuration properties
      * @return Response from the sink
      */
-    private String sendEventToSink(JsonNode message, String sinkUrl, String sinkName, Map<String, String> properties) {
-        Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("event_data", message);
-        requestBody.put("properties", properties != null ? properties : new HashMap<>());
+    private Mono<String> sendEventToSink(JsonNode message, String sinkUrl, String sinkName, Map<String, String> properties) {
+        // Build the request body as an ObjectNode so Jackson2JsonEncoder serialises the event
+        // as its JSON tree content, not as a bean (which would produce JsonNode getter properties).
+        ObjectNode requestBody = objectMapper.createObjectNode();
+        requestBody.set("event_data", message);
+        ObjectNode propertiesNode = objectMapper.createObjectNode();
+        if (properties != null) {
+            properties.forEach(propertiesNode::put);
+        }
+        requestBody.set("properties", propertiesNode);
 
         logger.trace("Sending event to sink '{}' at URL '{}'", sinkName, sinkUrl);
 
@@ -98,12 +124,20 @@ public class SinkService {
                         .build()
         );
 
-        return client.post()
+        Mono<String> response = client.post()
                 .uri("/sink/" + sinkName)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(requestBody)
                 .retrieve()
-                .bodyToMono(String.class)
-                .block();
+                .bodyToMono(String.class);
+
+        // Retry transient failures (5xx, transport errors) before the error is mapped/wrapped,
+        // so the retry filter can inspect the original WebClient exception type.
+        Mono<String> withRetry = retrySpec != null ? response.retryWhen(retrySpec) : response;
+
+        // Circuit breaker sits OUTSIDE the retry so it counts post-retry outcomes; when open it
+        // fast-fails with CallNotPermittedException, which DeliveryErrors maps to a retryable failure.
+        return circuitBreakerFactory.create("sink:" + sinkUrl + "/" + sinkName)
+                .run(withRetry, Mono::error);
     }
 }

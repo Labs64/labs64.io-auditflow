@@ -1,10 +1,10 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
-import importlib
-import re
 import sys
 import os
 import logging
+
+from plugin_registry import PluginRegistry, PluginNotFoundError, VALID_ID
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -45,6 +45,14 @@ if os.path.exists(external_transformers_path):
 else:
     app_logger.warning("External transformers directory not found: %s. Skipping.", external_transformers_path)
 
+# Discover and validate transformers once at startup into an allow-list.
+# Only allow-listed ids are resolvable; unknown ids are rejected before any import.
+registry = PluginRegistry(
+    base_dir=current_dir,
+    dir_specs=[("transformers", "internal"), ("transformers_bootstrap", "external")],
+    entry_point="transform",
+).discover()
+
 
 @app.post('/transform/{transformer_id}')
 async def transform(
@@ -54,45 +62,29 @@ async def transform(
     """
     Transforms Labs64.IO AuditFlow JSON structures based on a transformer ID.
 
-    This endpoint dynamically loads and applies a transformation
-    based on the `transformer_id` provided in the URL path.
-
-    It searches for a module named `{transformer_id}.py`
-    in configured paths (internal 'transformers/' and optionally 'transformers_bootstrap/').
-
-    If the module or its 'transform' function isn't found, it returns an error.
-    The JSON payload should contain the data to be transformed.
+    The transformer is resolved from the startup allow-list (modules shipped in 'transformers/'
+    or mounted in 'transformers_bootstrap/'). An id that is not on the allow-list returns 404 and
+    is never imported. The JSON payload contains the data to be transformed.
     """
     try:
-        # Validate transformer_id: only allow alphanumeric characters and underscores
-        # to prevent arbitrary module injection or path traversal.
-        if not re.fullmatch(r'[a-zA-Z0-9_]+', transformer_id):
+        # Reject malformed ids (path traversal / arbitrary import) with 400 before resolving.
+        if not VALID_ID.fullmatch(transformer_id):
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid transformer ID '{transformer_id}'. Only alphanumeric characters and underscores are allowed."
             )
 
-        # Attempt to dynamically import the transformation module using the transformer_id directly.
+        # Resolve against the allow-list. Unknown ids return 404 and never trigger an import.
         try:
-            transform_module = importlib.import_module(transformer_id)
-            app_logger.info("Successfully loaded transformation module: %s.py", transformer_id)
-        except ModuleNotFoundError:
-            raise HTTPException(status_code=404, detail=f"Transformation module not found for ID: '{transformer_id}'!")
-        except Exception as e:
-            app_logger.error("Error loading transformation module '%s': %s", transformer_id, e)
-            raise HTTPException(status_code=500, detail=f"Failed to load transformation for ID '{transformer_id}': {e}")
+            transformation_function = registry.resolve(transformer_id)
+        except PluginNotFoundError:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Transformer '{transformer_id}' is not available. "
+                       f"See GET /transformers for the registered transformers."
+            )
 
-        try:
-            transformation_function = getattr(transform_module, 'transform')
-
-        except AttributeError:
-            raise HTTPException(status_code=500, detail=f"Transformation function 'transform' not found in module for ID: '{transformer_id}'. "
-                                                        f"(Module: {transform_module.__name__}.py)")
-        except Exception as e:
-            app_logger.error("Error getting transform function from module '%s': %s", transform_module.__name__, e)
-            raise HTTPException(status_code=500, detail=f"Failed to get transform function for ID '{transformer_id}': {e}")
-
-        # Apply the dynamically loaded transformation, passing the automatically parsed json_data
+        # Apply the transformation, passing the automatically parsed json_data
         transformed_data = transformation_function(json_data)
 
         return JSONResponse(content=transformed_data, status_code=200)
@@ -108,43 +100,20 @@ async def transform(
         )
 
 
-@app.get('/transformers')
-async def list_transformers():
-    """
-    List all available transformer modules.
-
-    Returns a list of available transformer IDs that can be used in the /transformer/{transformer_id} endpoint.
-    """
-    available_transformers = []
-
-    # Check internal transformers
-    internal_transformers_path = os.path.join(current_dir, 'transformers')
-    if os.path.exists(internal_transformers_path):
-        for file in os.listdir(internal_transformers_path):
-            if file.endswith('.py') and not file.startswith('__'):
-                transformer_id = file[:-3]  # Remove .py extension
-                available_transformers.append({
-                    "id": transformer_id,
-                    "type": "internal",
-                    "path": f"transformers/{file}"
-                })
-
-    # Check external transformers
-    external_transformers_path = os.path.join(current_dir, 'transformers_bootstrap')
-    if os.path.exists(external_transformers_path):
-        for file in os.listdir(external_transformers_path):
-            if file.endswith('.py') and not file.startswith('__'):
-                transformer_id = file[:-3]  # Remove .py extension
-                available_transformers.append({
-                    "id": transformer_id,
-                    "type": "external",
-                    "path": f"transformers_bootstrap/{file}"
-                })
-
+@app.get('/registry')
+async def registry_details():
+    """Detailed registry view: per-transformer version, description, and documented properties. Also doubles as the container healthcheck."""
     return JSONResponse(
-        content={
-            "available_transformers": available_transformers,
-            "count": len(available_transformers)
-        },
+        content={"transformers": registry.details(), "errors": registry.errors()},
+        status_code=200
+    )
+
+
+@app.post('/registry/reload')
+async def registry_reload():
+    """Re-scan the transformer directories (hot-reload of newly mounted bootstrap modules)."""
+    registry.reload()
+    return JSONResponse(
+        content={"reloaded": True, "count": len(registry.list_available()), "errors": registry.errors()},
         status_code=200
     )
