@@ -119,7 +119,8 @@ services:
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
       SPRING_RABBITMQ_HOST: rabbitmq
       REDIS_HOST: redis
-      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://jaeger:4318/v1/traces
+      # All three services share the same base OTLP endpoint; application.yml appends /v1/traces
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
       # Point discovery at the compose service names
       TRANSFORMER_LOCAL_URL: http://transformer:8081
       SINK_LOCAL_URL: http://sink:8082
@@ -131,9 +132,6 @@ services:
         -Dauditflow.pipelines[0].sink.name=logging_sink
         -Dauditflow.pipelines[0].sink.properties.log-level=INFO
         -Dauditflow.pipelines[0].sink.properties.format=json
-        -Dtransformer.local.url=http://transformer:8081
-        -Dsink.local.url=http://sink:8082
-        -Dspring.rabbitmq.host=rabbitmq
     depends_on:
       rabbitmq:
         condition: service_healthy

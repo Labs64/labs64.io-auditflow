@@ -92,9 +92,6 @@ services:
         -Dauditflow.pipelines[0].sink.name=logging_sink
         -Dauditflow.pipelines[0].sink.properties.log-level=INFO
         -Dauditflow.pipelines[0].sink.properties.format=json
-        -Dtransformer.local.url=http://transformer:8081
-        -Dsink.local.url=http://sink:8082
-        -Dspring.rabbitmq.host=rabbitmq
     depends_on:
       rabbitmq:
         condition: service_healthy

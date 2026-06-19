@@ -31,6 +31,14 @@ jobs:
       - name: Build and test with Maven
         run: mvn -B verify --file auditflow-be/pom.xml
 
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-results
+          path: auditflow-be/target/surefire-reports/
+          retention-days: 7
+
       - name: Build Docker image
         run: docker build auditflow-be --file auditflow-be/Dockerfile --tag auditflow:ci-${{ github.sha }}
 
@@ -55,14 +63,24 @@ jobs:
         with:
           python-version: '3.13'
           cache: 'pip'
-          cache-dependency-path: auditflow-transformer/requirements.txt
+          cache-dependency-path: |
+            auditflow-transformer/requirements.txt
+            auditflow-transformer/requirements-dev.txt
 
       - name: Install dependencies
         run: pip install -r auditflow-transformer/requirements-dev.txt
 
       - name: Run tests
         working-directory: auditflow-transformer
-        run: pytest -q
+        run: pytest -v --tb=short --junit-xml=test-results.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: transformer-test-results
+          path: auditflow-transformer/test-results.xml
+          retention-days: 7
 
       - name: Build Docker image
         run: docker build auditflow-transformer --file auditflow-transformer/Dockerfile --tag auditflow-transformer:ci-${{ github.sha }}
@@ -82,14 +100,24 @@ jobs:
         with:
           python-version: '3.13'
           cache: 'pip'
-          cache-dependency-path: auditflow-sink/requirements.txt
+          cache-dependency-path: |
+            auditflow-sink/requirements.txt
+            auditflow-sink/requirements-dev.txt
 
       - name: Install dependencies
         run: pip install -r auditflow-sink/requirements-dev.txt
 
       - name: Run tests
         working-directory: auditflow-sink
-        run: pytest -q
+        run: pytest -v --tb=short --junit-xml=test-results.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sink-test-results
+          path: auditflow-sink/test-results.xml
+          retention-days: 7
 
       - name: Build Docker image
         run: docker build auditflow-sink --file auditflow-sink/Dockerfile --tag auditflow-sink:ci-${{ github.sha }}

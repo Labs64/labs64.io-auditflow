@@ -15,7 +15,7 @@ default:
     @just --list
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Full stack (all services + RabbitMQ)
+# Full stack (all services + RabbitMQ + Redis + Jaeger)
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Build the Spring Boot JAR, then build all Docker images and start the full stack
@@ -30,6 +30,7 @@ up: build-be
     @echo "  Transformer API:    http://localhost:8081/docs"
     @echo "  Sink API:           http://localhost:8082/docs"
     @echo "  RabbitMQ UI:        http://localhost:15673  (guest/guest)"
+    @echo "  Jaeger UI:          http://localhost:16686"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Lite stack: RabbitMQ + transformer + sink + backend — no Redis, no Jaeger
@@ -50,14 +51,34 @@ up-lite: build-be
     @echo "  Sink API:           http://localhost:8082/docs"
     @echo "  RabbitMQ UI:        http://localhost:15673  (guest/guest)"
 
-# Stop and remove all containers (keeps images) — covers both full and lite stacks
+# ─────────────────────────────────────────────────────────────────────────────
+# Verification stack: lite + two test pipelines + redaction
+# Supports all four test cases in manual-verification.md
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Start the verification stack (lite + verify overlay)
+verify: build-be
+    docker compose down 2>/dev/null || true
+    docker compose -f docker-compose-infra.yml down 2>/dev/null || true
+    docker compose -f docker-compose-lite.yml -f docker-compose-verify.yml up --build -d
+    @echo ""
+    @echo "  Verification stack up. Follow manual-verification.md for TC-1 through TC-4."
+    @echo "  Backend API:        http://localhost:8080/api/v1"
+    @echo "  RabbitMQ UI:        http://localhost:15673  (guest/guest)"
+    @echo "  just log sink       (watch delivered events)"
+    @echo "  just down           (when done)"
+
+# Stop and remove all containers (keeps images) — covers all stacks
 down:
     docker compose -f docker-compose-lite.yml down 2>/dev/null || true
-    docker compose down
+    docker compose down 2>/dev/null || true
+    docker compose -f docker-compose-infra.yml down 2>/dev/null || true
 
-# Stop and remove containers AND volumes (full clean)
+# Stop and remove containers AND volumes (full clean — covers all stacks)
 clean:
-    docker compose down -v --remove-orphans
+    docker compose -f docker-compose-lite.yml down -v --remove-orphans 2>/dev/null || true
+    docker compose down -v --remove-orphans 2>/dev/null || true
+    docker compose -f docker-compose-infra.yml down -v --remove-orphans 2>/dev/null || true
 
 # Tail logs from all services (Ctrl+C to stop)
 logs:
@@ -72,20 +93,21 @@ status:
     docker compose ps
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Infrastructure only (RabbitMQ) — for running services outside Docker
+# Infrastructure only (RabbitMQ + Redis) — for running services outside Docker
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Start only RabbitMQ (for running services directly on the host)
+# Start only RabbitMQ + Redis (for running services directly on the host)
 infra-up:
     @# Stop the full stack if running to free the ports
     docker compose down 2>/dev/null || true
     docker compose -f docker-compose-infra.yml up -d
     @echo ""
-    @echo "RabbitMQ started."
+    @echo "RabbitMQ + Redis started."
     @echo "  AMQP:           localhost:5673"
     @echo "  Management UI:  http://localhost:15673  (guest/guest)"
+    @echo "  Redis:          localhost:6379"
 
-# Stop RabbitMQ
+# Stop RabbitMQ + Redis
 infra-down:
     docker compose -f docker-compose-infra.yml down
 
@@ -105,9 +127,26 @@ build:
 # Testing
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Run all Java unit tests
+# Run all tests across all three services
+test: test-be test-transformer test-sink
+
+# Run Java backend unit tests
 test-be:
     mvn -B verify --file auditflow-be/pom.xml
+
+# Run Python transformer tests
+test-transformer:
+    python3 -m pip install -r auditflow-transformer/requirements-dev.txt -q --break-system-packages 2>/dev/null || python3 -m pip install -r auditflow-transformer/requirements-dev.txt -q
+    cd auditflow-transformer && python3 -m pytest -v --tb=short
+
+# Run Python sink tests
+test-sink:
+    python3 -m pip install -r auditflow-sink/requirements-dev.txt -q --break-system-packages 2>/dev/null || python3 -m pip install -r auditflow-sink/requirements-dev.txt -q
+    cd auditflow-sink && python3 -m pytest -v --tb=short
+
+# ─────────────────────────────────────────────────────────────────────────────
+# End-to-end smoke test (stack must be running)
+# ─────────────────────────────────────────────────────────────────────────────
 
 # Run the happy-path E2E test:
 #   1. Publish an audit event to the backend

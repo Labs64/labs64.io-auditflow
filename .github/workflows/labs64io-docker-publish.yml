@@ -10,7 +10,7 @@ on:
 
 jobs:
   # ─────────────────────────────────────────────────────────────────────────────
-  # Run tests before publishing anything
+  # Run all three test suites before publishing anything
   # ─────────────────────────────────────────────────────────────────────────────
   test:
     name: Test before publish
@@ -26,8 +26,29 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Run tests
+      - name: Test backend (Java)
         run: mvn -B verify --file auditflow-be/pom.xml
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+          cache-dependency-path: |
+            auditflow-transformer/requirements-dev.txt
+            auditflow-sink/requirements-dev.txt
+
+      - name: Test transformer (Python)
+        working-directory: auditflow-transformer
+        run: |
+          pip install -r requirements-dev.txt
+          pytest -v --tb=short
+
+      - name: Test sink (Python)
+        working-directory: auditflow-sink
+        run: |
+          pip install -r requirements-dev.txt
+          pytest -v --tb=short
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Build and push all three images

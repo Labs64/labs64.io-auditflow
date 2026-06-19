@@ -39,6 +39,3 @@ services:
         -Dauditflow.redaction.rules[0].action=mask
         -Dauditflow.redaction.rules[1].field=extra.sessionId
         -Dauditflow.redaction.rules[1].action=drop
-        -Dtransformer.local.url=http://transformer:8081
-        -Dsink.local.url=http://sink:8082
-        -Dspring.rabbitmq.host=rabbitmq
