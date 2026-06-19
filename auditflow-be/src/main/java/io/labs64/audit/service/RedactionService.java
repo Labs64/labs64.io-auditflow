@@ -98,7 +98,13 @@ public class RedactionService {
                 case HASH -> object.put(leaf, sha256(textOf(object.get(leaf))));
             }
         } else if (parent instanceof ArrayNode array && isInteger(leaf)) {
-            int index = Integer.parseInt(leaf);
+            final int index;
+            try {
+                index = Integer.parseInt(leaf);
+            } catch (NumberFormatException ex) {
+                logger.debug("Invalid array leaf index '{}' while applying redaction action", leaf, ex);
+                return;
+            }
             if (index < 0 || index >= array.size()) {
                 return;
             }
