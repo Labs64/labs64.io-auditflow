@@ -101,7 +101,7 @@ Both follow the **same plugin pattern** — keep them symmetric when editing one
   - Internal, shipped in the image: `transformers/` and `sinks/`.
   - External, mounted at runtime (ConfigMap/volume), git-ignored except `.gitkeep`:
     `transformers_bootstrap/` and `sinks_bootstrap/`.
-- `GET /transformers` and `GET /sinks` list available modules (also used as Docker healthchecks).
+- `GET /registry` lists available modules with version, description, and documented properties (also used as the Docker healthcheck).
 - Existing sinks: `logging_sink`, `webhook_sink`, `syslog_sink`, `loki_sink`, `opensearch_sink`,
   `aws_s3_sink`, `aws_cloudwatch_sink`, `gcs_sink`, `azure_blob_sink`, `netlicensing_sink`.
   Existing transformers: `zero` (pass-through), `audit_loki`, `audit_opensearch`.
