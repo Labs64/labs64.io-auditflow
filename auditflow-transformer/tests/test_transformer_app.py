@@ -7,12 +7,10 @@ client = TestClient(transformer.app)
 
 
 def test_list_transformers_includes_zero():
-    response = client.get("/transformers")
+    response = client.get("/registry")
     assert response.status_code == 200
-    body = response.json()
-    ids = [t["id"] for t in body["available_transformers"]]
+    ids = [t["id"] for t in response.json()["transformers"]]
     assert "zero" in ids
-    assert body["count"] == len(body["available_transformers"])
 
 
 def test_zero_transform_is_passthrough():

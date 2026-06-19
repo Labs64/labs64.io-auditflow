@@ -7,7 +7,19 @@ Supports both UDP and TCP transports.
 import logging
 import socket
 import json
-from datetime import datetime
+from datetime import datetime, timezone
+
+__version__ = "1.0.0"
+
+PROPERTIES = {
+    "host": "Syslog server hostname or IP (required)",
+    "port": "Syslog server port (default: 514)",
+    "protocol": "Transport: udp or tcp (default: udp)",
+    "facility": "Syslog facility: USER, LOCAL0-7, DAEMON, AUTH, ... (default: USER)",
+    "severity": "Syslog severity: INFO, WARNING, ERROR, CRITICAL, ... (default: INFO)",
+    "tag": "Application tag in the syslog message (default: auditflow)",
+    "format": "Message format: json or cef (default: json)",
+}
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +109,7 @@ def process(event_data: dict, properties: dict) -> dict:
         message = json.dumps(event_data)
 
     # Build syslog message (RFC 3164 format)
-    timestamp = datetime.utcnow().strftime('%b %d %H:%M:%S')
+    timestamp = datetime.now(timezone.utc).strftime('%b %d %H:%M:%S')
     hostname = socket.gethostname()
     syslog_message = f"<{priority}>{timestamp} {hostname} {tag}: {message}"
 

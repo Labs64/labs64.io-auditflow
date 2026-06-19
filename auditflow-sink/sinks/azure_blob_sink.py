@@ -6,8 +6,22 @@ This sink uploads audit events to Azure Blob Storage as JSON objects.
 import logging
 import json
 import gzip
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
+
+__version__ = "1.0.0"
+
+PROPERTIES = {
+    "container": "Azure Blob Storage container name (required)",
+    "connection-string": "Azure storage connection string (required unless account-name + account-key)",
+    "account-name": "Storage account name (required if not using connection-string)",
+    "account-key": "Storage account key (required if not using connection-string)",
+    "prefix": "Blob prefix/folder (default: auditflow/)",
+    "compress": "Enable gzip compression: true/false (default: false)",
+    "partition-by-date": "Partition blobs by date: true/false (default: true)",
+    "partition-format": "strftime pattern for date partitioning (default: year=%Y/month=%m/day=%d/)",
+    "content-type": "Content-Type for the uploaded blob (default: application/json)",
+}
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +122,7 @@ def process(event_data: dict, properties: dict) -> dict:
         metadata = {
             'event_type': event_data.get('eventType', 'unknown'),
             'source_system': event_data.get('sourceSystem', 'unknown'),
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.now(timezone.utc).isoformat()
         }
 
         # Upload
@@ -157,12 +171,12 @@ def build_blob_name(
 
     # Add date partition
     if partition_by_date:
-        date_part = datetime.utcnow().strftime(partition_format)
+        date_part = datetime.now(timezone.utc).strftime(partition_format)
         name_parts.append(date_part.rstrip('/'))
 
     # Generate unique filename
     event_id = event_data.get('eventId', str(uuid.uuid4()))
-    timestamp = datetime.utcnow().strftime('%Y%m%d-%H%M%S')
+    timestamp = datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')
 
     extension = 'json'
     if compress:

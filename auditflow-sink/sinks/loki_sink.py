@@ -9,6 +9,16 @@ import json
 import time
 from requests.auth import HTTPBasicAuth
 
+__version__ = "1.0.0"
+
+PROPERTIES = {
+    "service-url": "Loki base URL, e.g. http://loki:3100 (required)",
+    "service-path": "Push path (default: /loki/api/v1/push)",
+    "username": "Basic auth username (optional)",
+    "password": "Basic auth password (optional)",
+    "tenant-id": "X-Scope-OrgID header for multi-tenant Loki (optional)",
+}
+
 logger = logging.getLogger(__name__)
 
 

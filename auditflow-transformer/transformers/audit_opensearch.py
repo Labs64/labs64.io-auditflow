@@ -1,4 +1,11 @@
-def transform(input_data):
+"""OpenSearch transformer: flattens an AuditFlow event into an OpenSearch-friendly document."""
+
+__version__ = "1.0.0"
+
+PROPERTIES = {}
+
+
+def transform(input_data: dict) -> dict:
     """
     Transforms an AuditEvent JSON object into a flattened, OpenSearch-friendly format.
 

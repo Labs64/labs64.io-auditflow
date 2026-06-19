@@ -8,6 +8,16 @@ import requests
 from datetime import datetime, timezone
 from requests.auth import HTTPBasicAuth
 
+__version__ = "1.0.0"
+
+PROPERTIES = {
+    "service-url": "OpenSearch base URL, e.g. http://opensearch:9200 (required)",
+    "service-path": "Index path (default: /auditflow/_doc)",
+    "username": "Basic auth username (optional)",
+    "password": "Basic auth password (optional)",
+    "verify-ssl": "Verify TLS certificates: true/false (default: true)",
+}
+
 logger = logging.getLogger(__name__)
 
 
@@ -46,8 +56,9 @@ def process(event_data: dict, properties: dict) -> dict:
         'Content-Type': 'application/json'
     }
 
-    # Add timestamp if not present at the top level
+    # Add timestamp if not present; copy first to avoid mutating the caller's dict
     if 'timestamp' not in event_data:
+        event_data = dict(event_data)
         event_data['timestamp'] = datetime.now(timezone.utc).isoformat()
 
     # Prepare authentication

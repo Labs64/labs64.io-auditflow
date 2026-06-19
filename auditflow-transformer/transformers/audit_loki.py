@@ -1,4 +1,9 @@
+"""Loki transformer: reshapes an AuditFlow event into a Grafana Loki push payload."""
 from datetime import datetime
+
+__version__ = "1.0.0"
+
+PROPERTIES = {}
 
 status_to_level_mapping = {
     "SUCCESS": "INFO",

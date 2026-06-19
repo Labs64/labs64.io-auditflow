@@ -7,6 +7,18 @@ import logging
 import json
 import time
 
+__version__ = "1.0.0"
+
+PROPERTIES = {
+    "log-group": "CloudWatch Logs log group name (required)",
+    "log-stream": "Log stream name (default: auditflow)",
+    "region": "AWS region (default: us-east-1)",
+    "access-key-id": "AWS access key ID (optional, uses default credential chain if omitted)",
+    "secret-access-key": "AWS secret access key (optional)",
+    "create-log-group": "Auto-create log group if missing: true/false (default: true)",
+    "create-log-stream": "Auto-create log stream if missing: true/false (default: true)",
+}
+
 logger = logging.getLogger(__name__)
 
 try:

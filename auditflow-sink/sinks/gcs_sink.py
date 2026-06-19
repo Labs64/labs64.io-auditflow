@@ -9,6 +9,19 @@ import gzip
 from datetime import datetime, timezone
 import uuid
 
+__version__ = "1.0.0"
+
+PROPERTIES = {
+    "bucket": "GCS bucket name (required)",
+    "prefix": "Object prefix/folder (default: auditflow/)",
+    "project-id": "GCP project ID (optional, uses application default if omitted)",
+    "credentials-file": "Path to a service account JSON key file (optional)",
+    "compress": "Enable gzip compression: true/false (default: false)",
+    "partition-by-date": "Partition objects by date: true/false (default: true)",
+    "partition-format": "strftime pattern for date partitioning (default: year=%Y/month=%m/day=%d/)",
+    "content-type": "Content-Type for the uploaded object (default: application/json)",
+}
+
 logger = logging.getLogger(__name__)
 
 try:

@@ -10,6 +10,21 @@ import gzip
 from datetime import datetime, timezone
 import uuid
 
+__version__ = "1.0.0"
+
+PROPERTIES = {
+    "bucket": "S3 bucket name (required)",
+    "prefix": "Object key prefix/folder (default: auditflow/)",
+    "region": "AWS region (default: us-east-1)",
+    "access-key-id": "AWS access key ID (optional, uses default credential chain if omitted)",
+    "secret-access-key": "AWS secret access key (optional)",
+    "compress": "Enable gzip compression: true/false (default: false)",
+    "partition-by-date": "Partition objects by event date: true/false (default: true)",
+    "partition-format": "strftime pattern for date partitioning (default: year=%Y/month=%m/day=%d/)",
+    "file-format": "File format: json or jsonl (default: json)",
+    "endpoint-url": "Custom S3-compatible endpoint URL (optional)",
+}
+
 logger = logging.getLogger(__name__)
 
 try:

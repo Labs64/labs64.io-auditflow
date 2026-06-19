@@ -49,6 +49,20 @@ import time
 from typing import Optional
 from urllib.parse import urljoin
 
+__version__ = "1.0.0"
+
+PROPERTIES = {
+    "api-key": "NetLicensing API key (required)",
+    "base-url": "NetLicensing API base URL (default: https://go.netlicensing.io/core/v2/rest/)",
+    "product-number": "Default product number when not specified per line item (optional)",
+    "license-template-number": "Default license template number when not specified per line item (optional)",
+    "quantity-to-licensee": "Create one licensee per quantity unit: true/false (default: false)",
+    "mark-for-transfer": "Mark new licensees for transfer: true/false (default: true)",
+    "save-transaction-data": "Store transaction metadata on the licensee: true/false (default: true)",
+    "timeout": "HTTP request timeout in seconds (default: 30)",
+    "retry-count": "Number of API retry attempts on failure (default: 3)",
+}
+
 logger = logging.getLogger(__name__)
 
 # NetLicensing API constants

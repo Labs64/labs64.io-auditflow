@@ -10,6 +10,20 @@ import json
 import hmac
 import hashlib
 
+__version__ = "1.0.0"
+
+PROPERTIES = {
+    "webhook-url": "Webhook URL to deliver the event to (required)",
+    "method": "HTTP method: GET or POST (default: POST)",
+    "content-type": "Content-Type header (default: application/json)",
+    "headers": "Additional headers as a JSON object string (optional)",
+    "secret": "HMAC-SHA256 signing secret (optional)",
+    "signature-header": "Header name for the HMAC signature (default: X-Hub-Signature-256)",
+    "timeout": "Request timeout in seconds (default: 30)",
+    "verify-ssl": "Verify TLS certificates: true/false (default: true)",
+    "retry-count": "Number of delivery attempts (default: 3)",
+}
+
 logger = logging.getLogger(__name__)
 
 
