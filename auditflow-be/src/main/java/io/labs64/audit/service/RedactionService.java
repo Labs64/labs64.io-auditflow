@@ -16,7 +16,7 @@ import java.util.List;
 
 /**
  * Applies the configured {@link RedactionProperties} rules to an event tree in place, masking,
- * hashing, or dropping PII fields <em>before publish</em> so raw PII never enters the broker (P2-3).
+ * hashing, or dropping PII fields <em>before publish</em> so raw PII never enters the broker.
  *
  * <p>Field paths use dot notation with array indices, matching the condition engine
  * (e.g. {@code extra.userEmail}, {@code items[0].card}). A path that does not exist is a no-op.</p>

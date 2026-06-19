@@ -1,4 +1,4 @@
-"""Unit tests for the plugin registry allow-list / hardening (P1-4)."""
+"""Unit tests for the plugin registry allow-list / hardening."""
 import sys
 import textwrap
 from pathlib import Path

@@ -45,9 +45,9 @@
     "semantic_hash": "aefbc671b4a72f6d64efbfdc966039de"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-be/src/main/java/io/labs64/audit/publisher/AuditPublisherService.java": {
-    "mtime": 1781648359.2263873,
-    "ast_hash": "a946af5c02bee69b7d6a88d18d245146",
-    "semantic_hash": "a946af5c02bee69b7d6a88d18d245146"
+    "mtime": 1781863848.7284873,
+    "ast_hash": "d3361aedf94bfe11a0d5120f7547a705",
+    "semantic_hash": "d3361aedf94bfe11a0d5120f7547a705"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-be/src/main/java/io/labs64/audit/service/AuditService.java": {
     "mtime": 1781648219.2544527,
@@ -115,9 +115,9 @@
     "semantic_hash": "e3f81591f5285f86c0776c4d70d2f9d8"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-be/src/test/java/io/labs64/audit/service/AuditServiceTest.java": {
-    "mtime": 1781648270.313617,
-    "ast_hash": "9f2f55ccadac9953bfa82ac9d8dd4be6",
-    "semantic_hash": "9f2f55ccadac9953bfa82ac9d8dd4be6"
+    "mtime": 1781863848.7567782,
+    "ast_hash": "ec89525b4a66bd1a3e5a4b8d021e0043",
+    "semantic_hash": "ec89525b4a66bd1a3e5a4b8d021e0043"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-be/src/test/java/io/labs64/audit/service/ConditionEvaluatorTest.java": {
     "mtime": 1781602922.9106839,
@@ -135,19 +135,19 @@
     "semantic_hash": "9f707c4c5a817d0fca7de36dbe0a8552"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-be/src/test/java/io/labs64/audit/service/SinkServiceTest.java": {
-    "mtime": 1781646554.423758,
-    "ast_hash": "3018406c001b1303d45bafa2a9af09c9",
-    "semantic_hash": "3018406c001b1303d45bafa2a9af09c9"
+    "mtime": 1781863848.7641864,
+    "ast_hash": "c494e39a9624e5fda5d7299ebda96bb8",
+    "semantic_hash": "c494e39a9624e5fda5d7299ebda96bb8"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-be/src/test/java/io/labs64/audit/service/TransformationServiceTest.java": {
-    "mtime": 1781646530.2975285,
-    "ast_hash": "6e714953bc006dee7a949c24fab5ec72",
-    "semantic_hash": "6e714953bc006dee7a949c24fab5ec72"
+    "mtime": 1781863848.7230964,
+    "ast_hash": "680da113297847014b989579e334285b",
+    "semantic_hash": "680da113297847014b989579e334285b"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-sink/sink.py": {
-    "mtime": 1781648000.6752377,
-    "ast_hash": "dfe21634ac81c42473ba1154a9b2b96b",
-    "semantic_hash": "dfe21634ac81c42473ba1154a9b2b96b"
+    "mtime": 1781864378.749514,
+    "ast_hash": "766e3c1f2a010712bde46b2802771d0e",
+    "semantic_hash": "766e3c1f2a010712bde46b2802771d0e"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-sink/sinks/aws_cloudwatch_sink.py": {
     "mtime": 1776316030.5422344,
@@ -210,9 +210,9 @@
     "semantic_hash": "a85012ac1de9ea9c035bf37873339ccd"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-transformer/transformer.py": {
-    "mtime": 1781647988.5571697,
-    "ast_hash": "ce0447e3891d2893dc9babf2306f15ed",
-    "semantic_hash": "ce0447e3891d2893dc9babf2306f15ed"
+    "mtime": 1781863848.773801,
+    "ast_hash": "1a8bd908080981724431712187df442e",
+    "semantic_hash": "1a8bd908080981724431712187df442e"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-transformer/transformers/audit_loki.py": {
     "mtime": 1776316272.6710405,
@@ -240,12 +240,12 @@
     "semantic_hash": "3d8a3bc01c628f2d082d5c6caeda8823"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/AGENTS.md": {
-    "mtime": 1781670130.9354572,
-    "ast_hash": "ba152c7a45dcc6e2df83197d3d577ae4",
-    "semantic_hash": "ba152c7a45dcc6e2df83197d3d577ae4"
+    "mtime": 1781674454.8353558,
+    "ast_hash": "0e22ff84c3938a20bdd9ae6b15392578",
+    "semantic_hash": "0e22ff84c3938a20bdd9ae6b15392578"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/CLAUDE.md": {
-    "mtime": 1781425914.9573016,
+    "mtime": 1781674436.9469302,
     "ast_hash": "d9c1aa00474b45b2de5f587fe328cb8d",
     "semantic_hash": "d9c1aa00474b45b2de5f587fe328cb8d"
   },
@@ -315,9 +315,9 @@
     "semantic_hash": "63d6e7ec6e209b928dee08cfe28f35d8"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-be/src/main/java/io/labs64/audit/config/RedactionProperties.java": {
-    "mtime": 1781648315.1500015,
-    "ast_hash": "fc17692af2d72737de7a58e3b51be43a",
-    "semantic_hash": "fc17692af2d72737de7a58e3b51be43a"
+    "mtime": 1781863848.738202,
+    "ast_hash": "b7a0d07f319fd3d414fd401a1966523b",
+    "semantic_hash": "b7a0d07f319fd3d414fd401a1966523b"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-be/src/main/java/io/labs64/audit/exception/PoisonDeliveryException.java": {
     "mtime": 1781646183.2334065,
@@ -340,9 +340,9 @@
     "semantic_hash": "72aec3c56a6e992ebb3b8530cef1e8a9"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-be/src/main/java/io/labs64/audit/service/RedactionService.java": {
-    "mtime": 1781648335.9540527,
-    "ast_hash": "da6a8ca744b87eb64fd8c372d91ae28b",
-    "semantic_hash": "da6a8ca744b87eb64fd8c372d91ae28b"
+    "mtime": 1781863848.6709073,
+    "ast_hash": "727891c2af3fa5bb3dc4f8708341db27",
+    "semantic_hash": "727891c2af3fa5bb3dc4f8708341db27"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-be/src/test/java/io/labs64/audit/service/DeliveryErrorsTest.java": {
     "mtime": 1781646647.8228636,
@@ -355,14 +355,14 @@
     "semantic_hash": "3208184b134d0fdcff471429f9cfb6fd"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-sink/auditflow_sdk.py": {
-    "mtime": 1781647975.7359853,
-    "ast_hash": "9545d2b091c325764a1b5a547426ceff",
-    "semantic_hash": "9545d2b091c325764a1b5a547426ceff"
+    "mtime": 1781863848.7334507,
+    "ast_hash": "6394701b9742ce012fc30c6e06901e4b",
+    "semantic_hash": "6394701b9742ce012fc30c6e06901e4b"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-sink/plugin_registry.py": {
-    "mtime": 1781647957.494635,
-    "ast_hash": "be2d2ceba92dbf83abd70b14b97b9686",
-    "semantic_hash": "be2d2ceba92dbf83abd70b14b97b9686"
+    "mtime": 1781863848.7510843,
+    "ast_hash": "f02382f6df3d5497affcffae344f11c8",
+    "semantic_hash": "f02382f6df3d5497affcffae344f11c8"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-sink/sinks/datadog_sink.py": {
     "mtime": 1781648475.6291468,
@@ -385,29 +385,29 @@
     "semantic_hash": "fe3328c362a0488f519c3f66d23b4914"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-sink/tests/test_sink_app.py": {
-    "mtime": 1781648507.9935062,
-    "ast_hash": "a6f5e716dac830c6895b3d30ad5b7bd6",
-    "semantic_hash": "a6f5e716dac830c6895b3d30ad5b7bd6"
+    "mtime": 1781863848.7101324,
+    "ast_hash": "7a41bdce6e1161de1b7dbd9aa4072f18",
+    "semantic_hash": "7a41bdce6e1161de1b7dbd9aa4072f18"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-transformer/auditflow_sdk.py": {
-    "mtime": 1781647969.7332458,
-    "ast_hash": "9545d2b091c325764a1b5a547426ceff",
-    "semantic_hash": "9545d2b091c325764a1b5a547426ceff"
+    "mtime": 1781863848.7054062,
+    "ast_hash": "6394701b9742ce012fc30c6e06901e4b",
+    "semantic_hash": "6394701b9742ce012fc30c6e06901e4b"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-transformer/plugin_registry.py": {
-    "mtime": 1781647936.213415,
-    "ast_hash": "be2d2ceba92dbf83abd70b14b97b9686",
-    "semantic_hash": "be2d2ceba92dbf83abd70b14b97b9686"
+    "mtime": 1781863848.6941707,
+    "ast_hash": "f02382f6df3d5497affcffae344f11c8",
+    "semantic_hash": "f02382f6df3d5497affcffae344f11c8"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-transformer/tests/test_plugin_registry.py": {
-    "mtime": 1781648076.4585214,
-    "ast_hash": "fe3328c362a0488f519c3f66d23b4914",
-    "semantic_hash": "fe3328c362a0488f519c3f66d23b4914"
+    "mtime": 1781863848.7450826,
+    "ast_hash": "8e1c2f92b936bf6cc136a793f5db9162",
+    "semantic_hash": "8e1c2f92b936bf6cc136a793f5db9162"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-transformer/tests/test_transformer_app.py": {
-    "mtime": 1781648093.5498765,
-    "ast_hash": "f72c66d471999dacfa27f92680fc27f7",
-    "semantic_hash": "f72c66d471999dacfa27f92680fc27f7"
+    "mtime": 1781863848.7689493,
+    "ast_hash": "2f1b1127a89c072b3d8092860c505554",
+    "semantic_hash": "2f1b1127a89c072b3d8092860c505554"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-sink/requirements-dev.txt": {
     "mtime": 1781647696.3525016,
@@ -440,8 +440,18 @@
     "semantic_hash": "df1eeb43c74e62aa237041ad1d931500"
   },
   "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/docker-compose-lite.yml": {
-    "mtime": 1781670575.0550082,
-    "ast_hash": "87caf657e5d30d37796e1b717082e74e",
-    "semantic_hash": "87caf657e5d30d37796e1b717082e74e"
+    "mtime": 1781863848.780488,
+    "ast_hash": "a0a1309faec4ce0e273ac81cf0686e75",
+    "semantic_hash": "a0a1309faec4ce0e273ac81cf0686e75"
+  },
+  "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/.claude/settings.json": {
+    "mtime": 1781674370.0729363,
+    "ast_hash": "e1073342e958ac9f00716938c8f165e3",
+    "semantic_hash": "e1073342e958ac9f00716938c8f165e3"
+  },
+  "/Users/alexey/work/projects/labs64.io/labs64.io-auditflow/auditflow-be/pom.xml": {
+    "mtime": 1781646208.9865196,
+    "ast_hash": "019cd1d4a4b43521c509c1fef38e2bb7",
+    "semantic_hash": "019cd1d4a4b43521c509c1fef38e2bb7"
   }
 }

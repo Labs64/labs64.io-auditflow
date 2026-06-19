@@ -31,7 +31,7 @@ public class AuditPublisherService {
     public boolean publishMessage(io.labs64.audit.v1.model.AuditEvent event) {
         String json;
         try {
-            // PII redaction happens here, before publish, so raw PII never enters the broker (P2-3).
+            // PII redaction happens here, before publish, so raw PII never enters the broker.
             JsonNode tree = objectMapper.valueToTree(event);
             redactionService.redact(tree);
             json = objectMapper.writeValueAsString(tree);

@@ -45,7 +45,7 @@ if os.path.exists(external_sinks_path):
 else:
     app_logger.warning("External sinks directory not found: %s. Skipping.", external_sinks_path)
 
-# Discover and validate sinks once at startup into an allow-list (P1-4).
+# Discover and validate sinks once at startup into an allow-list.
 # Only allow-listed ids are resolvable; unknown ids are rejected before any import.
 registry = PluginRegistry(
     base_dir=current_dir,

@@ -7,7 +7,7 @@ import java.util.List;
 
 /**
  * PII de-identification rules applied to every event at ingest, before it is published to the
- * broker, so raw PII never dwells in the message queue (P2-3). Redaction is global by design —
+ * broker, so raw PII never dwells in the message queue. Redaction is global by design —
  * it is not per-pipeline. Field paths use the same dot/array notation as the condition engine
  * (e.g. {@code actor}, {@code extra.userEmail}, {@code items[0].card}).
  */

@@ -1,4 +1,4 @@
-"""API-level tests for the sink service (P1-3)."""
+"""API-level tests for the sink service."""
 from fastapi.testclient import TestClient
 
 import sink

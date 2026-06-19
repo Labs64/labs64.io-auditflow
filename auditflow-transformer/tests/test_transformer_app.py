@@ -1,4 +1,4 @@
-"""API-level tests for the transformer service (P1-3)."""
+"""API-level tests for the transformer service."""
 from fastapi.testclient import TestClient
 
 import transformer

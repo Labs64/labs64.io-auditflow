@@ -32,7 +32,7 @@ up: build-be
     @echo "  RabbitMQ UI:        http://localhost:15673  (guest/guest)"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Lite stack (P1-6): RabbitMQ + transformer + sink + backend — no Redis, no Jaeger
+# Lite stack: RabbitMQ + transformer + sink + backend — no Redis, no Jaeger
 # In-memory idempotency store; faster start, fewer containers for local iteration.
 # ─────────────────────────────────────────────────────────────────────────────
 

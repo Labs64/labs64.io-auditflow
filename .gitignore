@@ -28,6 +28,7 @@ replay_pid*
 .idea
 .kiro
 .DS_Store
+.claude
 
 # Maven build output
 target/

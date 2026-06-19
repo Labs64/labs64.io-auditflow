@@ -1,7 +1,7 @@
 """
 Plugin registry for dynamically-loaded modules (transformers / sinks).
 
-Hardening (P1-4): instead of importing an arbitrary module by name on every request, the registry
+Hardening: instead of importing an arbitrary module by name on every request, the registry
 discovers the modules shipped in the internal directory and mounted in the bootstrap directory
 *once at startup*, validates that each satisfies the plugin contract (defines the required entry
 function), and serves an **allow-list**. A request for an id that is not on the allow-list is

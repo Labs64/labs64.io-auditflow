@@ -1,4 +1,4 @@
-# AuditFlow — Lite local stack (P1-6)
+# AuditFlow — Lite local stack
 #
 # A trimmed profile for fast local iteration. Drops Redis and Jaeger from the full stack
 # (docker-compose.yml), leaving 4 containers: RabbitMQ + transformer + sink + backend.

@@ -1,5 +1,5 @@
 """
-Optional SDK for AuditFlow plugins (P2-5).
+Optional SDK for AuditFlow plugins.
 
 Plugins stay simple: a transformer module defines ``transform(input_data: dict) -> dict`` and a
 sink module defines ``process(event_data: dict, properties: dict) -> dict``. Everything here is

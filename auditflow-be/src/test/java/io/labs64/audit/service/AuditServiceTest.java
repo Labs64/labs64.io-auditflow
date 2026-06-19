@@ -275,7 +275,7 @@ class AuditServiceTest {
     }
 
     // -------------------------------------------------------------------------
-    // Declarative routing: multi-stage transforms + fallback sink (P2-6)
+    // Declarative routing: multi-stage transforms + fallback sink
     // -------------------------------------------------------------------------
 
     @Test
