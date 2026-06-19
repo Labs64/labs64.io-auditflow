@@ -3,26 +3,30 @@ server:
   shutdown: graceful
 
 spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
   application:
     name: labs64.io-auditflow
 
   # Spring Cloud Stream Configuration
   cloud:
     stream:
+      default-binder: rabbit
       bindings:
         audit-out-0:
           destination: labs64-audit-topic
-          binder: rabbit
           content-type: application/json
         audit-in-0:
           destination: labs64-audit-topic
-          binder: rabbit
+          # Named group → durable queue survives restarts; required for autoBindDlq / republishToDlq
+          # to take effect. Queue name: <destination>.<group> = labs64-audit-topic.labs64.io-auditflow
+          group: labs64.io-auditflow
           content-type: application/json
           consumer:
             concurrency: 4
         quarantine-out-0:
           destination: labs64-audit-quarantine
-          binder: rabbit
           content-type: application/json
       binders:
         rabbit:
@@ -82,17 +86,21 @@ management:
     readinessState:
       enabled: true
 
-  # Distributed Tracing
+  # Distributed Tracing (OTLP/HTTP → Jaeger / any OpenTelemetry collector)
   tracing:
     sampling:
-      probability: 1.0
+      probability: 1.0    # 100 % in dev; lower for production (e.g. 0.1)
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
 
   # Metrics
   metrics:
     tags:
       application: ${spring.application.name}
-    export:
-      prometheus:
+  prometheus:
+    metrics:
+      export:
         enabled: true
 
 # Logging Configuration
@@ -102,24 +110,22 @@ logging:
     io.labs64: DEBUG
     org.springframework.cloud.stream: INFO
     org.springframework.amqp: WARN
-  pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
 
 # Transformer Discovery Configuration
 transformer:
   discovery:
-    mode: local # "local" or "kubernetes"
+    mode: local   # "local" or "kubernetes"
   local:
     url: "http://localhost:8081"
   service:
     name: auditflow-transformer
     namespace: default
-    port: 8081
+    # Note: for kubernetes mode the port is read from the K8s Service spec, not from config.
 
 # Sink Discovery Configuration
 sink:
   discovery:
-    mode: local # "local" or "kubernetes"
+    mode: local   # "local" or "kubernetes"
   local:
     url: "http://localhost:8082"
   service:
@@ -128,7 +134,7 @@ sink:
     port: 8082
 
 # Pipeline Configuration
-# Example pipeline configuration (commented out by default):
+# Pipelines are empty by default; configure via auditflow.pipelines[N].* or JAVA_OPTS.
 auditflow:
   pipelines: []
   # Idempotency / dedup store + TTLs (ISO-8601 durations)
@@ -158,11 +164,12 @@ auditflow:
 #        action: 'mask'
 #      - field: 'extra.ssn'
 #        action: 'drop'
+
+# Pipeline examples (uncomment and adjust):
 #  pipelines:
 #  - name: 'logs'
 #    enabled: true
-#    # Optional condition to filter events for this pipeline
-#    # If not specified, all events will be processed
+#    # Optional condition — omit to match every event.
 #    condition:
 #      match: 'all'  # 'all' (AND) or 'any' (OR)
 #      rules:
@@ -172,17 +179,27 @@ auditflow:
 #        - field: 'sourceSystem'
 #          operator: 'startsWith'
 #          value: 'netlicensing'
+#    # Single-stage transformer (backward-compatible form):
 #    transformer:
 #      name: 'zero'
+#    # Multi-stage transformer chain (applied in sequence; takes precedence over 'transformer'):
+#    # transformers:
+#    #   - name: 'audit_loki'
+#    #   - name: 'zero'
 #    sink:
 #      name: 'logging_sink'
 #      properties:
 #        log-level: "INFO"
 #        format: "json"
+#      # Optional fallback sink — used when the primary fails with a retryable error:
+#      # fallback:
+#      #   name: 'logging_sink'
+#      #   properties:
+#      #     log-level: "WARN"
 #  - name: 'security-alerts'
 #    enabled: true
 #    condition:
-#      match: 'any'  # Match if any rule is true
+#      match: 'any'
 #      rules:
 #        - field: 'extra.action_status'
 #          operator: 'eq'
@@ -210,6 +227,7 @@ auditflow:
 #
 # Supported condition operators:
 #   eq, neq          - equals / not equals
+#   eqIgnoreCase     - case-insensitive equals
 #   contains         - string contains
 #   startsWith       - string starts with
 #   endsWith         - string ends with
@@ -217,7 +235,6 @@ auditflow:
 #   exists, notExists - field exists/doesn't exist
 #   regex            - regular expression match
 #   gt, gte, lt, lte - numeric comparisons
-#   eqIgnoreCase     - case-insensitive equals
 #
 # Field paths support dot notation: 'extra.userId', 'geolocation.countryCode'
 # Array access is also supported: 'items[0].name'
