@@ -1,11 +1,11 @@
 # AuditFlow — Lite local stack
 #
-# A trimmed profile for fast local iteration. Drops Redis and Jaeger from the full stack
+# A trimmed profile for fast local iteration. Drops Redis from the full stack
 # (docker-compose.yml), leaving 4 containers: RabbitMQ + transformer + sink + backend.
 #
 #   * Idempotency/dedup uses an in-memory store (auditflow.idempotency.store=memory) instead of
 #     Redis, so no external Redis is required. Single-process only; not for clustered use.
-#   * Tracing export is disabled (no Jaeger); the services still run fully instrumented.
+#   * Tracing export is disabled by default; the services still run fully instrumented.
 #
 # Same happy-path pipeline as the full stack:  audit event → zero transformer → logging_sink.
 #

@@ -33,8 +33,8 @@ app.get('/ready')(readiness)
 app.get('/live')(liveness)
 app.get('/info')(service_info)
 
-from tracing import setup_tracing
-setup_tracing(app, service_name="auditflow-sink")
+from tracing import setup_telemetry
+setup_telemetry(app, service_name="auditflow-sink")
 
 @app.on_event("startup")
 async def startup_event():

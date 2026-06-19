@@ -26,14 +26,15 @@ Rules:
 
 | Path | Service | Stack | Port | Role |
 |------|---------|-------|------|------|
-| `auditflow-be/` | Backend | Java 25, Spring Boot 4.0.5, Maven | 8080 | REST API, broker publish/consume, pipeline orchestration |
+| `auditflow-be/` | Backend | Java 25, Spring Boot 4.1.0, Maven | 8080 | REST API, broker publish/consume, pipeline orchestration |
 | `auditflow-transformer/` | Transformer | Python 3.13, FastAPI, Uvicorn | 8081 | Dynamically-loaded transform modules |
 | `auditflow-sink/` | Sink | Python 3.13, FastAPI, Uvicorn | 8082 | Dynamically-loaded sink/delivery modules |
 
 Root-level orchestration:
-- `justfile` — top-level task runner (`just up`, `just up-lite`, `just e2e`, `just logs`, `just down`).
-- `docker-compose.yml` — full local stack (3 services + RabbitMQ + Redis + Jaeger) with a pre-wired happy-path pipeline.
-- `docker-compose-lite.yml` — trimmed local stack (`just up-lite`): 3 services + RabbitMQ only (no Redis, no Jaeger). Sets `auditflow.idempotency.store=memory` so the dedup guard runs in-process (single-process; not for clustered use).
+- `justfile` — top-level task runner (`just up`, `just up-lite`, `just obs-up`, `just obs-up-lite`, `just e2e`, `just logs`, `just down`).
+- `docker-compose.yml` — full local stack (3 services + RabbitMQ + Redis) with a pre-wired happy-path pipeline.
+- `docker-compose-lite.yml` — trimmed local stack (`just up-lite`): 3 services + RabbitMQ only (no Redis). Sets `auditflow.idempotency.store=memory` so the dedup guard runs in-process (single-process; not for clustered use).
+- `docker-compose-observability.yml` — observability overlay (`just obs-up` / `just obs-up-lite`): OTel Collector + Tempo + Loki + Prometheus + Grafana. Compose on top of any base stack. See [Observability](#observability) below.
 - `docker-compose-infra.yml` — RabbitMQ only, for running services on the host.
 - `.env.example` — copy to `.env`; supplies `RABBITMQ_USERNAME` / `RABBITMQ_PASSWORD`.
 - `.github/workflows/` — CI (build + test all three) and Docker publish.
@@ -84,7 +85,22 @@ Key behaviour:
   cached per base URL. Calls are made blocking with `.block()`.
 - Cross-cutting: `CorrelationIdFilter` (X-Correlation-ID), `GlobalExceptionHandler`
   (uniform `ErrorResponse`), `JacksonConfig`, `OpenAPIConfig`. Observability via Actuator +
-  Micrometer Tracing + OTLP exporter; Prometheus metrics at `/actuator/prometheus`.
+  Micrometer Tracing (OTLP/HTTP) + Prometheus scrape at `/actuator/prometheus` + OTLP metrics push.
+- **Observability wiring**: On Spring Boot 4.1, OpenTelemetry SDK auto-configuration lives in the
+  dedicated `spring-boot-opentelemetry` (SDK + OTLP log export + Logback appender install) and
+  `spring-boot-micrometer-tracing-opentelemetry` (Micrometer observations → OTLP spans + W3C
+  context propagation) modules. The backend depends on `spring-boot-starter-opentelemetry` +
+  `spring-boot-micrometer-tracing-opentelemetry`, so the whole pipeline (traces + logs + the
+  `OpenTelemetry` bean + the Logback `OpenTelemetryAppender` install) is **auto-configured from the
+  `management.tracing.*` / `management.otlp.{tracing,logging,metrics}` properties** — no hand-written
+  config. (`micrometer-tracing-bridge-otel` alone is *not* enough: it provides the Micrometer→OTel
+  abstraction but never creates the `Tracer` bean or registers tracing `ObservationHandler`s, so
+  observations silently produce metrics but **zero spans** — that was the bug fixed when the manual
+  `OtelConfig` / `OtelLogbackInitializer` were replaced by these modules.) `opentelemetry-logback-appender-1.0`
+  must remain an explicit dependency — it is *not* pulled in transitively, and Boot's appender
+  auto-install is `@ConditionalOnClass`, so without it logs stop reaching Loki. Traces and logs use
+  **different OTLP paths** (`/v1/traces` vs `/v1/logs`); the collector routes by path, so the log
+  exporter targets `management.otlp.logging.endpoint`, not the tracing endpoint.
 
 ## Python services (`auditflow-transformer`, `auditflow-sink`) details
 
@@ -118,10 +134,13 @@ Both follow the **same plugin pattern** — keep them symmetric when editing one
 Prefer the `just` recipes. From the repo root:
 
 ```bash
-just up        # build backend JAR, build all images, start full stack + RabbitMQ
-just e2e       # publish a test event and confirm it flows to the logging sink
-just log sink  # tail a single service (backend|transformer|sink|rabbitmq)
-just down      # stop containers   |   just clean = also remove volumes
+just up           # build backend JAR, build all images, start full stack + RabbitMQ
+just up-lite      # trimmed stack (no Redis, in-memory dedup)
+just obs-up       # full stack + OTel Collector + Tempo + Loki + Prometheus + Grafana
+just obs-up-lite  # lite stack + observability overlay (fastest local iteration)
+just e2e          # publish a test event and confirm it flows to the logging sink
+just log sink     # tail a single service (backend|transformer|sink|rabbitmq)
+just down         # stop containers   |   just clean = also remove volumes
 ```
 
 Per-service / direct commands:
@@ -138,6 +157,7 @@ cd auditflow-sink        && just run-local   # uvicorn sink:app        --reload 
 
 Local URLs when the stack is up: backend Swagger `http://localhost:8080/swagger-ui.html`,
 transformer/sink docs `:8081/docs` / `:8082/docs`, RabbitMQ UI `http://localhost:15673` (guest/guest).
+Observability overlay: Grafana `http://localhost:3000` (admin/admin), Prometheus `http://localhost:9090`.
 
 > Compose remaps RabbitMQ to host ports **5673/15673** (not the defaults 5672/15672).
 
@@ -158,6 +178,44 @@ transformer/sink docs `:8081/docs` / `:8082/docs`, RabbitMQ UI `http://localhost
 - All three Dockerfiles run as a non-root user `l64user` (uid/gid 1064). Preserve this.
 - Logging: backend uses SLF4J/Logback with logstash JSON encoder; `io.labs64` is at DEBUG.
 
+## Observability
+
+The observability overlay (`docker-compose-observability.yml`) is composed on top of any base stack
+via `just obs-up` / `just obs-up-lite`. It adds:
+
+| Component | Container | Port(s) |
+|-----------|-----------|---------|
+| OTel Collector | `auditflow-otel-collector` | 4317 (gRPC), 4318 (HTTP), 8889 (Prometheus exporter) |
+| Tempo | `auditflow-tempo` | 3200 |
+| Loki | `auditflow-loki` | 3100 |
+| Prometheus | `auditflow-prometheus` | 9090 |
+| Grafana | `auditflow-grafana` | 3000 |
+
+Signal routing:
+- **Traces** — Spring Boot OTLP/HTTP → OTel Collector → Tempo. Configured via `management.otlp.tracing.endpoint`.
+- **Logs** — Logback `OpenTelemetryAppender` → OTLP → OTel Collector → Loki. Appender is auto-installed by `spring-boot-opentelemetry` (`@ConditionalOnClass` on the appender → keep `opentelemetry-logback-appender-1.0` as an explicit dep).
+- **Metrics (backend)** — dual path: Prometheus scrape of `/actuator/prometheus` (job `auditflow-backend`) AND OTLP push via `micrometer-registry-otlp` → OTel Collector prometheus exporter (:8889) → Prometheus.
+- **Metrics (Python)** — `OTEL_METRICS_EXPORTER=otlp` → OTel Collector → Prometheus exporter.
+
+Config files live under `observability/` (one sub-directory per component). The Grafana
+`AuditFlow Overview` dashboard is auto-provisioned from
+`observability/grafana/dashboards/auditflow-overview.json`.
+
+**Guardrails for agents editing observability:**
+- Backend tracing/logs are **auto-configured** by `spring-boot-starter-opentelemetry` +
+  `spring-boot-micrometer-tracing-opentelemetry` — there is intentionally **no** hand-written
+  `OpenTelemetry`/tracer/appender bean. Do **not** reintroduce a manual `OpenTelemetry` `@Bean`
+  (e.g. an `OtelConfig`): a second `OpenTelemetry` bean breaks the micrometer-tracing bridge.
+  Note `micrometer-tracing-bridge-otel` on its own does **not** create the `Tracer` bean — without
+  the two Boot modules, observations emit metrics but no spans (silent: logs/metrics still work).
+- Keep `opentelemetry-logback-appender-1.0` as an explicit dependency; it is not transitive and
+  Boot's appender auto-install is `@ConditionalOnClass` — drop it and backend logs stop reaching Loki.
+- The log exporter must target `/v1/logs`, the span exporter `/v1/traces` — the collector
+  routes OTLP/HTTP by path. Pointing logs at `/v1/traces` yields HTTP 400
+  `proto: wrong wireType = 1 for field TraceId`.
+- The OTel Collector listens on **4318 for HTTP** and **4317 for gRPC**. Spring Boot's OTLP config uses HTTP (4318 + `/v1/traces`). Python services use the shared `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318`.
+- Do not add `opentelemetry-sdk-extension-autoconfigure` to the backend pom — it conflicts with Spring Boot's `micrometer-tracing-bridge-otel` auto-configuration when OTEL_* env vars are present.
+
 ## Where to make common changes
 
 | Goal | Where |
@@ -169,3 +227,8 @@ transformer/sink docs `:8081/docs` / `:8082/docs`, RabbitMQ UI `http://localhost
 | Add a transformer | `auditflow-transformer/transformers/<name>.py` (+ requirements.txt) |
 | Add a sink | `auditflow-sink/sinks/<name>.py` (+ requirements.txt) |
 | Switch local vs Kubernetes discovery | `transformer.discovery.mode` / `sink.discovery.mode` |
+| Change OTel Collector pipelines | `observability/otel-collector/config.yaml` |
+| Add/edit Grafana dashboard | `observability/grafana/dashboards/*.json` |
+| Change Prometheus scrape targets | `observability/prometheus/prometheus.yml` |
+| Change OTLP tracing endpoint | `management.otlp.tracing.endpoint` in `application.yml` |
+| Change OTLP metrics endpoint | `management.otlp.metrics.export.url` in `application.yml` |

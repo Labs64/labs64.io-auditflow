@@ -7,7 +7,7 @@ spring:
     timeout-per-shutdown-phase: 30s
 
   application:
-    name: labs64.io-auditflow
+    name: auditflow-backend
 
   # Spring Cloud Stream Configuration
   cloud:
@@ -88,13 +88,19 @@ management:
     readinessState:
       enabled: true
 
-  # Distributed Tracing (OTLP/HTTP → Jaeger / any OpenTelemetry collector)
+  # Distributed Tracing via OTLP/HTTP → OpenTelemetry Collector
   tracing:
     sampling:
       probability: 1.0    # 100 % in dev; lower for production (e.g. 0.1)
   otlp:
     tracing:
       endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
+    logging:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/logs
+    metrics:
+      export:
+        url: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/metrics
+        step: 30s
 
   # Metrics
   metrics:

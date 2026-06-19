@@ -16,6 +16,7 @@ Everything you need to work with AuditFlow locally, test it, and troubleshoot is
 - [Adding a New Transformer](#adding-a-new-transformer)
 - [Configuring Pipelines](#configuring-pipelines)
 - [Health & Observability](#health--observability)
+  - [Observability Stack (OTel / Grafana / Prometheus / Loki / Tempo)](#observability-stack)
 - [Troubleshooting](#troubleshooting)
 - [Manual Verification Plan](#manual-verification-plan)
 
@@ -122,12 +123,19 @@ labs64.io-auditflow/
 │   ├── sinks/               # Built-in sinks (13 available)
 │   ├── sinks_bootstrap/     # Mounted at runtime for custom sinks
 │   └── tests/
-├── docker-compose.yml       # Full stack (3 services + RabbitMQ + Redis + Jaeger)
-├── docker-compose-lite.yml  # Lite stack (3 services + RabbitMQ, in-memory dedup)
-├── docker-compose-verify.yml # Verification overlay (2 test pipelines + redaction)
-├── docker-compose-infra.yml # RabbitMQ + Redis only (for host-based dev)
-├── justfile                 # Top-level task runner
-└── .env.example             # RabbitMQ credentials template
+├── docker-compose.yml              # Full stack (3 services + RabbitMQ + Redis)
+├── docker-compose-lite.yml         # Lite stack (3 services + RabbitMQ, in-memory dedup)
+├── docker-compose-observability.yml # Observability overlay (OTel Collector + Tempo + Loki + Prometheus + Grafana)
+├── docker-compose-verify.yml       # Verification overlay (2 test pipelines + redaction)
+├── docker-compose-infra.yml        # RabbitMQ + Redis only (for host-based dev)
+├── observability/                  # Config for the observability overlay
+│   ├── otel-collector/config.yaml  # OTel Collector: receivers, processors, exporters
+│   ├── prometheus/prometheus.yml   # Prometheus scrape targets
+│   ├── loki/loki.yaml              # Loki log storage config
+│   ├── tempo/tempo.yaml            # Tempo trace storage config
+│   └── grafana/                    # Grafana provisioning (datasources + dashboards)
+├── justfile                        # Top-level task runner
+└── .env.example                    # RabbitMQ credentials template
 ```
 
 ---
@@ -136,7 +144,7 @@ labs64.io-auditflow/
 
 ### Full Stack (Docker)
 
-Includes everything: all 3 services + RabbitMQ + Redis + Jaeger tracing.
+Includes everything: all 3 services + RabbitMQ + Redis.
 
 ```bash
 just up        # build JAR + Docker images, start everything
@@ -147,11 +155,22 @@ just clean     # stop + remove volumes (full reset)
 
 ### Lite Stack (Docker, faster)
 
-No Redis, no Jaeger. Uses in-memory idempotency store. Faster startup, fewer containers.
+No Redis. Uses in-memory idempotency store. Faster startup, fewer containers.
 
 ```bash
 just up-lite   # build and start the lite stack
 just down      # same stop command works for both
+```
+
+### Observability Stack
+
+The observability overlay adds OTel Collector, Tempo (traces), Loki (logs), Prometheus (metrics), and Grafana (dashboards) to any base stack. See [Health & Observability](#health--observability) for full details.
+
+```bash
+just obs-up        # full stack + observability overlay
+just obs-up-lite   # lite stack + observability overlay (fastest)
+just obs-down      # stop observability containers only
+just open-obs      # open Grafana, Prometheus, and RabbitMQ in your browser
 ```
 
 ### Host-Based Development
@@ -376,7 +395,7 @@ environment:
 
 ## Health & Observability
 
-### Backend (Spring Boot)
+### Actuator Endpoints (Backend)
 
 | Endpoint | Purpose |
 |----------|---------|
@@ -387,9 +406,9 @@ environment:
 | `GET /actuator/metrics/auditflow.pipeline.outcomes` | Per-pipeline SUCCESS/POISON/RETRYABLE counts |
 | `GET /actuator/metrics/auditflow.pipeline.duration` | Per-pipeline processing duration |
 | `GET /actuator/dlq` | Dead Letter Queue info (GET) and retry (POST) |
-| `GET /actuator/prometheus` | Prometheus scrape endpoint (requires `micrometer-registry-prometheus`) |
+| `GET /actuator/prometheus` | Prometheus scrape endpoint |
 
-### Python Services
+### Python Service Endpoints
 
 | Endpoint | Purpose |
 |----------|---------|
@@ -398,6 +417,93 @@ environment:
 | `GET /live` | Liveness probe |
 | `GET /info` | Service metadata |
 | `GET /registry` | List available sinks/transformers |
+
+### Observability Stack
+
+Start with `just obs-up` or `just obs-up-lite`. The overlay adds five containers to the base stack:
+
+| Component | URL | Credentials | Purpose |
+|-----------|-----|-------------|---------|
+| Grafana | http://localhost:3000 | admin / admin | Dashboards (pre-provisioned) |
+| Prometheus | http://localhost:9090 | — | Metrics query UI |
+| Tempo | http://localhost:3200 | — | Trace storage (API only; use Grafana) |
+| Loki | http://localhost:3100 | — | Log storage (API only; use Grafana) |
+| OTel Collector | localhost:4317 / 4318 | — | OTLP receiver (gRPC / HTTP) |
+
+#### Architecture
+
+```
+Backend (Java)              Python services
+    │  traces → OTLP/HTTP       │  traces+logs+metrics → OTLP/HTTP
+    │  logs   → OTLP/HTTP       │
+    │  metrics→ OTLP/HTTP       │
+    │  metrics→ /actuator/prometheus (Prometheus scrape)
+    └──────────────┬────────────┘
+                   ▼
+         OTel Collector (:4318 HTTP, :4317 gRPC)
+           │   │   │
+           │   │   └─► Prometheus exporter (:8889) ◄── Prometheus scrapes
+           │   └─────► Loki (:3100)                    (logs)
+           └─────────► Tempo (:3200 via gRPC:4317)     (traces)
+
+Prometheus (:9090)
+  ├── scrapes backend:8080/actuator/prometheus
+  └── scrapes otel-collector:8889  (metrics from Python services)
+
+Grafana (:3000)
+  ├── datasource: Prometheus → http://prometheus:9090
+  ├── datasource: Loki       → http://loki:3100
+  └── datasource: Tempo      → http://tempo:3200
+```
+
+#### How signals flow from the Java backend
+
+- **Traces** — `micrometer-tracing-bridge-otel` auto-configures the OTel SDK. Spans are exported via `management.otlp.tracing.endpoint` (OTLP/HTTP → `http://otel-collector:4318/v1/traces`).
+- **Logs** — `logback-spring.xml` declares an `OpenTelemetryAppender`. `OtelLogbackInitializer` calls `OpenTelemetryAppender.install(openTelemetry)` on startup to wire it to the Spring-managed `OpenTelemetry` bean. Log records are then exported via OTLP to the collector → Loki.
+- **Metrics** — exported via two paths:
+  1. `micrometer-registry-prometheus` → `/actuator/prometheus` → Prometheus scrapes directly (job `auditflow-backend`).
+  2. `micrometer-registry-otlp` → OTLP push to `http://otel-collector:4318/v1/metrics` every 30 s → OTel Collector prometheus exporter (port 8889) → Prometheus.
+
+#### How signals flow from Python services
+
+Python services use the `opentelemetry-sdk` with OTLP exporters configured via env vars in `docker-compose-observability.yml`:
+- `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318`
+- `OTEL_LOGS_EXPORTER=otlp`, `OTEL_METRICS_EXPORTER=otlp`
+
+#### Pre-provisioned Grafana dashboard
+
+The **AuditFlow Overview** dashboard (`observability/grafana/dashboards/auditflow-overview.json`) is auto-loaded. It shows:
+- Request rate and 5xx error rate (from Prometheus)
+- Recent traces (from Tempo)
+- Log stream (from Loki)
+
+Datasource UIDs are pinned (`prometheus`, `loki`, `tempo`) so cross-signal linking works: clicking a trace in Tempo shows the correlated logs in Loki.
+
+#### Verify the stack is working
+
+```bash
+# 1. Check OTel Collector received data (metrics exposed on port 8889)
+curl -s http://localhost:8889/metrics | grep auditflow | head -5
+
+# 2. Check Prometheus has backend targets UP
+curl -s http://localhost:9090/api/v1/targets | python3 -m json.tool | grep '"health"'
+
+# 3. Check Loki received logs
+curl -s 'http://localhost:3100/loki/api/v1/query?query={app="auditflow-backend"}' | python3 -m json.tool
+
+# 4. Check Tempo received traces (after sending at least one event)
+curl -s http://localhost:3200/api/search | python3 -m json.tool | head -20
+```
+
+#### Troubleshooting: no data in Grafana / Prometheus
+
+1. **Prometheus targets not UP** — open http://localhost:9090/targets and look for `backend:8080` and `otel-collector:8889`. If `backend` is down, the Spring Boot app may not have started yet (wait ~30 s and refresh).
+
+2. **No logs in Loki** — the OTel Logback appender is initialized after the Spring context fully starts. Send at least one request to the backend, then query Loki. If still empty, check backend logs for `OpenTelemetryAppender` or OTLP export errors.
+
+3. **No traces in Tempo** — tracing samples 100% in dev (`management.tracing.sampling.probability: 1.0`). Send a request and check Grafana → Explore → Tempo → Search. If empty, verify OTel Collector is healthy: `docker logs auditflow-otel-collector | tail -20`.
+
+4. **Collector pipeline errors** — `docker logs auditflow-otel-collector 2>&1 | grep -i error`
 
 ### Circuit Breaker States
 
@@ -818,10 +924,21 @@ just clean    # stop containers AND remove volumes (full reset)
 | http://localhost:8080/swagger-ui.html | Interactive API — publish events from the browser |
 | http://localhost:8080/actuator/health | Backend liveness / readiness |
 | http://localhost:8080/actuator/metrics | Metrics (filter with `?name=auditflow.*`) |
+| http://localhost:8080/actuator/prometheus | Prometheus scrape endpoint |
 | http://localhost:8080/actuator/dlq | DLQ management |
 | http://localhost:8081/docs | Transformer FastAPI docs + transformer list |
 | http://localhost:8082/docs | Sink FastAPI docs + sink list |
 | http://localhost:15673 | RabbitMQ Management UI (guest / guest) |
+
+### Observability URLs (obs stack only)
+
+| URL | Purpose |
+|---|---|
+| http://localhost:3000 | Grafana dashboards (admin / admin) |
+| http://localhost:9090 | Prometheus query UI |
+| http://localhost:3100 | Loki API (use Grafana for UI) |
+| http://localhost:3200 | Tempo API (use Grafana for UI) |
+| http://localhost:8889/metrics | OTel Collector prometheus exporter |
 
 ### Useful commands
 
@@ -829,6 +946,10 @@ just clean    # stop containers AND remove volumes (full reset)
 |---|---|
 | `just up` | Build and start the full stack |
 | `just up-lite` | Build and start the lite stack (faster) |
+| `just obs-up` | Full stack + observability overlay |
+| `just obs-up-lite` | Lite stack + observability overlay (fastest) |
+| `just obs-down` | Stop observability containers only |
+| `just open-obs` | Open Grafana, Prometheus, RabbitMQ in browser |
 | `just verify` | Start the verification stack for manual testing |
 | `just e2e` | Publish a test event (stack must be running) |
 | `just log backend` | Tail backend (Java) logs |

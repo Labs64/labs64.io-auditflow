@@ -15,7 +15,7 @@ default:
     @just --list
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Full stack (all services + RabbitMQ + Redis + Jaeger)
+# Full stack (all services + RabbitMQ + Redis)
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Build the Spring Boot JAR, then build all Docker images and start the full stack
@@ -30,10 +30,11 @@ up: build-be
     @echo "  Transformer API:    http://localhost:8081/docs"
     @echo "  Sink API:           http://localhost:8082/docs"
     @echo "  RabbitMQ UI:        http://localhost:15673  (guest/guest)"
-    @echo "  Jaeger UI:          http://localhost:16686"
+    @echo ""
+    @echo "  Tip: run 'just obs-up' to include Grafana, Prometheus, Tempo, and Loki."
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Lite stack: RabbitMQ + transformer + sink + backend — no Redis, no Jaeger
+# Lite stack: RabbitMQ + transformer + sink + backend — no Redis
 # In-memory idempotency store; faster start, fewer containers for local iteration.
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -44,12 +45,57 @@ up-lite: build-be
     docker compose -f docker-compose-infra.yml down 2>/dev/null || true
     docker compose -f docker-compose-lite.yml up --build -d
     @echo ""
-    @echo "  Lite stack up (no Redis, no Jaeger; in-memory dedup)."
+    @echo "  Lite stack up (no Redis; in-memory dedup)."
     @echo "  Backend API:        http://localhost:8080/api/v1"
     @echo "  Backend Swagger UI: http://localhost:8080/swagger-ui.html"
     @echo "  Transformer API:    http://localhost:8081/docs"
     @echo "  Sink API:           http://localhost:8082/docs"
     @echo "  RabbitMQ UI:        http://localhost:15673  (guest/guest)"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Observability stack (OTel Collector + Tempo + Loki + Prometheus + Grafana)
+# Compose on top of the full or lite base stack via the observability overlay.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Full stack + observability overlay (all services + RabbitMQ + Redis + obs stack)
+obs-up: build-be
+    @# Stop any running stacks to free shared ports
+    docker compose -f docker-compose-lite.yml down 2>/dev/null || true
+    docker compose down 2>/dev/null || true
+    docker compose -f docker-compose-infra.yml down 2>/dev/null || true
+    docker compose -f docker-compose.yml -f docker-compose-observability.yml up --build -d
+    @echo ""
+    @echo "  Backend API:        http://localhost:8080/api/v1"
+    @echo "  Backend Swagger UI: http://localhost:8080/swagger-ui.html"
+    @echo "  Transformer API:    http://localhost:8081/docs"
+    @echo "  Sink API:           http://localhost:8082/docs"
+    @echo "  RabbitMQ UI:        http://localhost:15673  (guest/guest)"
+    @echo "  Grafana:            http://localhost:3000   (admin/admin)"
+    @echo "  Prometheus:         http://localhost:9090"
+
+# Lite stack (no Redis) + observability overlay — fastest local iteration with full observability
+obs-up-lite: build-be
+    @# Stop any running stacks to free shared ports
+    docker compose -f docker-compose-lite.yml down 2>/dev/null || true
+    docker compose down 2>/dev/null || true
+    docker compose -f docker-compose-infra.yml down 2>/dev/null || true
+    docker compose -f docker-compose-lite.yml -f docker-compose-observability.yml up --build -d
+    @echo ""
+    @echo "  Lite + observability stack up (no Redis; in-memory dedup)."
+    @echo "  Backend API:        http://localhost:8080/api/v1"
+    @echo "  Backend Swagger UI: http://localhost:8080/swagger-ui.html"
+    @echo "  RabbitMQ UI:        http://localhost:15673  (guest/guest)"
+    @echo "  Grafana:            http://localhost:3000   (admin/admin)"
+    @echo "  Prometheus:         http://localhost:9090"
+
+# Tear down the observability overlay containers only
+obs-down:
+    docker compose -f docker-compose-observability.yml down 2>/dev/null || true
+
+# Open Grafana and Prometheus in the browser
+open-obs:
+    open "http://localhost:3000" 2>/dev/null || xdg-open "http://localhost:3000"
+    open "http://localhost:9090" 2>/dev/null || xdg-open "http://localhost:9090"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Verification stack: lite + two test pipelines + redaction
@@ -71,13 +117,17 @@ verify: build-be
 # Stop and remove all containers (keeps images) — covers all stacks
 down:
     docker compose -f docker-compose-lite.yml down 2>/dev/null || true
+    docker compose -f docker-compose-lite.yml -f docker-compose-observability.yml down 2>/dev/null || true
     docker compose down 2>/dev/null || true
+    docker compose -f docker-compose.yml -f docker-compose-observability.yml down 2>/dev/null || true
     docker compose -f docker-compose-infra.yml down 2>/dev/null || true
 
 # Stop and remove containers AND volumes (full clean — covers all stacks)
 clean:
     docker compose -f docker-compose-lite.yml down -v --remove-orphans 2>/dev/null || true
+    docker compose -f docker-compose-lite.yml -f docker-compose-observability.yml down -v --remove-orphans 2>/dev/null || true
     docker compose down -v --remove-orphans 2>/dev/null || true
+    docker compose -f docker-compose.yml -f docker-compose-observability.yml down -v --remove-orphans 2>/dev/null || true
     docker compose -f docker-compose-infra.yml down -v --remove-orphans 2>/dev/null || true
 
 # Tail logs from all services (Ctrl+C to stop)

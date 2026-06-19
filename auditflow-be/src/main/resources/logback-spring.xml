@@ -2,6 +2,12 @@
     <springProperty name="appName" source="spring.application.name" defaultValue="auditflow"/>
     <property name="POD_NAME" value="${HOSTNAME:-unknown-pod}"/>
 
+    <!-- OTel Appender — bridges logs to OTel SDK for OTLP export -->
+    <appender name="otel" class="io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender">
+        <captureExperimentalAttributes>true</captureExperimentalAttributes>
+        <captureKeyValuePairs>true</captureKeyValuePairs>
+    </appender>
+
     <!-- JSON Appender -->
     <appender name="console-json" class="ch.qos.logback.core.ConsoleAppender">
         <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
@@ -67,6 +73,7 @@
 
     <root level="INFO">
         <appender-ref ref="console-json"/>
+        <appender-ref ref="otel"/>
         <!-- appender-ref ref="console-plain"/ -->
         <!-- appender-ref ref="console-logfmt"/ -->
     </root>
