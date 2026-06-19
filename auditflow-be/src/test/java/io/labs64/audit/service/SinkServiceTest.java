@@ -52,7 +52,7 @@ class SinkServiceTest {
         lenient().when(cb.run(any(Mono.class), any())).thenAnswer(inv -> inv.getArgument(0));
 
         sinkService = new SinkService(
-                sinkDiscovery, WebClient.builder(), cbFactory, retryProperties, new SimpleMeterRegistry());
+                sinkDiscovery, WebClient.builder(), cbFactory, retryProperties, new SimpleMeterRegistry(), objectMapper);
     }
 
     private com.fasterxml.jackson.databind.JsonNode node(String json) {

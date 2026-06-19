@@ -1,6 +1,8 @@
 package io.labs64.audit.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.labs64.audit.config.HttpRetryProperties;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.netty.channel.ChannelOption;
@@ -16,7 +18,6 @@ import reactor.netty.http.client.HttpClient;
 import reactor.util.retry.Retry;
 
 import java.time.Duration;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -34,12 +35,14 @@ public class SinkService {
     private final ReactiveCircuitBreakerFactory<?, ?> circuitBreakerFactory;
     private final Map<String, WebClient> webClientCache = new ConcurrentHashMap<>();
     private final Retry retrySpec;
+    private final ObjectMapper objectMapper;
 
     public SinkService(SinkDiscovery sinkDiscovery,
                        WebClient.Builder webClientBuilder,
                        ReactiveCircuitBreakerFactory<?, ?> circuitBreakerFactory,
                        HttpRetryProperties retryProperties,
-                       MeterRegistry meterRegistry) {
+                       MeterRegistry meterRegistry,
+                       ObjectMapper objectMapper) {
         this.sinkDiscovery = sinkDiscovery;
         this.webClientBuilder = webClientBuilder;
         this.circuitBreakerFactory = circuitBreakerFactory;
@@ -47,6 +50,7 @@ public class SinkService {
                 ? HttpRetrySupport.spec(retryProperties,
                         meterRegistry.counter("auditflow.http.retries", "service", "sink"))
                 : null;
+        this.objectMapper = objectMapper;
     }
 
     /** Package-private accessor for testing — allows injecting mock WebClient instances. */
@@ -97,9 +101,15 @@ public class SinkService {
      * @return Response from the sink
      */
     private Mono<String> sendEventToSink(JsonNode message, String sinkUrl, String sinkName, Map<String, String> properties) {
-        Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("event_data", message);
-        requestBody.put("properties", properties != null ? properties : new HashMap<>());
+        // Build the request body as an ObjectNode so Jackson2JsonEncoder serialises the event
+        // as its JSON tree content, not as a bean (which would produce JsonNode getter properties).
+        ObjectNode requestBody = objectMapper.createObjectNode();
+        requestBody.set("event_data", message);
+        ObjectNode propertiesNode = objectMapper.createObjectNode();
+        if (properties != null) {
+            properties.forEach(propertiesNode::put);
+        }
+        requestBody.set("properties", propertiesNode);
 
         logger.trace("Sending event to sink '{}' at URL '{}'", sinkName, sinkUrl);
 

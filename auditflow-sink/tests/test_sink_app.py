@@ -7,12 +7,10 @@ client = TestClient(sink.app)
 
 
 def test_list_sinks_includes_logging_sink():
-    response = client.get("/sinks")
+    response = client.get("/registry")
     assert response.status_code == 200
-    body = response.json()
-    ids = [s["id"] for s in body["available_sinks"]]
+    ids = [s["id"] for s in response.json()["sinks"]]
     assert "logging_sink" in ids
-    assert body["count"] == len(body["available_sinks"])
 
 
 def test_logging_sink_processes_event():
@@ -57,7 +55,7 @@ def test_registry_reload():
 
 
 def test_new_catalogue_sinks_are_registered():
-    ids = [s["id"] for s in client.get("/sinks").json()["available_sinks"]]
+    ids = [s["id"] for s in client.get("/registry").json()["sinks"]]
     for expected in ("datadog_sink", "splunk_sink", "snowflake_sink"):
         assert expected in ids
 

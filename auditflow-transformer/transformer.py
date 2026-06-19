@@ -100,26 +100,9 @@ async def transform(
         )
 
 
-@app.get('/transformers')
-async def list_transformers():
-    """
-    List all available (allow-listed) transformer modules. Also doubles as the container
-    healthcheck. Modules discovered but excluded due to load/contract errors are reported
-    under 'errors'.
-    """
-    return JSONResponse(
-        content={
-            "available_transformers": registry.list_available(),
-            "count": len(registry.list_available()),
-            "errors": registry.errors(),
-        },
-        status_code=200
-    )
-
-
 @app.get('/registry')
 async def registry_details():
-    """Detailed registry view: per-transformer version, description, and documented properties."""
+    """Detailed registry view: per-transformer version, description, and documented properties. Also doubles as the container healthcheck."""
     return JSONResponse(
         content={"transformers": registry.details(), "errors": registry.errors()},
         status_code=200

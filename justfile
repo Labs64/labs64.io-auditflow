@@ -126,6 +126,7 @@ e2e:
             "sourceSystem": "auditflow/e2e", \
             "tenantId": "LOCAL-DEV", \
             "extra": { \
+                "sessionId": "dev-session-01", \
                 "userId": "dev-user", \
                 "action_name": "e2e_test", \
                 "action_status": "SUCCESS", \
