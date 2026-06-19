@@ -18,6 +18,12 @@ spring:
           destination: labs64-audit-topic
           binder: rabbit
           content-type: application/json
+          consumer:
+            concurrency: 4
+        quarantine-out-0:
+          destination: labs64-audit-quarantine
+          binder: rabbit
+          content-type: application/json
       binders:
         rabbit:
           type: rabbit
@@ -32,6 +38,11 @@ spring:
               autoBindDlq: true
               republishToDlq: true
               requeueRejected: false
+              maxConcurrency: 8
+              prefetch: 16
+          quarantine-out-0:
+            producer:
+              exchangeType: topic
 
   # RabbitMQ Configuration
   rabbitmq:
@@ -42,6 +53,17 @@ spring:
     username: ${RABBITMQ_USERNAME}
     password: ${RABBITMQ_PASSWORD}
     connection-timeout: 10s
+    listener:
+      simple:
+        observation-enabled: true
+    template:
+      observation-enabled: true
+
+  # Redis (idempotency / dedup)
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
 
 # Actuator Configuration
 management:
@@ -109,6 +131,33 @@ sink:
 # Example pipeline configuration (commented out by default):
 auditflow:
   pipelines: []
+  # Idempotency / dedup store + TTLs (ISO-8601 durations)
+  idempotency:
+    # "redis" (default; clustered, survives restart) or "memory" (single-process, for the lite
+    # local profile — see docker-compose-lite.yml — so no external Redis is required).
+    store: redis
+    claim-ttl: PT5M
+    done-ttl: PT24H
+  # Retry/backoff for outbound transformer & sink HTTP calls.
+  # Only transient failures (5xx, connection/timeout) are retried; 4xx is never retried.
+  http:
+    retry:
+      enabled: true
+      max-attempts: 3        # retries after the initial try (total tries = 1 + max-attempts)
+      min-backoff: PT0.2S    # grows exponentially with jitter on each subsequent retry
+  # PII de-identification applied at ingest, BEFORE publish, so raw PII never enters the broker.
+  # Global (not per-pipeline). Field paths use dot/array notation. Disabled by default.
+  redaction:
+    enabled: false
+    mask: "***"
+    rules: []
+#    rules:
+#      - field: 'actor'
+#        action: 'hash'           # mask | hash | drop
+#      - field: 'extra.userEmail'
+#        action: 'mask'
+#      - field: 'extra.ssn'
+#        action: 'drop'
 #  pipelines:
 #  - name: 'logs'
 #    enabled: true

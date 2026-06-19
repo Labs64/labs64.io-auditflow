@@ -28,6 +28,7 @@ replay_pid*
 .idea
 .kiro
 .DS_Store
+.claude
 
 # Maven build output
 target/
@@ -53,7 +54,9 @@ env/
 
 # Local Docker Compose overrides (personal, not shared)
 docker-compose.override.yml
+
+# AI
 graphify-out/cache
 graphify-out/cost.json
-.claude
+
 docs/superpowers

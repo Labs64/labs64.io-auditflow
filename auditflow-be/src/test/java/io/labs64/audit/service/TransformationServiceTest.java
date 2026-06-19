@@ -1,15 +1,24 @@
 package io.labs64.audit.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.labs64.audit.config.HttpRetryProperties;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.cloud.client.circuitbreaker.ReactiveCircuitBreaker;
+import org.springframework.cloud.client.circuitbreaker.ReactiveCircuitBreakerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
+
+import java.time.Duration;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -32,8 +41,41 @@ class TransformationServiceTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @BeforeEach
+    @SuppressWarnings({"unchecked", "rawtypes"})
     void setUp() {
-        transformationService = new TransformationService(transformerDiscovery, objectMapper);
+        HttpRetryProperties retryProperties = new HttpRetryProperties();
+        retryProperties.setMinBackoff(Duration.ofMillis(1)); // keep retry tests fast
+
+        // Pass-through circuit breaker: run the supplied Mono unchanged (breaker behaviour itself
+        // is Resilience4j's; classification of an open circuit is covered by DeliveryErrorsTest).
+        ReactiveCircuitBreakerFactory cbFactory = mock(ReactiveCircuitBreakerFactory.class);
+        ReactiveCircuitBreaker cb = mock(ReactiveCircuitBreaker.class);
+        lenient().when(cbFactory.create(anyString())).thenReturn(cb);
+        lenient().when(cb.run(any(Mono.class), any())).thenAnswer(inv -> inv.getArgument(0));
+
+        transformationService = new TransformationService(
+                transformerDiscovery, WebClient.builder(), cbFactory, retryProperties, new SimpleMeterRegistry());
+    }
+
+    private com.fasterxml.jackson.databind.JsonNode node(String json) {
+        try { return objectMapper.readTree(json); } catch (Exception e) { throw new RuntimeException(e); }
+    }
+
+    @SuppressWarnings("unchecked")
+    private WebClient mockWebClientReturning(Mono<String> body) {
+        WebClient mockWebClient = mock(WebClient.class);
+        WebClient.RequestBodyUriSpec requestBodyUriSpec = mock(WebClient.RequestBodyUriSpec.class);
+        WebClient.RequestBodySpec requestBodySpec = mock(WebClient.RequestBodySpec.class);
+        WebClient.RequestHeadersSpec requestHeadersSpec = mock(WebClient.RequestHeadersSpec.class);
+        WebClient.ResponseSpec responseSpec = mock(WebClient.ResponseSpec.class);
+
+        when(mockWebClient.post()).thenReturn(requestBodyUriSpec);
+        when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
+        when(requestBodySpec.contentType(any(MediaType.class))).thenReturn(requestBodySpec);
+        when(requestBodySpec.bodyValue(any())).thenReturn(requestHeadersSpec);
+        when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+        when(responseSpec.bodyToMono(String.class)).thenReturn(body);
+        return mockWebClient;
     }
 
     // -------------------------------------------------------------------------
@@ -46,7 +88,7 @@ class TransformationServiceTest {
         when(transformerDiscovery.getTransformerUrl()).thenReturn(null);
 
         IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> transformationService.transform("{\"key\":\"value\"}", "my_transformer"));
+                () -> transformationService.transform(node("{\"key\":\"value\"}"), "my_transformer"));
 
         assertTrue(ex.getMessage().contains("Transformer URL is empty or null"));
     }
@@ -57,27 +99,9 @@ class TransformationServiceTest {
         when(transformerDiscovery.getTransformerUrl()).thenReturn("");
 
         IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> transformationService.transform("{\"key\":\"value\"}", "my_transformer"));
+                () -> transformationService.transform(node("{\"key\":\"value\"}"), "my_transformer"));
 
         assertTrue(ex.getMessage().contains("Transformer URL is empty or null"));
-    }
-
-    // -------------------------------------------------------------------------
-    // Invalid JSON input
-    // -------------------------------------------------------------------------
-
-    @Test
-    @DisplayName("transform() throws RuntimeException wrapping IllegalArgumentException for invalid JSON")
-    void shouldThrowForInvalidJson() {
-        when(transformerDiscovery.getTransformerUrl()).thenReturn("http://localhost:8081");
-
-        RuntimeException ex = assertThrows(RuntimeException.class,
-                () -> transformationService.transform("not-valid-json", "my_transformer"));
-
-        // The service wraps the IllegalArgumentException in a RuntimeException
-        assertTrue(ex.getMessage().contains("Transformation failed") ||
-                        ex.getCause() instanceof IllegalArgumentException,
-                "Expected RuntimeException wrapping an IllegalArgumentException for invalid JSON");
     }
 
     // -------------------------------------------------------------------------
@@ -107,9 +131,10 @@ class TransformationServiceTest {
         // Inject the mock WebClient into the cache
         transformationService.getWebClientCache().put("http://localhost:8081", mockWebClient);
 
-        String result = transformationService.transform("{\"key\":\"value\"}", "my_transformer");
+        StepVerifier.create(transformationService.transform(node("{\"key\":\"value\"}"), "my_transformer"))
+                .expectNext("{\"transformed\":true}")
+                .verifyComplete();
 
-        assertEquals("{\"transformed\":true}", result);
         verify(requestBodyUriSpec).uri("/transform/my_transformer");
     }
 
@@ -135,10 +160,51 @@ class TransformationServiceTest {
 
         transformationService.getWebClientCache().put("http://localhost:8081", mockWebClient);
 
-        RuntimeException ex = assertThrows(RuntimeException.class,
-                () -> transformationService.transform("{\"key\":\"value\"}", "my_transformer"));
+        StepVerifier.create(transformationService.transform(node("{\"key\":\"value\"}"), "my_transformer"))
+                .expectErrorMatches(e -> e instanceof RuntimeException
+                        && e.getMessage().contains("Transformation failed"))
+                .verify();
+    }
 
-        assertTrue(ex.getMessage().contains("Transformation failed"),
-                "Exception message should contain 'Transformation failed'");
+    // -------------------------------------------------------------------------
+    // Retry / backoff
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("transform() retries transient 5xx failures then succeeds")
+    void shouldRetryOn5xxThenSucceed() {
+        when(transformerDiscovery.getTransformerUrl()).thenReturn("http://localhost:8081");
+
+        AtomicInteger attempts = new AtomicInteger();
+        WebClient mockWebClient = mockWebClientReturning(Mono.defer(() ->
+                attempts.incrementAndGet() < 3
+                        ? Mono.error(new WebClientResponseException(503, "Service Unavailable", null, null, null))
+                        : Mono.just("{\"transformed\":true}")));
+        transformationService.getWebClientCache().put("http://localhost:8081", mockWebClient);
+
+        StepVerifier.create(transformationService.transform(node("{\"key\":\"value\"}"), "my_transformer"))
+                .expectNext("{\"transformed\":true}")
+                .verifyComplete();
+
+        assertEquals(3, attempts.get(), "should retry twice (3rd attempt succeeds)");
+    }
+
+    @Test
+    @DisplayName("transform() does not retry on 4xx")
+    void shouldNotRetryOn4xx() {
+        when(transformerDiscovery.getTransformerUrl()).thenReturn("http://localhost:8081");
+
+        AtomicInteger attempts = new AtomicInteger();
+        WebClient mockWebClient = mockWebClientReturning(Mono.defer(() -> {
+            attempts.incrementAndGet();
+            return Mono.error(new WebClientResponseException(400, "Bad Request", null, null, null));
+        }));
+        transformationService.getWebClientCache().put("http://localhost:8081", mockWebClient);
+
+        StepVerifier.create(transformationService.transform(node("{\"key\":\"value\"}"), "my_transformer"))
+                .expectError()
+                .verify();
+
+        assertEquals(1, attempts.get(), "4xx must not be retried");
     }
 }

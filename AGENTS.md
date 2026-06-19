@@ -12,6 +12,16 @@ notification destination).
 
 This is a **polyglot monorepo** with three independently deployable services.
 
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+
 ## Repository layout
 
 | Path | Service | Stack | Port | Role |
@@ -21,8 +31,9 @@ This is a **polyglot monorepo** with three independently deployable services.
 | `auditflow-sink/` | Sink | Python 3.13, FastAPI, Uvicorn | 8082 | Dynamically-loaded sink/delivery modules |
 
 Root-level orchestration:
-- `justfile` — top-level task runner (`just up`, `just e2e`, `just logs`, `just down`).
-- `docker-compose.yml` — full local stack (3 services + RabbitMQ) with a pre-wired happy-path pipeline.
+- `justfile` — top-level task runner (`just up`, `just up-lite`, `just e2e`, `just logs`, `just down`).
+- `docker-compose.yml` — full local stack (3 services + RabbitMQ + Redis + Jaeger) with a pre-wired happy-path pipeline.
+- `docker-compose-lite.yml` — trimmed local stack (`just up-lite`): 3 services + RabbitMQ only (no Redis, no Jaeger). Sets `auditflow.idempotency.store=memory` so the dedup guard runs in-process (single-process; not for clustered use).
 - `docker-compose-infra.yml` — RabbitMQ only, for running services on the host.
 - `.env.example` — copy to `.env`; supplies `RABBITMQ_USERNAME` / `RABBITMQ_PASSWORD`.
 - `.github/workflows/` — CI (build + test all three) and Docker publish.
@@ -90,7 +101,7 @@ Both follow the **same plugin pattern** — keep them symmetric when editing one
   - Internal, shipped in the image: `transformers/` and `sinks/`.
   - External, mounted at runtime (ConfigMap/volume), git-ignored except `.gitkeep`:
     `transformers_bootstrap/` and `sinks_bootstrap/`.
-- `GET /transformers` and `GET /sinks` list available modules (also used as Docker healthchecks).
+- `GET /registry` lists available modules with version, description, and documented properties (also used as the Docker healthcheck).
 - Existing sinks: `logging_sink`, `webhook_sink`, `syslog_sink`, `loki_sink`, `opensearch_sink`,
   `aws_s3_sink`, `aws_cloudwatch_sink`, `gcs_sink`, `azure_blob_sink`, `netlicensing_sink`.
   Existing transformers: `zero` (pass-through), `audit_loki`, `audit_opensearch`.
