@@ -26,7 +26,7 @@
     },
     {
       "id": 1,
-      "title": "Request Rate (req/s)",
+      "title": "Request Rate (req/s) - Excl. Actuator",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -41,7 +41,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(http_server_requests_seconds_count{job=\"auditflow-backend\"}[1m])) by (method, uri, status)",
+          "expr": "sum(rate(http_server_requests_seconds_count{job=\"auditflow-backend\",uri!~\"/actuator.*|/v3/api-docs.*\"}[1m])) by (method, uri, status)",
           "legendFormat": "{{method}} {{uri}} - {{status}}"
         }
       ],
@@ -70,7 +70,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(http_server_requests_seconds_count{job=\"auditflow-backend\",status=~\"5..\"}[1m])) by (method, uri)",
+          "expr": "sum(rate(http_server_requests_seconds_count{job=\"auditflow-backend\",status=~\"5..\",uri!~\"/actuator.*|/v3/api-docs.*\"}[1m])) by (method, uri)",
           "legendFormat": "{{method}} {{uri}}"
         }
       ],
@@ -99,7 +99,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{job=\"auditflow-backend\"}[1m])) by (le)) * 1000",
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{job=\"auditflow-backend\",uri!~\"/actuator.*\"}[1m])) by (le)) * 1000",
           "legendFormat": "P95 Latency"
         }
       ],
@@ -124,7 +124,7 @@
     },
     {
       "id": 4,
-      "title": "Circuit Breaker State",
+      "title": "Circuit Breakers (Open / Half-Open)",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -139,20 +139,21 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "resilience4j_circuitbreaker_state",
+          "expr": "resilience4j_circuitbreaker_state{state=~\"open|half_open\"} > 0",
           "legendFormat": "{{name}} - {{state}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "custom": {},
-          "unit": "short"
+          "unit": "short",
+          "min": 0
         }
       }
     },
     {
       "id": 5,
-      "title": "Circuit Breaker Calls (req/s)",
+      "title": "Circuit Breaker Failed Calls (req/s)",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -167,8 +168,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(resilience4j_circuitbreaker_calls_total[1m])) by (name, kind)",
-          "legendFormat": "{{name}} ({{kind}})"
+          "expr": "sum(rate(resilience4j_circuitbreaker_calls_total{kind=\"failed\"}[1m])) by (name)",
+          "legendFormat": "{{name}} (failed)"
         }
       ],
       "fieldConfig": {
@@ -328,12 +329,13 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "{job=~\"auditflow-backend|auditflow-transformer|auditflow-sink\"} |= ``",
+          "expr": "{job=~\"auditflow-backend|auditflow-transformer|auditflow-sink\"} | json | line_format \"{{.message}}\"",
           "queryType": "range"
         }
       ],
       "options": {
         "showTime": true,
+        "showLabels": false,
         "sortOrder": "Descending",
         "wrapLogMessage": true,
         "enableLogDetails": true

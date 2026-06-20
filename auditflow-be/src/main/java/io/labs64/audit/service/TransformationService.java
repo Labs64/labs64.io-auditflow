@@ -99,7 +99,7 @@ public class TransformationService {
         Mono<String> response = client.post()
                 .uri("/transform/" + transformerName)
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(message)
+                .bodyValue(message.toString())
                 .retrieve()
                 .bodyToMono(String.class);
 
