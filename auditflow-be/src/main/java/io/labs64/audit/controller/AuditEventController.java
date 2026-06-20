@@ -1,5 +1,6 @@
 package io.labs64.audit.controller;
 
+import io.labs64.audit.config.CorrelationIdFilter;
 import io.labs64.audit.exception.PublishException;
 import io.labs64.audit.v1.api.AuditEventApi;
 import io.labs64.audit.v1.model.AuditEvent;
@@ -7,6 +8,7 @@ import io.labs64.audit.publisher.AuditPublisherService;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -45,9 +47,20 @@ public class AuditEventController implements AuditEventApi {
             event.setEventId(UUID.randomUUID());
         }
         String eventId = event.getEventId().toString();
+
+        // Persist the request correlation id into the event so the audit record is self-contained.
+        // Treat a null OR blank client value as "omitted" and fall back to the request correlation id.
+        if (event.getCorrelationId() == null || event.getCorrelationId().isBlank()) {
+            String correlationId = MDC.get(CorrelationIdFilter.CORRELATION_ID_MDC_KEY);
+            if (correlationId != null) {
+                event.setCorrelationId(correlationId);
+            }
+        }
+
         logger.debug("Received request to publish audit event; eventId={}", eventId);
 
-        event.setTimestamp(OffsetDateTime.now());
+        OffsetDateTime receivedAt = OffsetDateTime.now();
+        event.setTimestamp(receivedAt);
         boolean result = publisherService.publishMessage(event);
 
         if (!result) {
@@ -55,7 +68,10 @@ public class AuditEventController implements AuditEventApi {
         }
 
         logger.info("Audit event published successfully; eventId={}", eventId);
-        return ResponseEntity.ok("Audit event published successfully");
+        return ResponseEntity.ok()
+                .header("X-Audit-Event-Id", eventId)
+                .header("X-Audit-Received-At", receivedAt.toString())
+                .body("Audit event published successfully");
     }
 
 }
