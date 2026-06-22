@@ -1,0 +1,124 @@
+# AuditFlow — Observability overlay
+#
+# Adds OTel Collector, Tempo, Loki, Prometheus, and Grafana to any base stack.
+# Compose on top of the full or lite stack:
+#
+#   just obs-up       # full stack + observability
+#   just obs-up-lite  # lite stack + observability
+#
+# Grafana:    http://localhost:3000  (admin / admin)
+# Prometheus: http://localhost:9090
+# Tempo:      http://localhost:3200  (API; use Grafana for UI)
+# Loki:       http://localhost:3100  (API; use Grafana for UI)
+
+services:
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.154.0
+    container_name: auditflow-otel-collector
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./observability/otel-collector/config.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    networks:
+      - auditflow-net
+
+  tempo:
+    image: grafana/tempo:2.10.7
+    container_name: auditflow-tempo
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    user: "0:0"
+    volumes:
+      - ./observability/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/tmp/tempo
+    ports:
+      - "3200:3200"   # HTTP query API (Grafana + direct curl for debugging)
+    networks:
+      - auditflow-net
+
+  loki:
+    image: grafana/loki:3.7.2
+    container_name: auditflow-loki
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    user: "0:0"
+    volumes:
+      - ./observability/loki/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki-data:/tmp/loki
+    ports:
+      - "3100:3100"   # HTTP API (Grafana + direct curl for debugging)
+    networks:
+      - auditflow-net
+
+  prometheus:
+    image: prom/prometheus:v3.12.0
+    container_name: auditflow-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - auditflow-net
+
+  grafana:
+    image: grafana/grafana:13.0.2
+    container_name: auditflow-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_FEATURE_TOGGLES_ENABLE: traceqlEditor
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    networks:
+      - auditflow-net
+
+  # --- Service extensions: inject OTLP config into existing app services ---
+
+  backend:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    depends_on:
+      otel-collector:
+        condition: service_started
+
+  transformer:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: auditflow-transformer
+      OTEL_PYTHON_LOG_CORRELATION: "true"
+      OTEL_LOGS_EXPORTER: "otlp"
+      OTEL_METRICS_EXPORTER: "otlp"
+    depends_on:
+      otel-collector:
+        condition: service_started
+
+  sink:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: auditflow-sink
+      OTEL_PYTHON_LOG_CORRELATION: "true"
+      OTEL_LOGS_EXPORTER: "otlp"
+      OTEL_METRICS_EXPORTER: "otlp"
+    depends_on:
+      otel-collector:
+        condition: service_started
+
+volumes:
+  tempo-data:
+  loki-data:
+  prometheus-data:
+  grafana-data:

@@ -7,7 +7,7 @@ spring:
     timeout-per-shutdown-phase: 30s
 
   application:
-    name: labs64.io-auditflow
+    name: auditflow-backend
 
   # Spring Cloud Stream Configuration
   cloud:
@@ -74,25 +74,38 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus
+        include: health,info,metrics,prometheus,dlq
   endpoint:
     health:
       probes:
         enabled: true
       show-details: when-authorized
+    dlq:
+      enabled: true
   health:
     livenessState:
       enabled: true
     readinessState:
       enabled: true
 
-  # Distributed Tracing (OTLP/HTTP → Jaeger / any OpenTelemetry collector)
+  # Distributed Tracing via OTLP/HTTP → OpenTelemetry Collector
   tracing:
     sampling:
       probability: 1.0    # 100 % in dev; lower for production (e.g. 0.1)
+  # Spring Boot 4.1 renamed the OTLP logging prefix to management.opentelemetry.logging.export.otlp.*
+  # management.otlp.logging.endpoint is silently ignored and was removed.
+  opentelemetry:
+    logging:
+      export:
+        otlp:
+          endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/logs
   otlp:
     tracing:
       endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
+    metrics:
+      export:
+        url: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/metrics
+        step: 30s
 
   # Metrics
   metrics:
@@ -164,6 +177,23 @@ auditflow:
 #        action: 'mask'
 #      - field: 'extra.ssn'
 #        action: 'drop'
+  # Rate limiting per pipeline. Disabled by default. Enable to protect against event storms.
+  ratelimit:
+    enabled: false
+    default-limit-for-period: 1000
+    default-limit-refresh-period: PT1S
+    default-timeout-duration: PT0.1S
+  # Circuit breaker configuration for outbound HTTP calls
+  circuitbreaker:
+    enabled: true
+    sliding-window-size: 20
+    minimum-number-of-calls: 10
+    failure-rate-threshold: 50.0
+    wait-duration-in-open-state: PT15S
+    permitted-number-of-calls-in-half-open-state: 3
+    slow-call-rate-threshold: 100.0
+    slow-call-duration-threshold: PT2S
+    time-limiter-timeout: PT15S
 
 # Pipeline examples (uncomment and adjust):
 #  pipelines:

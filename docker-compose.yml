@@ -48,17 +48,6 @@ services:
     networks:
       - auditflow-net
 
-  jaeger:
-    image: jaegertracing/all-in-one:1.62.0
-    container_name: auditflow-jaeger
-    ports:
-      - "16686:16686"   # Jaeger UI
-      - "4318:4318"     # OTLP HTTP receiver
-    environment:
-      COLLECTOR_OTLP_ENABLED: "true"
-    networks:
-      - auditflow-net
-
   # ─────────────────────────────────────────────────────────────────────────────
   # Transformer service
   # ─────────────────────────────────────────────────────────────────────────────
@@ -70,12 +59,10 @@ services:
     container_name: auditflow-transformer
     ports:
       - "8081:8081"
-    environment:
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
     networks:
       - auditflow-net
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/registry"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/health"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -92,12 +79,10 @@ services:
     container_name: auditflow-sink
     ports:
       - "8082:8082"
-    environment:
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
     networks:
       - auditflow-net
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8082/registry"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8082/health"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -119,8 +104,6 @@ services:
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
       SPRING_RABBITMQ_HOST: rabbitmq
       REDIS_HOST: redis
-      # All three services share the same base OTLP endpoint; application.yml appends /v1/traces
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
       # Point discovery at the compose service names
       TRANSFORMER_LOCAL_URL: http://transformer:8081
       SINK_LOCAL_URL: http://sink:8082

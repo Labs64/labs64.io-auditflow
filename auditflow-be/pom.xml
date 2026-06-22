@@ -25,10 +25,13 @@
         <logstash.version>9.0</logstash.version>
         <springdoc.version>3.0.3</springdoc.version>
         <openapitools.version>0.2.10</openapitools.version>
+        <jackson-datatype.version>2.21.4</jackson-datatype.version>
         <commons-lang3.version>3.20.0</commons-lang3.version>
         <kubernetes-client.version>7.7.0</kubernetes-client.version>
-        <opentelemetry-exporter-otlp.version>1.63.0</opentelemetry-exporter-otlp.version>
+        <bouncycastle.version>1.84</bouncycastle.version>
+        <vertx.version>5.1.2</vertx.version>
         <lombok.version>1.18.46</lombok.version>
+        <opentelemetry-logback-appender.version>2.16.0-alpha</opentelemetry-logback-appender.version>
         <!-- PLUGINS -->
         <maven-enforcer-plugin.version>3.6.3</maven-enforcer-plugin.version>
         <openapi-generator-maven-plugin.version>7.23.0</openapi-generator-maven-plugin.version>
@@ -43,6 +46,38 @@
                 <version>${spring-cloud.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            
+            <!-- 
+                Transitive dependency overrides:
+                BouncyCastle and Vert.x dependencies are explicitly pinned here 
+                to resolve known vulnerabilities or version conflicts in transitive 
+                dependencies. They are not directly used in the application code.
+            -->
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcprov-jdk18on</artifactId>
+                <version>${bouncycastle.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.vertx</groupId>
+                <artifactId>vertx-core</artifactId>
+                <version>${vertx.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.vertx</groupId>
+                <artifactId>vertx-web-client</artifactId>
+                <version>${vertx.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.vertx</groupId>
+                <artifactId>vertx-web-common</artifactId>
+                <version>${vertx.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.vertx</groupId>
+                <artifactId>vertx-auth-common</artifactId>
+                <version>${vertx.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
@@ -99,6 +134,7 @@
         <dependency>
             <groupId>com.fasterxml.jackson.datatype</groupId>
             <artifactId>jackson-datatype-jsr310</artifactId>
+            <version>${jackson-datatype.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>
@@ -126,20 +162,36 @@
             <version>${kubernetes-client.version}</version>
         </dependency>
 
-        <!-- Micrometer Tracing + OTEL bridge -->
+        <!-- Observability — traces + logs + metrics via OpenTelemetry.
+             Spring Boot 4.1 split the OTel/tracing auto-configuration into dedicated
+             modules; these two wire up the OpenTelemetry SDK, the Logback OTLP appender,
+             and the Micrometer→OTel tracing bridge (observations → OTLP spans + W3C
+             context propagation) entirely from the management.* properties below. -->
         <dependency>
-            <groupId>io.micrometer</groupId>
-            <artifactId>micrometer-tracing</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-opentelemetry</artifactId>
         </dependency>
         <dependency>
-            <groupId>io.micrometer</groupId>
-            <artifactId>micrometer-tracing-bridge-otel</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-micrometer-tracing-opentelemetry</artifactId>
         </dependency>
-        <!-- OTLP Exporter -->
+        <!-- Logback OTLP appender — required class on classpath for Boot's
+             OpenTelemetryLoggingAutoConfiguration to install it (declared in
+             logback-spring.xml); not pulled in transitively by the modules above. -->
         <dependency>
-            <groupId>io.opentelemetry</groupId>
-            <artifactId>opentelemetry-exporter-otlp</artifactId>
-            <version>${opentelemetry-exporter-otlp.version}</version>
+            <groupId>io.opentelemetry.instrumentation</groupId>
+            <artifactId>opentelemetry-logback-appender-1.0</artifactId>
+            <version>${opentelemetry-logback-appender.version}</version>
+        </dependency>
+        <!-- Prometheus metrics export (direct scrape at /actuator/prometheus) -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+        <!-- OTLP metrics push → OTel Collector → Prometheus exporter (port 8889) -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-otlp</artifactId>
         </dependency>
 
         <!-- Lombok (optional, for reducing boilerplate code) -->

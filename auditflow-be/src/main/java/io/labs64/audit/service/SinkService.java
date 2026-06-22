@@ -127,7 +127,7 @@ public class SinkService {
         Mono<String> response = client.post()
                 .uri("/sink/" + sinkName)
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(requestBody)
+                .bodyValue(requestBody.toString())
                 .retrieve()
                 .bodyToMono(String.class);
 

@@ -5,6 +5,7 @@ import os
 import logging
 
 from plugin_registry import PluginRegistry, PluginNotFoundError, VALID_ID
+from health import set_ready, health, readiness, liveness, service_info
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -26,8 +27,20 @@ app = FastAPI(
     swagger_ui_parameters={"displayRequestDuration": True}
 )
 
-from tracing import setup_tracing
-setup_tracing(app, service_name="auditflow-transformer")
+# Health check endpoints
+app.get('/health')(health)
+app.get('/ready')(readiness)
+app.get('/live')(liveness)
+app.get('/info')(service_info)
+
+from tracing import setup_telemetry
+setup_telemetry(app, service_name="auditflow-transformer")
+
+@app.on_event("startup")
+async def startup_event():
+    """Set service as ready after startup completes."""
+    set_ready(True)
+    app_logger.info("Transformer service started and ready")
 
 # Define base directory
 current_dir = os.path.dirname(os.path.abspath(__file__))
