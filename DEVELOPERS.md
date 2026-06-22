@@ -459,7 +459,7 @@ Grafana (:3000)
 #### How signals flow from the Java backend
 
 - **Traces** — `micrometer-tracing-bridge-otel` auto-configures the OTel SDK. Spans are exported via `management.otlp.tracing.endpoint` (OTLP/HTTP → `http://otel-collector:4318/v1/traces`).
-- **Logs** — `logback-spring.xml` declares an `OpenTelemetryAppender`. `OtelLogbackInitializer` calls `OpenTelemetryAppender.install(openTelemetry)` on startup to wire it to the Spring-managed `OpenTelemetry` bean. Log records are then exported via OTLP to the collector → Loki.
+- **Logs** — `logback-spring.xml` declares an `OpenTelemetryAppender`. Spring Boot's `spring-boot-opentelemetry` auto-configuration installs it on startup and wires it to the managed `OpenTelemetry` bean. Log records (including `traceId` and `spanId` fields for Grafana trace-to-log correlation) are exported via OTLP/HTTP to the collector, which forwards them to Loki via its native OTLP ingestion endpoint (`/otlp/v1/logs`).
 - **Metrics** — exported via two paths:
   1. `micrometer-registry-prometheus` → `/actuator/prometheus` → Prometheus scrapes directly (job `auditflow-backend`).
   2. `micrometer-registry-otlp` → OTLP push to `http://otel-collector:4318/v1/metrics` every 30 s → OTel Collector prometheus exporter (port 8889) → Prometheus.
@@ -495,7 +495,37 @@ curl -s 'http://localhost:3100/loki/api/v1/query?query={app="auditflow-backend"}
 curl -s http://localhost:3200/api/search | python3 -m json.tool | head -20
 ```
 
+#### Startup sequence (full observability)
+
+```bash
+# 1. Build the Spring Boot JAR and all Docker images, start everything
+just obs-up          # full stack + obs overlay (RabbitMQ + Redis + 3 services + 5 obs containers)
+# or:
+just obs-up-lite     # lite stack (no Redis, in-memory dedup) + obs overlay — fastest for local iteration
+
+# 2. Wait ~60 s for all containers to reach healthy state
+docker compose ps    # all rows should show "healthy" or "Up"
+
+# 3. Send a test event to trigger traces/logs/metrics
+just e2e
+
+# 4. Open observability UIs
+just open-obs        # opens Grafana :3000 and Prometheus :9090 in the browser
+```
+
+> **Tip:** `just obs-up` already stops any previously-running stack before starting, so you do not need to run `just down` first.
+
 #### Troubleshooting: no data in Grafana / Prometheus
+
+0. **Check the OTel Collector is running first** — all other issues are secondary if the collector is down:
+   ```bash
+   docker ps --filter name=auditflow-otel-collector --format '{{.Status}}'
+   # should show "Up ..." — if it shows "Exited (1)..." the collector crashed on startup
+   docker logs auditflow-otel-collector 2>&1 | tail -20
+   ```
+   If the collector exited with a config parse error, inspect `observability/otel-collector/config.yaml`.
+   **Known issue:** the `loki` exporter was removed from `otel-collector-contrib` ≥ 0.114.0. Use
+   `otlp_http/loki` with `endpoint: http://loki:3100/otlp` instead (already fixed in this repo).
 
 1. **Prometheus targets not UP** — open http://localhost:9090/targets and look for `backend:8080` and `otel-collector:8889`. If `backend` is down, the Spring Boot app may not have started yet (wait ~30 s and refresh).
 

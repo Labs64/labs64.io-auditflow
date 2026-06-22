@@ -25,11 +25,13 @@
         <logstash.version>9.0</logstash.version>
         <springdoc.version>3.0.3</springdoc.version>
         <openapitools.version>0.2.10</openapitools.version>
+        <jackson-datatype.version>2.21.4</jackson-datatype.version>
         <commons-lang3.version>3.20.0</commons-lang3.version>
         <kubernetes-client.version>7.7.0</kubernetes-client.version>
         <bouncycastle.version>1.84</bouncycastle.version>
         <vertx.version>5.1.2</vertx.version>
         <lombok.version>1.18.46</lombok.version>
+        <opentelemetry-logback-appender.version>2.16.0-alpha</opentelemetry-logback-appender.version>
         <!-- PLUGINS -->
         <maven-enforcer-plugin.version>3.6.3</maven-enforcer-plugin.version>
         <openapi-generator-maven-plugin.version>7.23.0</openapi-generator-maven-plugin.version>
@@ -132,7 +134,7 @@
         <dependency>
             <groupId>com.fasterxml.jackson.datatype</groupId>
             <artifactId>jackson-datatype-jsr310</artifactId>
-            <version>2.21.4</version>
+            <version>${jackson-datatype.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>
@@ -179,7 +181,7 @@
         <dependency>
             <groupId>io.opentelemetry.instrumentation</groupId>
             <artifactId>opentelemetry-logback-appender-1.0</artifactId>
-            <version>2.16.0-alpha</version>
+            <version>${opentelemetry-logback-appender.version}</version>
         </dependency>
         <!-- Prometheus metrics export (direct scrape at /actuator/prometheus) -->
         <dependency>

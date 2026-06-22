@@ -12,16 +12,14 @@ processors:
     send_batch_size: 1024
 
 exporters:
-  otlp/tempo:
+  otlp_grpc/tempo:
     endpoint: tempo:4317
     tls:
       insecure: true
-  loki:
-    endpoint: http://loki:3100/loki/api/v1/push
-    default_labels_enabled:
-      exporter: false
-      job: true
-      level: true
+  # loki exporter was removed in otel-collector-contrib >=0.114.0.
+  # Loki 3.x ingests OTLP natively at /otlp (/otlp/v1/logs).
+  otlp_http/loki:
+    endpoint: http://loki:3100/otlp
   prometheus:
     endpoint: 0.0.0.0:8889
     namespace: auditflow
@@ -35,11 +33,11 @@ service:
     traces:
       receivers: [otlp]
       processors: [batch]
-      exporters: [otlp/tempo]
+      exporters: [otlp_grpc/tempo]
     logs:
       receivers: [otlp]
       processors: [batch]
-      exporters: [loki]
+      exporters: [otlp_http/loki]
     metrics:
       receivers: [otlp]
       processors: [batch]

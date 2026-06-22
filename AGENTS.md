@@ -87,20 +87,26 @@ Key behaviour:
   (uniform `ErrorResponse`), `JacksonConfig`, `OpenAPIConfig`. Observability via Actuator +
   Micrometer Tracing (OTLP/HTTP) + Prometheus scrape at `/actuator/prometheus` + OTLP metrics push.
 - **Observability wiring**: On Spring Boot 4.1, OpenTelemetry SDK auto-configuration lives in the
-  dedicated `spring-boot-opentelemetry` (SDK + OTLP log export + Logback appender install) and
+  dedicated `spring-boot-opentelemetry` (SDK bean + OTLP log/trace/metrics export) and
   `spring-boot-micrometer-tracing-opentelemetry` (Micrometer observations → OTLP spans + W3C
-  context propagation) modules. The backend depends on `spring-boot-starter-opentelemetry` +
-  `spring-boot-micrometer-tracing-opentelemetry`, so the whole pipeline (traces + logs + the
-  `OpenTelemetry` bean + the Logback `OpenTelemetryAppender` install) is **auto-configured from the
-  `management.tracing.*` / `management.otlp.{tracing,logging,metrics}` properties** — no hand-written
-  config. (`micrometer-tracing-bridge-otel` alone is *not* enough: it provides the Micrometer→OTel
-  abstraction but never creates the `Tracer` bean or registers tracing `ObservationHandler`s, so
-  observations silently produce metrics but **zero spans** — that was the bug fixed when the manual
-  `OtelConfig` / `OtelLogbackInitializer` were replaced by these modules.) `opentelemetry-logback-appender-1.0`
-  must remain an explicit dependency — it is *not* pulled in transitively, and Boot's appender
-  auto-install is `@ConditionalOnClass`, so without it logs stop reaching Loki. Traces and logs use
-  **different OTLP paths** (`/v1/traces` vs `/v1/logs`); the collector routes by path, so the log
-  exporter targets `management.otlp.logging.endpoint`, not the tracing endpoint.
+  context propagation) modules. The backend depends on both. (`micrometer-tracing-bridge-otel` alone
+  is *not* enough: it provides the Micrometer→OTel abstraction but never creates the `Tracer` bean
+  or registers tracing `ObservationHandler`s, so observations silently produce metrics but **zero
+  spans** — that was the bug fixed when the manual `OtelConfig` was removed.)
+  **Critical gap in Spring Boot 4.1**: `spring-boot-opentelemetry` creates the `OpenTelemetry` Spring
+  bean and sets up OTLP exporters, but **never calls `OpenTelemetryAppender.install()`** and never
+  registers the SDK as `GlobalOpenTelemetry`. The Logback `OpenTelemetryAppender` declared in
+  `logback-spring.xml` would silently drop every log event without an explicit install call.
+  `OtelLogbackInstaller` (in `config/`) is the `ApplicationListener<ApplicationReadyEvent>` that
+  bridges the gap — it calls `OpenTelemetryAppender.install(openTelemetry)` with the Spring-managed
+  bean once the context is ready. **Do not remove `OtelLogbackInstaller`** — without it backend logs
+  will never reach Loki, with no error (logs are silently discarded).
+  `opentelemetry-logback-appender-1.0` must remain an explicit dependency — it is *not* pulled in
+  transitively. Traces and logs use **different OTLP paths** (`/v1/traces` vs `/v1/logs`); the
+  collector routes by path. **In Spring Boot 4.1+, the correct OTLP logging property is
+  `management.opentelemetry.logging.export.otlp.endpoint`** (the old `management.otlp.logging.endpoint`
+  path is silently ignored — the `@ConfigurationProperties` prefix moved to
+  `management.opentelemetry.logging.export.otlp` in Spring Boot 4.1.0).
 
 ## Python services (`auditflow-transformer`, `auditflow-sink`) details
 
@@ -193,7 +199,7 @@ via `just obs-up` / `just obs-up-lite`. It adds:
 
 Signal routing:
 - **Traces** — Spring Boot OTLP/HTTP → OTel Collector → Tempo. Configured via `management.otlp.tracing.endpoint`.
-- **Logs** — Logback `OpenTelemetryAppender` → OTLP → OTel Collector → Loki. Appender is auto-installed by `spring-boot-opentelemetry` (`@ConditionalOnClass` on the appender → keep `opentelemetry-logback-appender-1.0` as an explicit dep).
+- **Logs** — Logback `OpenTelemetryAppender` → OTLP → OTel Collector → Loki. The appender is wired to the Spring-managed `OpenTelemetry` bean by `OtelLogbackInstaller` (an `ApplicationListener<ApplicationReadyEvent>` in `config/`). Keep `opentelemetry-logback-appender-1.0` as an explicit dep — it is not transitive.
 - **Metrics (backend)** — dual path: Prometheus scrape of `/actuator/prometheus` (job `auditflow-backend`) AND OTLP push via `micrometer-registry-otlp` → OTel Collector prometheus exporter (:8889) → Prometheus.
 - **Metrics (Python)** — `OTEL_METRICS_EXPORTER=otlp` → OTel Collector → Prometheus exporter.
 
@@ -202,14 +208,18 @@ Config files live under `observability/` (one sub-directory per component). The 
 `observability/grafana/dashboards/auditflow-overview.json`.
 
 **Guardrails for agents editing observability:**
-- Backend tracing/logs are **auto-configured** by `spring-boot-starter-opentelemetry` +
-  `spring-boot-micrometer-tracing-opentelemetry` — there is intentionally **no** hand-written
-  `OpenTelemetry`/tracer/appender bean. Do **not** reintroduce a manual `OpenTelemetry` `@Bean`
-  (e.g. an `OtelConfig`): a second `OpenTelemetry` bean breaks the micrometer-tracing bridge.
-  Note `micrometer-tracing-bridge-otel` on its own does **not** create the `Tracer` bean — without
-  the two Boot modules, observations emit metrics but no spans (silent: logs/metrics still work).
-- Keep `opentelemetry-logback-appender-1.0` as an explicit dependency; it is not transitive and
-  Boot's appender auto-install is `@ConditionalOnClass` — drop it and backend logs stop reaching Loki.
+- Do **not** add a manual `OpenTelemetry` `@Bean` (e.g. an `OtelConfig`): a second `OpenTelemetry`
+  bean breaks the micrometer-tracing bridge. The SDK bean is created by `spring-boot-opentelemetry`
+  auto-configuration. Note `micrometer-tracing-bridge-otel` on its own does **not** create the
+  `Tracer` bean — without `spring-boot-starter-opentelemetry` +
+  `spring-boot-micrometer-tracing-opentelemetry`, observations emit metrics but no spans.
+- **`OtelLogbackInstaller` must stay.** Spring Boot 4.1's `spring-boot-opentelemetry` never calls
+  `OpenTelemetryAppender.install()` and never registers `GlobalOpenTelemetry`. Without
+  `OtelLogbackInstaller` the Logback appender silently discards every log event — no error, no Loki
+  logs. It is NOT a duplicate `OpenTelemetry` bean; it simply wires the existing Spring bean to the
+  static appender at application-ready time.
+- Keep `opentelemetry-logback-appender-1.0` as an explicit dependency; it is not transitive —
+  remove it and the appender class disappears from the classpath.
 - The log exporter must target `/v1/logs`, the span exporter `/v1/traces` — the collector
   routes OTLP/HTTP by path. Pointing logs at `/v1/traces` yields HTTP 400
   `proto: wrong wireType = 1 for field TraceId`.
@@ -231,4 +241,5 @@ Config files live under `observability/` (one sub-directory per component). The 
 | Add/edit Grafana dashboard | `observability/grafana/dashboards/*.json` |
 | Change Prometheus scrape targets | `observability/prometheus/prometheus.yml` |
 | Change OTLP tracing endpoint | `management.otlp.tracing.endpoint` in `application.yml` |
+| Change OTLP logging endpoint | `management.opentelemetry.logging.export.otlp.endpoint` in `application.yml` (Boot 4.1+ path; old `management.otlp.logging.endpoint` is silently ignored) |
 | Change OTLP metrics endpoint | `management.otlp.metrics.export.url` in `application.yml` |
