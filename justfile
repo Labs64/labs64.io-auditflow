@@ -234,3 +234,8 @@ open-ui:
     open "http://localhost:8081/docs"            2>/dev/null || xdg-open "http://localhost:8081/docs"
     open "http://localhost:8082/docs"            2>/dev/null || xdg-open "http://localhost:8082/docs"
     open "http://localhost:15673"                2>/dev/null || xdg-open "http://localhost:15673"
+
+# Open the Jupyter regression test notebook (requires: pip install jupyter requests; just verify must be running)
+notebook:
+    @echo "Prerequisites: pip install jupyter requests && just verify"
+    jupyter lab tests/regression.ipynb

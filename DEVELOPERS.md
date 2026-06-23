@@ -244,6 +244,19 @@ just e2e       # publishes a test event, check sink logs for confirmation
 just log sink  # watch for "Audit Event Logged"
 ```
 
+### Regression Notebook (stack must be running)
+
+`tests/regression.ipynb` automates TC-0 preflight through TC-4 idempotency with pass/fail
+assertions and a summary results table.
+
+**Prerequisites:** `pip install jupyter requests`
+
+```bash
+just verify    # start the verification stack
+just notebook  # open the notebook in your browser
+# Run all cells with Kernel → Restart & Run All
+```
+
 ---
 
 ## Adding a New Sink
