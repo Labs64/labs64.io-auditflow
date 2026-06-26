@@ -3,10 +3,11 @@
 # Prerequisites: just, docker, docker compose, curl, jq (optional, for pretty output)
 #
 # Quick start:
-#   just up      → build all images and start the full stack
-#   just e2e     → publish a test event and watch it flow through the pipeline
-#   just logs    → tail all service logs
-#   just down    → stop everything
+#   just up          → start stack (default)
+#   just up obs      → start stack + observability
+#   just test        → run all tests
+#   just down        → stop everything
+#   just clean       → stop + remove volumes (full reset)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # List available recipes
@@ -15,115 +16,45 @@ default:
     @just --list
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Full stack (all services + RabbitMQ + Redis)
+# Private helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Build the Spring Boot JAR, then build all Docker images and start the full stack
-up: build-be
-    @# Stop the infra-only container if it's running to free the ports
-    docker compose -f docker-compose-infra.yml down 2>/dev/null || true
-    docker compose up --build -d
+# Print all service URLs
+_urls:
     @echo ""
     @echo "  Backend API:        http://localhost:8080/api/v1"
-    @echo "  Backend Swagger UI: http://localhost:8080/swagger-ui.html"
     @echo "  Backend Health:     http://localhost:8080/actuator/health"
-    @echo "  Transformer API:    http://localhost:8081/docs"
-    @echo "  Sink API:           http://localhost:8082/docs"
-    @echo "  RabbitMQ UI:        http://localhost:15673  (guest/guest)"
-    @echo ""
-    @echo "  Tip: run 'just obs-up' to include Grafana, Prometheus, Tempo, and Loki."
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Lite stack: RabbitMQ + transformer + sink + backend — no Redis
-# In-memory idempotency store; faster start, fewer containers for local iteration.
-# ─────────────────────────────────────────────────────────────────────────────
-
-# Build the JAR, then build images and start the trimmed lite stack
-up-lite: build-be
-    @# Stop the full / infra-only stacks to free the shared ports
-    docker compose down 2>/dev/null || true
-    docker compose -f docker-compose-infra.yml down 2>/dev/null || true
-    docker compose -f docker-compose-lite.yml up --build -d
-    @echo ""
-    @echo "  Lite stack up (no Redis; in-memory dedup)."
-    @echo "  Backend API:        http://localhost:8080/api/v1"
     @echo "  Backend Swagger UI: http://localhost:8080/swagger-ui.html"
     @echo "  Transformer API:    http://localhost:8081/docs"
     @echo "  Sink API:           http://localhost:8082/docs"
     @echo "  RabbitMQ UI:        http://localhost:15673  (guest/guest)"
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Observability stack (OTel Collector + Tempo + Loki + Prometheus + Grafana)
-# Compose on top of the full or lite base stack via the observability overlay.
-# ─────────────────────────────────────────────────────────────────────────────
-
-# Full stack + observability overlay (all services + RabbitMQ + Redis + obs stack)
-obs-up: build-be
-    @# Stop any running stacks to free shared ports
-    docker compose -f docker-compose-lite.yml down 2>/dev/null || true
-    docker compose down 2>/dev/null || true
-    docker compose -f docker-compose-infra.yml down 2>/dev/null || true
-    docker compose -f docker-compose.yml -f docker-compose-observability.yml up --build -d
-    @echo ""
-    @echo "  Backend API:        http://localhost:8080/api/v1"
-    @echo "  Backend Swagger UI: http://localhost:8080/swagger-ui.html"
-    @echo "  Transformer API:    http://localhost:8081/docs"
-    @echo "  Sink API:           http://localhost:8082/docs"
-    @echo "  RabbitMQ UI:        http://localhost:15673  (guest/guest)"
+    @echo "  OTel Collector:     localhost:4317 (gRPC) / localhost:4318 (HTTP)"
     @echo "  Grafana:            http://localhost:3000   (admin/admin)"
     @echo "  Prometheus:         http://localhost:9090"
+    @echo "  Tempo:              http://localhost:3200"
+    @echo "  Loki:               http://localhost:3100"
 
-# Lite stack (no Redis) + observability overlay — fastest local iteration with full observability
-obs-up-lite: build-be
-    @# Stop any running stacks to free shared ports
-    docker compose -f docker-compose-lite.yml down 2>/dev/null || true
-    docker compose down 2>/dev/null || true
-    docker compose -f docker-compose-infra.yml down 2>/dev/null || true
-    docker compose -f docker-compose-lite.yml -f docker-compose-observability.yml up --build -d
-    @echo ""
-    @echo "  Lite + observability stack up (no Redis; in-memory dedup)."
-    @echo "  Backend API:        http://localhost:8080/api/v1"
-    @echo "  Backend Swagger UI: http://localhost:8080/swagger-ui.html"
-    @echo "  RabbitMQ UI:        http://localhost:15673  (guest/guest)"
-    @echo "  Grafana:            http://localhost:3000   (admin/admin)"
-    @echo "  Prometheus:         http://localhost:9090"
-
-# Tear down the observability overlay containers only
-obs-down:
-    docker compose -f docker-compose-observability.yml down 2>/dev/null || true
+# Stop all known stacks to free ports
+_stop-all:
+    @docker compose -f docker-compose.yml -f docker-compose-observability.yml --profile full down 2>/dev/null || true
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Verification stack: lite + two test pipelines + redaction
-# Supports all four test cases in DEVELOPERS.md
+# Stack
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Start the verification stack (lite + verify overlay)
-verify: build-be
-    docker compose down 2>/dev/null || true
-    docker compose -f docker-compose-infra.yml down 2>/dev/null || true
-    docker compose -f docker-compose-lite.yml -f docker-compose-verify.yml up --build -d
-    @echo ""
-    @echo "  Verification stack up. Follow DEVELOPERS.md for TC-1 through TC-4."
-    @echo "  Backend API:        http://localhost:8080/api/v1"
-    @echo "  RabbitMQ UI:        http://localhost:15673  (guest/guest)"
-    @echo "  just log sink       (watch delivered events)"
-    @echo "  just down           (when done)"
+# Build JAR, images, start stack. Pass "obs" to include observability.
+up obs="": build-be
+    @just _stop-all
+    @docker compose -f docker-compose.yml {{ if obs == "obs" { "-f docker-compose-observability.yml" } else { "" } }} up --build -d
+    @just _urls
 
-# Stop and remove all containers (keeps images) — covers all stacks
+# Stop and remove all containers (keeps images)
 down:
-    docker compose -f docker-compose-lite.yml down 2>/dev/null || true
-    docker compose -f docker-compose-lite.yml -f docker-compose-observability.yml down 2>/dev/null || true
-    docker compose down 2>/dev/null || true
-    docker compose -f docker-compose.yml -f docker-compose-observability.yml down 2>/dev/null || true
-    docker compose -f docker-compose-infra.yml down 2>/dev/null || true
+    @just _stop-all
 
-# Stop and remove containers AND volumes (full clean — covers all stacks)
+# Stop and remove containers AND volumes (full clean)
 clean:
-    docker compose -f docker-compose-lite.yml down -v --remove-orphans 2>/dev/null || true
-    docker compose -f docker-compose-lite.yml -f docker-compose-observability.yml down -v --remove-orphans 2>/dev/null || true
-    docker compose down -v --remove-orphans 2>/dev/null || true
-    docker compose -f docker-compose.yml -f docker-compose-observability.yml down -v --remove-orphans 2>/dev/null || true
-    docker compose -f docker-compose-infra.yml down -v --remove-orphans 2>/dev/null || true
+    @docker compose -f docker-compose.yml -f docker-compose-observability.yml --profile full down -v --remove-orphans 2>/dev/null || true
 
 # Tail logs from all services (Ctrl+C to stop)
 logs:
@@ -138,35 +69,12 @@ status:
     docker compose ps
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Infrastructure only (RabbitMQ + Redis) — for running services outside Docker
-# ─────────────────────────────────────────────────────────────────────────────
-
-# Start only RabbitMQ + Redis (for running services directly on the host)
-infra-up:
-    @# Stop the full stack if running to free the ports
-    docker compose down 2>/dev/null || true
-    docker compose -f docker-compose-infra.yml up -d
-    @echo ""
-    @echo "RabbitMQ + Redis started."
-    @echo "  AMQP:           localhost:5673"
-    @echo "  Management UI:  http://localhost:15673  (guest/guest)"
-    @echo "  Redis:          localhost:6379"
-
-# Stop RabbitMQ + Redis
-infra-down:
-    docker compose -f docker-compose-infra.yml down
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Build
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Build the Spring Boot JAR (required before building the backend Docker image)
 build-be:
     mvn -B clean package -DskipTests --file auditflow-be/pom.xml
-
-# Build all Docker images without starting them
-build:
-    docker compose build
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Testing
@@ -190,49 +98,15 @@ test-sink:
     cd auditflow-sink && python3 -m pytest -v --tb=short
 
 # ─────────────────────────────────────────────────────────────────────────────
-# End-to-end smoke test (stack must be running)
+# Example notebooks
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Run the happy-path E2E test:
-#   1. Publish an audit event to the backend
-#   2. The backend publishes it to RabbitMQ
-#   3. The backend consumes it, calls the zero transformer, then the logging_sink
-#   4. The logging_sink prints the event to the sink container logs
-#
-# After running this, check the sink logs:  just log sink
-e2e:
-    @echo "Publishing test audit event to http://localhost:8080/api/v1/audit/publish ..."
-    @curl -s -X POST http://localhost:8080/api/v1/audit/publish \
-        -H "Content-Type: application/json" \
-        -d '{ \
-            "eventId": "00000000-e2e0-0000-0000-000000000003", \
-            "eventType": "e2e.test.event", \
-            "sourceSystem": "auditflow/e2e", \
-            "tenantId": "LOCAL-DEV", \
-            "extra": { \
-                "sessionId": "dev-session-01", \
-                "userId": "dev-user", \
-                "action_name": "e2e_test", \
-                "action_status": "SUCCESS", \
-                "action_message": "End-to-end test event" \
-            } \
-        }' | python3 -m json.tool 2>/dev/null || true
-    @echo ""
-    @echo "Event published. Check the sink logs to confirm it was processed:"
-    @echo "  just log sink"
-    @echo ""
-    @echo "You should see an 'Audit Event Logged' entry in the sink output."
+# Open the getting-started notebook (requires: pip install jupyter requests)
+notebook-getting-started:
+    @echo "Prerequisites: pip install jupyter requests && just up"
+    jupyter lab examples/getting-started.ipynb
 
-# Open all service UIs in the browser (macOS / Linux)
-open-ui:
-    open "http://localhost:8080/swagger-ui.html" 2>/dev/null || xdg-open "http://localhost:8080/swagger-ui.html"
-    open "http://localhost:8081/docs"            2>/dev/null || xdg-open "http://localhost:8081/docs"
-    open "http://localhost:8082/docs"            2>/dev/null || xdg-open "http://localhost:8082/docs"
-    open "http://localhost:15673"                2>/dev/null || xdg-open "http://localhost:15673"
-    open "http://localhost:3000"                 2>/dev/null || xdg-open "http://localhost:3000"
-    open "http://localhost:9090"                 2>/dev/null || xdg-open "http://localhost:9090"
-
-# Open the Jupyter regression test notebook (requires: pip install jupyter requests; just verify must be running)
-notebook:
-    @echo "Prerequisites: pip install jupyter requests && just verify"
-    jupyter lab tests/regression.ipynb
+# Open the load-testing notebook (requires: pip install jupyter requests)
+notebook-load-test:
+    @echo "Prerequisites: pip install jupyter requests && just up"
+    jupyter lab examples/load-tests.ipynb

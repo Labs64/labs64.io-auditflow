@@ -142,7 +142,7 @@ You're building or evaluating a microservices platform and want a reference that
 Traces flow from the Java backend through the Python transformer and sink services. Log records carry trace IDs so clicking a trace in Grafana shows correlated logs in Loki. All three signal types are auto-configured — no hand-written OTel SDK beans, no manual appender wiring.
 
 **What to try in a POC:**
-- Run `just obs-up-lite` and open Grafana at http://localhost:3000
+- Run `just up obs` and open Grafana at http://localhost:3000
 - Send several events with `just e2e`
 - Explore the AuditFlow Overview dashboard — click a trace, then follow it to its correlated logs
 
@@ -150,11 +150,11 @@ Traces flow from the Java backend through the Python transformer and sink servic
 
 ### Developer sandbox and local integration testing
 
-You're building a service that publishes audit events and want to verify end-to-end behaviour locally without standing up a full production stack. The lite stack (three services + RabbitMQ, no Redis) starts in under a minute. The `verify` stack adds two pre-wired pipelines and redaction rules for a structured manual test plan covering happy-path delivery, condition filtering, PII redaction, and duplicate suppression.
+You're building a service that publishes audit events and want to verify end-to-end behaviour locally without standing up a full production stack. The local stack (three services + RabbitMQ, in-memory dedup) starts in under a minute. Pipelines and redaction rules are configured via `JAVA_OPTS` in `docker-compose.yml`.
 
 **What to try:**
-- `just verify` — starts the verification stack
-- Walk through TC-1 to TC-4 in [DEVELOPERS.md](DEVELOPERS.md#manual-verification-plan)
+- `just up` — starts the stack
+- Walk through [DEVELOPERS.md](DEVELOPERS.md#manual-verification-plan)
 
 ---
 
@@ -285,18 +285,16 @@ Local URLs once the stack is running:
 
 ### Docker Compose
 
-Four Compose profiles cover the full range from fast local iteration to staging:
+Two Compose profiles cover local iteration and observability:
 
 | Command | Stack | When to use |
 |---------|-------|-------------|
-| `just up-lite` | 3 services + RabbitMQ | Fastest start; in-memory dedup |
-| `just up` | 3 services + RabbitMQ + Redis | Redis-backed dedup for multi-instance testing |
-| `just obs-up-lite` | Lite + OTel Collector + Tempo + Loki + Prometheus + Grafana | Full telemetry, fast iteration |
-| `just obs-up` | Full + observability overlay | Closest to a production-like environment locally |
+| `just up` | 3 services + RabbitMQ | Fastest start; in-memory dedup |
+| `just up obs` | Stack + OTel Collector + Tempo + Loki + Prometheus + Grafana | Full telemetry, fast iteration |
 
 ```bash
 cp .env.example .env   # optional — only needed for custom RabbitMQ credentials
-just obs-up-lite       # recommended starting point
+just up obs            # recommended starting point
 just open-obs          # open Grafana, Prometheus, RabbitMQ in browser
 ```
 
@@ -486,7 +484,6 @@ The [DEVELOPERS.md](DEVELOPERS.md) covers everything for working on AuditFlow lo
 - Pipeline condition reference
 - Health endpoints and circuit breaker metrics
 - Troubleshooting common issues
-- Manual verification test plan (TC-1 through TC-4)
 
 **Prerequisites at a glance:**
 

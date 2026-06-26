@@ -152,8 +152,8 @@ auditflow:
   pipelines: []
   # Idempotency / dedup store + TTLs (ISO-8601 durations)
   idempotency:
-    # "redis" (default; clustered, survives restart) or "memory" (single-process, for the lite
-    # local profile — see docker-compose-lite.yml — so no external Redis is required).
+    # "redis" (default; clustered, survives restart) or "memory" (single-process, for the local
+    # stack — see docker-compose.yml — so no external Redis is required).
     store: redis
     claim-ttl: PT5M
     done-ttl: PT24H

@@ -2,9 +2,11 @@
 Health check endpoints for AuditFlow Python services.
 Provides /health, /ready, and /live endpoints for Kubernetes probes.
 """
+from fastapi import Request
 from fastapi.responses import JSONResponse
 import time
 import os
+import logging
 
 # Track startup time for readiness checks
 _startup_time = time.time()
@@ -91,3 +93,22 @@ async def service_info():
         },
         status_code=200
     )
+
+
+# Paths that should not be logged by Uvicorn access logger
+HEALTH_PATHS = frozenset({"/health", "/ready", "/live", "/info"})
+
+
+class HealthAccessLogFilter(logging.Filter):
+    """Suppress Uvicorn access logs for health-check endpoints."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return not any(f"\"GET {p} " in msg for p in HEALTH_PATHS)
+
+
+def suppress_health_access_logs():
+    """Attach the filter to Uvicorn's access logger. Call once at startup."""
+    for name in ("uvicorn.access", "uvicorn"):
+        logger = logging.getLogger(name)
+        logger.addFilter(HealthAccessLogFilter())

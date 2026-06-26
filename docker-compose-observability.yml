@@ -1,10 +1,9 @@
 # AuditFlow — Observability overlay
 #
-# Adds OTel Collector, Tempo, Loki, Prometheus, and Grafana to any base stack.
-# Compose on top of the full or lite stack:
+# Adds OTel Collector, Tempo, Loki, Prometheus, and Grafana to the base stack.
+# Compose on top of the stack:
 #
-#   just obs-up       # full stack + observability
-#   just obs-up-lite  # lite stack + observability
+#   just up obs        # stack + observability
 #
 # Grafana:    http://localhost:3000  (admin / admin)
 # Prometheus: http://localhost:9090

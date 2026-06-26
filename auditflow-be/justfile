@@ -20,7 +20,7 @@ docker: build
     docker push {{REGISTRY}}/{{APP_NAME}}:latest
     docker images | grep "{{APP_NAME}}"
 
-# Run application locally with the 'local' Spring profile (requires infra-up + transformer + sink running)
+# Run application locally with the 'local' Spring profile (requires docker compose --profile full up rabbitmq redis -d + transformer + sink running)
 run: build
     mvn spring-boot:run -Dspring-boot.run.profiles=local
 

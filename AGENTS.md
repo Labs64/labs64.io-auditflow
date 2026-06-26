@@ -31,11 +31,9 @@ Rules:
 | `auditflow-sink/` | Sink | Python 3.13, FastAPI, Uvicorn | 8082 | Dynamically-loaded sink/delivery modules |
 
 Root-level orchestration:
-- `justfile` — top-level task runner (`just up`, `just up-lite`, `just obs-up`, `just obs-up-lite`, `just e2e`, `just logs`, `just down`).
-- `docker-compose.yml` — full local stack (3 services + RabbitMQ + Redis) with a pre-wired happy-path pipeline.
-- `docker-compose-lite.yml` — trimmed local stack (`just up-lite`): 3 services + RabbitMQ only (no Redis). Sets `auditflow.idempotency.store=memory` so the dedup guard runs in-process (single-process; not for clustered use).
-- `docker-compose-observability.yml` — observability overlay (`just obs-up` / `just obs-up-lite`): OTel Collector + Tempo + Loki + Prometheus + Grafana. Compose on top of any base stack. See [Observability](#observability) below.
-- `docker-compose-infra.yml` — RabbitMQ only, for running services on the host.
+- `justfile` — top-level task runner (`just up`, `just up obs`, `just e2e`, `just logs`, `just down`).
+- `docker-compose.yml` — local stack (3 services + RabbitMQ) with a pre-wired happy-path pipeline. Pipelines and redaction are configured via `JAVA_OPTS` system properties.
+- `docker-compose-observability.yml` — observability overlay (`just up obs`): OTel Collector + Tempo + Loki + Prometheus + Grafana. Compose on top of any base stack. See [Observability](#observability) below.
 - `.env.example` — copy to `.env`; supplies `RABBITMQ_USERNAME` / `RABBITMQ_PASSWORD`.
 - `.github/workflows/` — CI (build + test all three) and Docker publish.
 
@@ -140,13 +138,11 @@ Both follow the **same plugin pattern** — keep them symmetric when editing one
 Prefer the `just` recipes. From the repo root:
 
 ```bash
-just up           # build backend JAR, build all images, start full stack + RabbitMQ
-just up-lite      # trimmed stack (no Redis, in-memory dedup)
-just obs-up       # full stack + OTel Collector + Tempo + Loki + Prometheus + Grafana
-just obs-up-lite  # lite stack + observability overlay (fastest local iteration)
-just e2e          # publish a test event and confirm it flows to the logging sink
-just log sink     # tail a single service (backend|transformer|sink|rabbitmq)
-just down         # stop containers   |   just clean = also remove volumes
+just up          # build backend JAR, build all images, start stack (default)
+just up obs      # stack + OTel Collector + Tempo + Loki + Prometheus + Grafana
+just e2e         # publish a test event and confirm it flows to the logging sink
+just log sink    # tail a single service (backend|transformer|sink|rabbitmq)
+just down        # stop containers   |   just clean = also remove volumes
 ```
 
 Per-service / direct commands:
@@ -156,7 +152,7 @@ Per-service / direct commands:
 mvn -B clean package -DskipTests --file auditflow-be/pom.xml   # build JAR (needed before its image)
 mvn -B verify --file auditflow-be/pom.xml                      # run unit tests (== just test-be / CI)
 
-# Python services run with hot reload on the host (RabbitMQ via `just infra-up`)
+# Python services run with hot reload on the host (RabbitMQ via docker compose --profile full up rabbitmq redis -d)
 cd auditflow-transformer && just run-local   # uvicorn transformer:app --reload on :8081
 cd auditflow-sink        && just run-local   # uvicorn sink:app        --reload on :8082
 ```
@@ -187,7 +183,7 @@ Observability overlay: Grafana `http://localhost:3000` (admin/admin), Prometheus
 ## Observability
 
 The observability overlay (`docker-compose-observability.yml`) is composed on top of any base stack
-via `just obs-up` / `just obs-up-lite`. It adds:
+via `just up obs`. It adds:
 
 | Component | Container | Port(s) |
 |-----------|-----------|---------|

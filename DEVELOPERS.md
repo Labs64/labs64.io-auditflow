@@ -53,7 +53,7 @@ Three independently deployable services:
 Key design decisions:
 - **Pipelines are configuration, not code.** Define them in `application.yml` or via `JAVA_OPTS` environment variables.
 - **Sink/transformer resolution is dynamic.** A request to `/sink/{name}` does `importlib.import_module(name)` — drop a `.py` file in `sinks/` and it becomes available immediately.
-- **Idempotency/dedup** prevents duplicate event processing. Default store is Redis; the lite stack uses in-memory.
+- **Idempotency/dedup** prevents duplicate event processing. Default store is Redis; local stack uses in-memory via `JAVA_OPTS`.
 - **Circuit breakers + retry** guard all outbound HTTP calls to transformer/sink services.
 
 ---
@@ -123,11 +123,9 @@ labs64.io-auditflow/
 │   ├── sinks/               # Built-in sinks (13 available)
 │   ├── sinks_bootstrap/     # Mounted at runtime for custom sinks
 │   └── tests/
-├── docker-compose.yml              # Full stack (3 services + RabbitMQ + Redis)
-├── docker-compose-lite.yml         # Lite stack (3 services + RabbitMQ, in-memory dedup)
+├── docker-compose.yml              # Local stack (3 services + RabbitMQ)
 ├── docker-compose-observability.yml # Observability overlay (OTel Collector + Tempo + Loki + Prometheus + Grafana)
-├── docker-compose-verify.yml       # Verification overlay (2 test pipelines + redaction)
-├── docker-compose-infra.yml        # RabbitMQ + Redis only (for host-based dev)
+
 ├── observability/                  # Config for the observability overlay
 │   ├── otel-collector/config.yaml  # OTel Collector: receivers, processors, exporters
 │   ├── prometheus/prometheus.yml   # Prometheus scrape targets
@@ -142,24 +140,16 @@ labs64.io-auditflow/
 
 ## Running Locally
 
-### Full Stack (Docker)
+### Docker (recommended)
 
-Includes everything: all 3 services + RabbitMQ + Redis.
+All 3 services + RabbitMQ, in-memory idempotency via `JAVA_OPTS`.
 
 ```bash
 just up        # build JAR + Docker images, start everything
+just up obs    # start with observability overlay
 just logs      # tail all service logs (Ctrl+C to stop)
 just down      # stop containers (keeps images)
 just clean     # stop + remove volumes (full reset)
-```
-
-### Lite Stack (Docker, faster)
-
-No Redis. Uses in-memory idempotency store. Faster startup, fewer containers.
-
-```bash
-just up-lite   # build and start the lite stack
-just down      # same stop command works for both
 ```
 
 ### Observability Stack
@@ -167,10 +157,7 @@ just down      # same stop command works for both
 The observability overlay adds OTel Collector, Tempo (traces), Loki (logs), Prometheus (metrics), and Grafana (dashboards) to any base stack. See [Health & Observability](#health--observability) for full details.
 
 ```bash
-just obs-up        # full stack + observability overlay
-just obs-up-lite   # lite stack + observability overlay (fastest)
-just obs-down      # stop observability containers only
-just open-obs      # open Grafana, Prometheus, and RabbitMQ in your browser
+just up obs         # stack + observability overlay
 ```
 
 ### Host-Based Development
@@ -179,7 +166,7 @@ Run infrastructure in Docker, services directly on your machine for faster itera
 
 ```bash
 # 1. Start only RabbitMQ + Redis
-just infra-up
+docker compose --profile full up rabbitmq redis -d
 
 # 2. In separate terminals, run each service with hot-reload:
 cd auditflow-transformer && just run-local   # http://localhost:8081
@@ -191,14 +178,6 @@ mvn spring-boot:run \
   -Dspring-boot.run.jvmArguments="-Dspring.rabbitmq.host=localhost -Dspring.rabbitmq.port=5673"
 ```
 
-### Verification Stack
-
-Extends the lite stack with two test pipelines and PII redaction for manual verification:
-
-```bash
-just verify    # start the verification stack
-# Follow the [Manual Verification Plan](#manual-verification-plan) below (TC-1 through TC-4)
-```
 
 ---
 
@@ -244,18 +223,19 @@ just e2e       # publishes a test event, check sink logs for confirmation
 just log sink  # watch for "Audit Event Logged"
 ```
 
-### Regression Notebook (stack must be running)
+### Getting-Started Notebook (stack must be running)
 
-`tests/regression.ipynb` automates TC-0 preflight through TC-4 idempotency with pass/fail
-assertions and a summary results table.
+`examples/getting-started.ipynb` walks through the core AuditFlow features: health checks,
+plugin registries, publishing events, data redaction, and idempotency.
 
 **Prerequisites:** `pip install jupyter requests`
 
 ```bash
-just verify    # start the verification stack
-just notebook  # open the notebook in your browser
+just up          # start the stack (default)
+just notebook    # open the notebook in your browser
 # Run all cells with Kernel → Restart & Run All
 ```
+
 
 ---
 
@@ -433,7 +413,7 @@ environment:
 
 ### Observability Stack
 
-Start with `just obs-up` or `just obs-up-lite`. The overlay adds five containers to the base stack:
+Start with `just up obs`. The overlay adds five containers to the base stack:
 
 | Component | URL | Credentials | Purpose |
 |-----------|-----|-------------|---------|
@@ -512,21 +492,16 @@ curl -s http://localhost:3200/api/search | python3 -m json.tool | head -20
 
 ```bash
 # 1. Build the Spring Boot JAR and all Docker images, start everything
-just obs-up          # full stack + obs overlay (RabbitMQ + Redis + 3 services + 5 obs containers)
-# or:
-just obs-up-lite     # lite stack (no Redis, in-memory dedup) + obs overlay — fastest for local iteration
+just up obs           # stack + obs overlay (RabbitMQ + 3 services + 5 obs containers)
 
 # 2. Wait ~60 s for all containers to reach healthy state
 docker compose ps    # all rows should show "healthy" or "Up"
 
 # 3. Send a test event to trigger traces/logs/metrics
 just e2e
-
-# 4. Open observability UIs
-just open-obs        # opens Grafana :3000 and Prometheus :9090 in the browser
 ```
 
-> **Tip:** `just obs-up` already stops any previously-running stack before starting, so you do not need to run `just down` first.
+> **Tip:** `just up obs` already stops any previously-running stack before starting, so you do not need to run `just down` first.
 
 #### Troubleshooting: no data in Grafana / Prometheus
 
@@ -698,263 +673,7 @@ curl -s http://localhost:8080/actuator/metrics | grep deduplicated
 
 ---
 
-## Manual Verification Plan
 
-Step-by-step instructions to manually verify core AuditFlow functionality on the lite local stack. Covers four test cases run from a single verification stack.
-
-### Preconditions
-
-| Requirement | Check command | Expected |
-|---|---|---|
-| Docker Engine 24+ | `docker --version` | `Docker version 24+` |
-| Docker Compose v2 | `docker compose version` | `v2.x` |
-| `just` task runner | `just --version` | any |
-| `curl` | `curl --version` | any |
-| `jq` (optional, pretty-print) | `jq --version` | any |
-| Ports free: 5673, 8080, 8081, 8082, 15673 | `lsof -i :8080 -i :8081 -i :8082 -i :5673 -i :15673` | no output |
-
-### Starting the Verification Stack
-
-The `docker-compose-verify.yml` override extends the lite stack with:
-
-- **Pipeline 0 (`e2e-logging`)** — no condition, logs at `INFO` → used by TC-1 and TC-4
-- **Pipeline 1 (`security-alerts`)** — condition: `eventType = security.alert`, logs at `WARN` → used by TC-2
-- **Redaction enabled** — `extra.userId` is masked (`***`), `extra.sessionId` is dropped → used by TC-3
-
-```bash
-docker compose -f docker-compose-lite.yml -f docker-compose-verify.yml up --build -d
-```
-
-Wait ~60 s for all containers to become healthy:
-
-```bash
-docker compose -f docker-compose-lite.yml ps
-# All four rows should show "healthy" in the STATUS column
-```
-
-Confirm all three services respond:
-
-```bash
-curl -s http://localhost:8080/actuator/health | jq -r .status   # UP
-curl -s http://localhost:8081/registry | jq '[.transformers[].id]'  # ["audit_loki","audit_opensearch","zero"]
-curl -s http://localhost:8082/registry | jq '[.sinks[].id]'        # ["aws_cloudwatch_sink","aws_s3_sink",...]
-```
-
-### TC-1 — Happy-Path Event Flow
-
-**What it verifies:** An event published via REST travels through RabbitMQ, is picked up by the consumer, passes through the `zero` (pass-through) transformer, and is delivered to the `logging_sink`.
-
-#### Publish the event
-
-```bash
-curl -s -X POST http://localhost:8080/api/v1/audit/publish \
-  -H "Content-Type: application/json" \
-  -d '{
-    "eventId":     "00000000-0000-0000-0001-000000000001",
-    "eventType":   "user.login",
-    "sourceSystem": "auth-service",
-    "tenantId":    "T-VERIFY-001",
-    "extra": {
-      "userId":        "alice",
-      "sessionId":     "sess-abc-123",
-      "action_status": "SUCCESS"
-    }
-  }'
-```
-
-#### Where to verify
-
-**Expected HTTP response:** `200 OK`, body `Audit event published successfully`
-
-**Sink logs** — event delivered:
-
-```bash
-just log sink
-# Ctrl+C to stop tailing
-```
-
-Look for a line containing `"eventType": "user.login"`. Because redaction is active, `extra.userId` will be `***` and `extra.sessionId` will be absent — this is expected behaviour.
-
-**RabbitMQ UI** — http://localhost:15673 (guest / guest):
-
-- *Exchanges* → `labs64-audit-topic` → message rate briefly spikes then returns to 0
-- *Queues* → `labs64-audit-topic.labs64.io-auditflow` → **Ready** count = 0 (message was consumed)
-
-#### Pass criteria
-
-- [x] `200 OK` from the publish endpoint
-- [x] Sink log contains an entry with `eventType: user.login`
-- [x] RabbitMQ queue depth returns to 0
-
-### TC-2 — Pipeline Condition Filtering
-
-**What it verifies:** Pipeline 1 (`security-alerts`) only processes events where `eventType` equals `security.alert`. Other event types are handled by pipeline 0 only.
-
-#### Step 2a — Send a non-matching event (pipeline 0 only)
-
-```bash
-curl -s -X POST http://localhost:8080/api/v1/audit/publish \
-  -H "Content-Type: application/json" \
-  -d '{
-    "eventId":     "00000000-0000-0000-0002-000000000001",
-    "eventType":   "api.call",
-    "sourceSystem": "backend-service"
-  }'
-```
-
-Check sink logs:
-
-```bash
-just log sink
-```
-
-**Expected:** exactly **one** new log entry at level `INFO`. No `WARNING` entry for this event.
-
-#### Step 2b — Send a matching event (both pipelines)
-
-```bash
-curl -s -X POST http://localhost:8080/api/v1/audit/publish \
-  -H "Content-Type: application/json" \
-  -d '{
-    "eventId":     "00000000-0000-0000-0002-000000000002",
-    "eventType":   "security.alert",
-    "sourceSystem": "auth-service",
-    "extra": {
-      "action_status": "FAILURE"
-    }
-  }'
-```
-
-Check sink logs:
-
-```bash
-just log sink
-```
-
-**Expected:** **two** new log entries for this event — one at `INFO` (pipeline 0) and one at `WARNING` (pipeline 1 / security-alerts).
-
-#### Pass criteria
-
-- [x] Non-matching `api.call` event → 1 sink log entry (INFO), no WARNING
-- [x] Matching `security.alert` event → 2 sink log entries (INFO + WARNING)
-
-### TC-3 — PII / Sensitive Data Redaction
-
-**What it verifies:** `extra.userId` is replaced with `***` and `extra.sessionId` is dropped before the event enters RabbitMQ. Raw PII never reaches the message broker or any downstream sink.
-
-Redaction applies globally at ingest (inside `AuditPublisherService`, before `StreamBridge.send()`), so it affects every pipeline.
-
-#### Publish an event with PII fields
-
-```bash
-curl -s -X POST http://localhost:8080/api/v1/audit/publish \
-  -H "Content-Type: application/json" \
-  -d '{
-    "eventId":     "00000000-0000-0000-0003-000000000001",
-    "eventType":   "user.profile.updated",
-    "sourceSystem": "profile-service",
-    "extra": {
-      "userId":    "alice",
-      "sessionId": "sess-secret-999",
-      "action":    "update_email"
-    }
-  }'
-```
-
-#### Where to verify
-
-**Sink logs** — the event delivered to the sink must show the redacted payload:
-
-```bash
-just log sink
-```
-
-Look for the entry with `eventType: user.profile.updated` and confirm:
-
-| Field | Raw value sent | Expected in log |
-|---|---|---|
-| `extra.userId` | `alice` | `***` |
-| `extra.sessionId` | `sess-secret-999` | absent (dropped) |
-| `extra.action` | `update_email` | `update_email` (unchanged) |
-
-**RabbitMQ UI** — if you can capture a message in-flight (pause consumption or raise prefetch to 0), inspect the payload and confirm `alice` does not appear.
-
-#### Pass criteria
-
-- [x] Sink log shows `extra.userId` = `***`
-- [x] Sink log has no `extra.sessionId` field
-- [x] `extra.action` is unchanged (`update_email`)
-- [x] The raw value `alice` and `sess-secret-999` do not appear anywhere in sink logs
-
-### TC-4 — Idempotency (Duplicate Event Suppression)
-
-**What it verifies:** Sending the same `eventId` twice within the 5-minute claim window results in the second event being silently suppressed at the consumer. Only one delivery reaches the sink.
-
-The in-memory idempotency store uses claim-ttl = 5 minutes and done-ttl = 24 hours.
-
-#### Step 4a — First publish (accepted)
-
-```bash
-curl -s -X POST http://localhost:8080/api/v1/audit/publish \
-  -H "Content-Type: application/json" \
-  -d '{
-    "eventId":     "00000000-0000-0000-0004-000000000001",
-    "eventType":   "order.created",
-    "sourceSystem": "order-service",
-    "tenantId":    "T-VERIFY-004"
-  }'
-```
-
-**Expected:** `200 OK`, body `Audit event published successfully`
-
-#### Step 4b — Duplicate publish (suppressed)
-
-Run the **identical** command immediately:
-
-```bash
-curl -s -X POST http://localhost:8080/api/v1/audit/publish \
-  -H "Content-Type: application/json" \
-  -d '{
-    "eventId":     "00000000-0000-0000-0004-000000000001",
-    "eventType":   "order.created",
-    "sourceSystem": "order-service",
-    "tenantId":    "T-VERIFY-004"
-  }'
-```
-
-**Expected:** `200 OK` — the API always accepts the request; deduplication happens asynchronously at the consumer level.
-
-#### Where to verify
-
-**Backend logs** — look for a dedup/idempotency rejection message for event `00000000-0000-0000-0004-000000000001`:
-
-```bash
-just log backend
-```
-
-Search for `duplicate`, `already`, `idempotent`, or the eventId string. The second occurrence should produce a rejection log, not a pipeline run.
-
-**Sink logs** — the `order.created` event must appear exactly **once**:
-
-```bash
-just log sink
-```
-
-No matter how many times step 4b is repeated, the count in the sink stays at 1.
-
-#### Pass criteria
-
-- [x] Both publishes return `200 OK`
-- [x] Backend log shows a dedup rejection for the second event
-- [x] Sink log contains exactly one entry with `eventType: order.created` and `tenantId: T-VERIFY-004`
-
-### Teardown
-
-```bash
-just down     # stop containers, keep images and build cache
-# or
-just clean    # stop containers AND remove volumes (full reset)
-```
 
 ---
 
@@ -987,13 +706,9 @@ just clean    # stop containers AND remove volumes (full reset)
 
 | Command | Purpose |
 |---|---|
-| `just up` | Build and start the full stack |
-| `just up-lite` | Build and start the lite stack (faster) |
-| `just obs-up` | Full stack + observability overlay |
-| `just obs-up-lite` | Lite stack + observability overlay (fastest) |
-| `just obs-down` | Stop observability containers only |
-| `just open-obs` | Open Grafana, Prometheus, RabbitMQ in browser |
-| `just verify` | Start the verification stack for manual testing |
+| `just up` | Build and start the stack (default) |
+| `just up obs` | Stack + observability overlay |
+
 | `just e2e` | Publish a test event (stack must be running) |
 | `just log backend` | Tail backend (Java) logs |
 | `just log sink` | Tail sink (Python) logs |
@@ -1005,13 +720,3 @@ just clean    # stop containers AND remove volumes (full reset)
 | `just test-be` | Run Java backend unit tests |
 | `just down` | Stop the stack |
 | `just clean` | Stop + remove volumes (full reset) |
-
-### Event ID conventions (Manual Verification)
-
-| TC | eventId suffix | eventType |
-|---|---|---|
-| TC-1 | `0001-000000000001` | `user.login` |
-| TC-2a | `0002-000000000001` | `api.call` |
-| TC-2b | `0002-000000000002` | `security.alert` |
-| TC-3 | `0003-000000000001` | `user.profile.updated` |
-| TC-4 | `0004-000000000001` | `order.created` |

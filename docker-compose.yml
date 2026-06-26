@@ -1,10 +1,10 @@
-# AuditFlow — Full local stack
+# AuditFlow — Local stack
 #
-# Starts all three services + RabbitMQ with a pre-configured happy-path pipeline:
-#   audit event → zero transformer (pass-through) → logging_sink (prints to console)
+# RabbitMQ + transformer + sink + backend — in-memory dedup.
+# Pipelines and redaction configured via JAVA_OPTS system properties.
 #
 # Usage:
-#   just up          # build images and start everything
+#   just up          # start stack
 #   just down        # stop and remove containers
 #   just logs        # tail all logs
 #   just e2e         # publish a test event and verify it flows end-to-end
@@ -47,6 +47,8 @@ services:
       start_period: 10s
     networks:
       - auditflow-net
+    profiles:
+      - full
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Transformer service
@@ -103,22 +105,34 @@ services:
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
       SPRING_RABBITMQ_HOST: rabbitmq
-      REDIS_HOST: redis
-      # Point discovery at the compose service names
       TRANSFORMER_LOCAL_URL: http://transformer:8081
       SINK_LOCAL_URL: http://sink:8082
-      # Happy-path pipeline: zero transformer → logging_sink (no 3rd-party deps)
       JAVA_OPTS: >-
+        -Dauditflow.idempotency.store=memory
+        -Dspring.autoconfigure.exclude=org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration,org.springframework.boot.data.redis.autoconfigure.DataRedisReactiveAutoConfiguration,org.springframework.boot.data.redis.autoconfigure.health.DataRedisHealthContributorAutoConfiguration,org.springframework.boot.data.redis.autoconfigure.health.DataRedisReactiveHealthContributorAutoConfiguration
         -Dauditflow.pipelines[0].name=e2e-logging
         -Dauditflow.pipelines[0].enabled=true
         -Dauditflow.pipelines[0].transformer.name=zero
         -Dauditflow.pipelines[0].sink.name=logging_sink
-        -Dauditflow.pipelines[0].sink.properties.log-level=INFO
+        -Dauditflow.pipelines[0].sink.properties.log-level=DEBUG
         -Dauditflow.pipelines[0].sink.properties.format=json
+        -Dauditflow.pipelines[1].name=security-alerts
+        -Dauditflow.pipelines[1].enabled=true
+        -Dauditflow.pipelines[1].condition.match=all
+        -Dauditflow.pipelines[1].condition.rules[0].field=eventType
+        -Dauditflow.pipelines[1].condition.rules[0].operator=eq
+        -Dauditflow.pipelines[1].condition.rules[0].value=security.alert
+        -Dauditflow.pipelines[1].transformer.name=zero
+        -Dauditflow.pipelines[1].sink.name=logging_sink
+        -Dauditflow.pipelines[1].sink.properties.log-level=WARN
+        -Dauditflow.pipelines[1].sink.properties.format=json
+        -Dauditflow.redaction.enabled=true
+        -Dauditflow.redaction.rules[0].field=extra.userId
+        -Dauditflow.redaction.rules[0].action=mask
+        -Dauditflow.redaction.rules[1].field=extra.sessionId
+        -Dauditflow.redaction.rules[1].action=drop
     depends_on:
       rabbitmq:
-        condition: service_healthy
-      redis:
         condition: service_healthy
       transformer:
         condition: service_healthy

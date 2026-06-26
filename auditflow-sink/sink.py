@@ -5,7 +5,7 @@ import os
 import logging
 
 from plugin_registry import PluginRegistry, PluginNotFoundError, VALID_ID
-from health import set_ready, health, readiness, liveness, service_info
+from health import set_ready, health, readiness, liveness, service_info, suppress_health_access_logs
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -39,6 +39,7 @@ setup_telemetry(app, service_name="auditflow-sink")
 @app.on_event("startup")
 async def startup_event():
     """Set service as ready after startup completes."""
+    suppress_health_access_logs()
     set_ready(True)
     app_logger.info("Sink service started and ready")
 

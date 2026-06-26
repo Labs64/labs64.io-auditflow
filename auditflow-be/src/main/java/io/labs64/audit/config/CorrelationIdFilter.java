@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -30,9 +31,22 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
     public static final String CORRELATION_ID_HEADER = "X-Correlation-ID";
     public static final String CORRELATION_ID_MDC_KEY = "correlationId";
 
+    /** Paths that bypass correlation-ID processing (health probes, favicon). */
+    private static final java.util.Set<String> SKIP_PATHS = Set.of(
+            "/actuator/health",
+            "/actuator/health/liveness",
+            "/actuator/health/readiness",
+            "/favicon.ico"
+    );
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
+        if (SKIP_PATHS.contains(request.getRequestURI())) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         String correlationId = request.getHeader(CORRELATION_ID_HEADER);
 
         // Validate the incoming correlation ID: accept only safe UUID-like values

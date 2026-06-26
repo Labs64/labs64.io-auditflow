@@ -12,6 +12,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.OffsetDateTime;
 import java.util.stream.Collectors;
@@ -97,6 +98,28 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(buildError(ErrorCode.PUBLISH_FAILED, ex.getMessage()));
+    }
+
+    // -------------------------------------------------------------------------
+    // Not-found (static resources, favicon, actuator root, etc.)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Handle missing static resources (e.g. {@code /favicon.ico}, trailing-slash
+     * actuator paths).  Logged at WARN instead of ERROR to avoid noise from
+     * harmless 404s.
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ErrorResponse> handleNoResourceFound(
+            NoResourceFoundException ex,
+            WebRequest request) {
+
+        logger.warn("Resource not found: {}", ex.getMessage());
+
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(buildError(ErrorCode.INTERNAL_ERROR,
+                        "The requested resource was not found"));
     }
 
     // -------------------------------------------------------------------------
