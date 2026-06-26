@@ -255,7 +255,7 @@
                         </goals>
                         <phase>generate-sources</phase>
                         <configuration>
-                            <inputSpec>${project.basedir}/src/main/resources/openapi/openapi-audit-${audit.version}.yaml</inputSpec>
+                            <inputSpec>${project.basedir}/../auditflow-api/src/main/resources/openapi/openapi-audit-${audit.version}.yaml</inputSpec>
                             <generatorName>spring</generatorName>
                             <output>${project.build.directory}/generated-sources</output>
                             <apiPackage>io.labs64.audit.${audit.version}.api</apiPackage>
