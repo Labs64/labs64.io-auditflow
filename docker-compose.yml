@@ -7,7 +7,6 @@
 #   just up          # start stack
 #   just down        # stop and remove containers
 #   just logs        # tail all logs
-#   just e2e         # publish a test event and verify it flows end-to-end
 #
 # See .env.example for configurable variables.
 
@@ -19,6 +18,7 @@ services:
   rabbitmq:
     image: rabbitmq:4-management-alpine
     container_name: auditflow-rabbitmq
+    command: /bin/sh -c "rabbitmq-plugins enable rabbitmq_prometheus && docker-entrypoint.sh rabbitmq-server"
     ports:
       - "5673:5672"    # AMQP  (host 5673 → container 5672)
       - "15673:15672"  # Management UI  →  http://localhost:15673  (guest/guest)

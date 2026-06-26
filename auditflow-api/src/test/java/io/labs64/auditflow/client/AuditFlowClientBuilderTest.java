@@ -39,4 +39,20 @@ class AuditFlowClientBuilderTest {
 
         assertEquals("jwt-123", config.tokenProvider().token());
     }
+
+    @Test
+    void supportsByoHttpClient() {
+        java.net.http.HttpClient customClient = java.net.http.HttpClient.newHttpClient();
+        ClientConfig config = AuditFlowClient.builder()
+                .baseUrl("https://audit.labs64.io/api/v1")
+                .httpClient(customClient)
+                .toConfig();
+
+        assertSame(customClient, config.httpClient());
+    }
+
+    @Test
+    void fromEnvThrowsWhenUrlMissing() {
+        assertThrows(IllegalStateException.class, AuditFlowClient::fromEnv);
+    }
 }

@@ -6,8 +6,10 @@ import io.labs64.auditflow.model.AuditEvent;
 
 import java.net.URI;
 import java.time.Duration;
-import java.util.concurrent.Executor;
+
+import java.net.http.HttpClient;
 import java.util.function.BiConsumer;
+import java.util.function.Supplier;
 
 /** Immutable, fully-resolved client configuration. */
 record ClientConfig(
@@ -17,7 +19,8 @@ record ClientConfig(
         Duration connectTimeout,
         Duration requestTimeout,
         RetryPolicy retryPolicy,
-        Executor executor,
         ObjectMapper objectMapper,
-        BiConsumer<AuditEvent, Throwable> errorHandler) {
+        BiConsumer<AuditEvent, Throwable> errorHandler,
+        Supplier<String> correlationIdProvider,
+        HttpClient httpClient) {
 }

@@ -99,6 +99,9 @@ async def transform(
             )
 
         # Apply the transformation, passing the automatically parsed json_data
+        event_id = json_data.get("eventId", "unknown")
+        app_logger.info("Processing event '%s' type='%s' through transformer '%s'",
+                        event_id, json_data.get("eventType", ""), transformer_id)
         transformed_data = transformation_function(json_data)
 
         return JSONResponse(content=transformed_data, status_code=200)

@@ -143,7 +143,6 @@ Traces flow from the Java backend through the Python transformer and sink servic
 
 **What to try in a POC:**
 - Run `just up obs` and open Grafana at http://localhost:3000
-- Send several events with `just e2e`
 - Explore the AuditFlow Overview dashboard — click a trace, then follow it to its correlated logs
 
 ---
@@ -199,7 +198,7 @@ Designate a fallback sink per pipeline. If the primary sink returns a retryable 
 Transformer and sink module IDs are validated against an allow-list regex (`^[a-zA-Z0-9_]+$`) at the HTTP boundary, preventing path traversal and arbitrary module injection. Custom plugin directories (`sinks_bootstrap/`, `transformers_bootstrap/`) are separate from built-in modules and can be mounted at runtime via ConfigMap or volume without modifying the image. Each service exposes a `/registry` endpoint that lists all available modules with their version, description, and documented properties — also used as the Docker healthcheck.
 
 ### Full OpenTelemetry observability
-Distributed traces (OTLP → Tempo), structured logs (OTLP → Loki), and metrics (Prometheus scrape + OTLP push) are wired end-to-end across all three services. A pre-provisioned Grafana dashboard surfaces request rate, error rate, recent traces, and live log streams out of the box — one command starts the full observability stack. Cross-signal linking is built in: clicking a trace in Tempo opens the correlated logs in Loki. All three signal types are auto-configured by Spring Boot — no hand-written `OpenTelemetry` beans or appender initializers.
+Distributed traces (OTLP → Tempo), structured logs (OTLP → Loki), and metrics (Prometheus scrape + OTLP push) are wired end-to-end across all three services. A pre-provisioned Grafana dashboard surfaces request rate, error rate, recent traces, and live log streams out of the box — one command starts the full observability stack. Cross-signal linking is built in: clicking a trace in Tempo opens the correlated logs in Loki.
 
 ### Pluggable service discovery
 Switch between `local` (a configured base URL) and `kubernetes` (fabric8 `KubernetesClient` resolves the Service ClusterIP at runtime) with a single property. No code paths change; only the discovery implementation is swapped. The same configuration file works identically in local Docker Compose and in a Kubernetes cluster.
@@ -259,9 +258,6 @@ cd labs64.io-auditflow
 # Build images and start the full stack (3 services + RabbitMQ + Redis)
 just up
 
-# Send a test event end-to-end
-just e2e
-
 # Watch the sink receive it
 just log sink
 # Look for: "Audit Event Logged" — then Ctrl+C
@@ -295,7 +291,6 @@ Two Compose profiles cover local iteration and observability:
 ```bash
 cp .env.example .env   # optional — only needed for custom RabbitMQ credentials
 just up obs            # recommended starting point
-just open-obs          # open Grafana, Prometheus, RabbitMQ in browser
 ```
 
 Observability overlay URLs:

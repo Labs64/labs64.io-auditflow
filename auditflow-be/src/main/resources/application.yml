@@ -24,7 +24,7 @@ spring:
           group: labs64.io-auditflow
           content-type: application/json
           consumer:
-            concurrency: 4
+            concurrency: 8
         quarantine-out-0:
           destination: labs64-audit-quarantine
           content-type: application/json
@@ -43,7 +43,7 @@ spring:
               republishToDlq: true
               requeueRejected: false
               maxConcurrency: 8
-              prefetch: 16
+              prefetch: 8
           quarantine-out-0:
             producer:
               exchangeType: topic
@@ -103,16 +103,25 @@ management:
     tracing:
       endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
     metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
       export:
         url: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/metrics
         step: 30s
 
   # Metrics
   metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
     tags:
       application: ${spring.application.name}
   prometheus:
     metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
       export:
         enabled: true
 

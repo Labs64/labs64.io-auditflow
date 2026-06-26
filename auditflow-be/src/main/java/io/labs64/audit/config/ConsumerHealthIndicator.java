@@ -8,7 +8,7 @@ import org.springframework.boot.health.contributor.Health;
 import org.springframework.boot.health.contributor.HealthIndicator;
 import org.springframework.stereotype.Component;
 
-import java.util.concurrent.ConcurrentHashMap;
+
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -27,7 +27,7 @@ public class ConsumerHealthIndicator implements HealthIndicator {
     private final AtomicLong eventsFailed = new AtomicLong(0);
     private final AtomicLong eventsInFlight = new AtomicLong(0);
     private final AtomicLong lastEventTimestamp = new AtomicLong(0);
-    private final ConcurrentHashMap<String, AtomicLong> pipelineEventCounts = new ConcurrentHashMap<>();
+
     private volatile boolean shutdownRequested = false;
 
     public ConsumerHealthIndicator(MeterRegistry meterRegistry) {
@@ -60,11 +60,10 @@ public class ConsumerHealthIndicator implements HealthIndicator {
         eventsInFlight.incrementAndGet();
     }
 
-    public void recordEventProcessed(String pipelineName) {
+    public void recordEventProcessed() {
         eventsInFlight.decrementAndGet();
         eventsProcessed.incrementAndGet();
         lastEventTimestamp.set(System.currentTimeMillis());
-        pipelineEventCounts.computeIfAbsent(pipelineName, k -> new AtomicLong(0)).incrementAndGet();
     }
 
     public void recordEventFailed() {

@@ -4,7 +4,7 @@
 #
 # Quick start:
 #   just up          → start stack (default)
-#   just up obs      → start stack + observability
+#   just up otel     → start stack + observability
 #   just test        → run all tests
 #   just down        → stop everything
 #   just clean       → stop + remove volumes (full reset)
@@ -42,10 +42,24 @@ _stop-all:
 # Stack
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Build JAR, images, start stack. Pass "obs" to include observability.
-up obs="": build-be
+# Build JAR, images, start stack.
+# Enable observability with: otel, yes, true, or 1
+up otel="": build-be
     @just _stop-all
-    @docker compose -f docker-compose.yml {{ if obs == "obs" { "-f docker-compose-observability.yml" } else { "" } }} up --build -d
+    @docker compose \
+        -f docker-compose.yml \
+        {{ if otel == "otel" {
+            "-f docker-compose-observability.yml"
+        } else if otel == "yes" {
+            "-f docker-compose-observability.yml"
+        } else if otel == "true" {
+            "-f docker-compose-observability.yml"
+        } else if otel == "1" {
+            "-f docker-compose-observability.yml"
+        } else {
+            ""
+        } }} \
+        up --build -d
     @just _urls
 
 # Stop and remove all containers (keeps images)
@@ -56,6 +70,10 @@ down:
 clean:
     @docker compose -f docker-compose.yml -f docker-compose-observability.yml --profile full down -v --remove-orphans 2>/dev/null || true
 
+# Show current container status
+status:
+    docker compose ps
+
 # Tail logs from all services (Ctrl+C to stop)
 logs:
     docker compose logs -f
@@ -63,10 +81,6 @@ logs:
 # Tail logs from a specific service: just log backend | transformer | sink | rabbitmq
 log service:
     docker compose logs -f {{service}}
-
-# Show current container status
-status:
-    docker compose ps
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Build

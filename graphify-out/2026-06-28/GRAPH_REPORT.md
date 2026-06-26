@@ -1,16 +1,16 @@
-# Graph Report - labs64.io-auditflow  (2026-06-28)
+# Graph Report - labs64.io-auditflow  (2026-06-27)
 
 ## Corpus Check
-- 111 files · ~45,556 words
+- 126 files · ~52,049 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1070 nodes · 2423 edges · 72 communities (57 shown, 15 thin omitted)
-- Extraction: 88% EXTRACTED · 12% INFERRED · 0% AMBIGUOUS · INFERRED: 286 edges (avg confidence: 0.8)
+- 1164 nodes · 2502 edges · 93 communities (68 shown, 25 thin omitted)
+- Extraction: 89% EXTRACTED · 11% INFERRED · 0% AMBIGUOUS · INFERRED: 286 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `c503385c`
+- Built from commit: `1ac2defd`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -31,10 +31,13 @@
 - [[_COMMUNITY_RabbitMQ Streaming|RabbitMQ Streaming]]
 - [[_COMMUNITY_Sink Plugins|Sink Plugins]]
 - [[_COMMUNITY_Transformer Plugins|Transformer Plugins]]
+- [[_COMMUNITY_Docker & Infra Config|Docker & Infra Config]]
 - [[_COMMUNITY_CICD Workflows|CI/CD Workflows]]
+- [[_COMMUNITY_Kubernetes Discovery|Kubernetes Discovery]]
 - [[_COMMUNITY_Audit Service & Pipeline|Audit Service & Pipeline]]
 - [[_COMMUNITY_Loki & OpenSearch Sinks|Loki & OpenSearch Sinks]]
 - [[_COMMUNITY_Cloud Storage Sinks|Cloud Storage Sinks]]
+- [[_COMMUNITY_Grafana & Prometheus Config|Grafana & Prometheus Config]]
 - [[_COMMUNITY_NetLicensing Sink|NetLicensing Sink]]
 - [[_COMMUNITY_Health & Readiness|Health & Readiness]]
 - [[_COMMUNITY_DLQ & Poison Messages|DLQ & Poison Messages]]
@@ -51,15 +54,21 @@
 - [[_COMMUNITY_Audit Subscriber|Audit Subscriber]]
 - [[_COMMUNITY_Community 38|Community 38]]
 - [[_COMMUNITY_Community 39|Community 39]]
+- [[_COMMUNITY_Community 40|Community 40]]
+- [[_COMMUNITY_Community 41|Community 41]]
 - [[_COMMUNITY_Community 42|Community 42]]
+- [[_COMMUNITY_Community 43|Community 43]]
 - [[_COMMUNITY_Community 44|Community 44]]
 - [[_COMMUNITY_Community 45|Community 45]]
+- [[_COMMUNITY_Community 46|Community 46]]
 - [[_COMMUNITY_Community 47|Community 47]]
 - [[_COMMUNITY_Community 48|Community 48]]
 - [[_COMMUNITY_Community 49|Community 49]]
 - [[_COMMUNITY_Community 50|Community 50]]
+- [[_COMMUNITY_Community 51|Community 51]]
 - [[_COMMUNITY_Community 52|Community 52]]
 - [[_COMMUNITY_Community 53|Community 53]]
+- [[_COMMUNITY_Community 54|Community 54]]
 - [[_COMMUNITY_Community 55|Community 55]]
 - [[_COMMUNITY_Community 56|Community 56]]
 - [[_COMMUNITY_Community 57|Community 57]]
@@ -69,6 +78,8 @@
 - [[_COMMUNITY_Community 61|Community 61]]
 - [[_COMMUNITY_Community 62|Community 62]]
 - [[_COMMUNITY_Community 63|Community 63]]
+- [[_COMMUNITY_Community 64|Community 64]]
+- [[_COMMUNITY_Community 65|Community 65]]
 - [[_COMMUNITY_Community 66|Community 66]]
 - [[_COMMUNITY_Community 67|Community 67]]
 - [[_COMMUNITY_Community 68|Community 68]]
@@ -77,14 +88,24 @@
 - [[_COMMUNITY_Community 71|Community 71]]
 - [[_COMMUNITY_Community 72|Community 72]]
 - [[_COMMUNITY_Community 73|Community 73]]
+- [[_COMMUNITY_Community 74|Community 74]]
 - [[_COMMUNITY_Community 75|Community 75]]
 - [[_COMMUNITY_Community 76|Community 76]]
 - [[_COMMUNITY_Community 77|Community 77]]
 - [[_COMMUNITY_Community 78|Community 78]]
 - [[_COMMUNITY_Community 79|Community 79]]
+- [[_COMMUNITY_Community 80|Community 80]]
+- [[_COMMUNITY_Community 81|Community 81]]
+- [[_COMMUNITY_Community 82|Community 82]]
 - [[_COMMUNITY_Community 83|Community 83]]
+- [[_COMMUNITY_Community 84|Community 84]]
+- [[_COMMUNITY_Community 85|Community 85]]
 - [[_COMMUNITY_Community 86|Community 86]]
 - [[_COMMUNITY_Community 87|Community 87]]
+- [[_COMMUNITY_Community 88|Community 88]]
+- [[_COMMUNITY_Community 89|Community 89]]
+- [[_COMMUNITY_Community 90|Community 90]]
+- [[_COMMUNITY_Community 91|Community 91]]
 - [[_COMMUNITY_Community 92|Community 92]]
 
 ## God Nodes (most connected - your core abstractions)
@@ -100,16 +121,16 @@
 10. `SinkProperties` - 15 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `KubernetesDiscoveryService` --implements--> `TransformerDiscovery`  [EXTRACTED]
-  auditflow-be/src/main/java/io/labs64/audit/service/KubernetesDiscoveryService.java → auditflow-be/src/main/java/io/labs64/audit/service/TransformerDiscovery.java
-- `LocalDiscoveryService` --implements--> `TransformerDiscovery`  [EXTRACTED]
-  auditflow-be/src/main/java/io/labs64/audit/service/LocalDiscoveryService.java → auditflow-be/src/main/java/io/labs64/audit/service/TransformerDiscovery.java
-- `LocalSinkDiscovery` --implements--> `SinkDiscovery`  [EXTRACTED]
-  auditflow-be/src/main/java/io/labs64/audit/service/LocalSinkDiscovery.java → auditflow-be/src/main/java/io/labs64/audit/service/SinkDiscovery.java
 - `DefaultAuditFlowClient` --implements--> `AuditFlowClient`  [EXTRACTED]
   auditflow-api/src/main/java/io/labs64/auditflow/client/DefaultAuditFlowClient.java → auditflow-api/src/main/java/io/labs64/auditflow/client/AuditFlowClient.java
+- `KubernetesSinkDiscovery` --implements--> `SinkDiscovery`  [EXTRACTED]
+  auditflow-be/src/main/java/io/labs64/audit/service/KubernetesSinkDiscovery.java → auditflow-be/src/main/java/io/labs64/audit/service/SinkDiscovery.java
 - `AuditFlowTransportException` --inherits--> `AuditFlowException`  [EXTRACTED]
   auditflow-api/src/main/java/io/labs64/auditflow/client/exception/AuditFlowTransportException.java → auditflow-api/src/main/java/io/labs64/auditflow/client/exception/AuditFlowException.java
+- `InMemoryIdempotencyService` --implements--> `IdempotencyService`  [EXTRACTED]
+  auditflow-be/src/main/java/io/labs64/audit/service/InMemoryIdempotencyService.java → auditflow-be/src/main/java/io/labs64/audit/service/IdempotencyService.java
+- `RedisIdempotencyService` --implements--> `IdempotencyService`  [EXTRACTED]
+  auditflow-be/src/main/java/io/labs64/audit/service/RedisIdempotencyService.java → auditflow-be/src/main/java/io/labs64/audit/service/IdempotencyService.java
 
 ## Import Cycles
 - None detected.
@@ -129,79 +150,87 @@
 - **CI/CD: Test + Build + Push Pipeline** — workflows_docker_publish, sink_requirements_dev_txt, transformer_requirements_dev_txt, resources_application_yml [EXTRACTED 1.00]
 - **Python Services Runtime Dependencies** — sink_requirements_txt, transformer_requirements_txt [EXTRACTED 1.00]
 
-## Communities (72 total, 15 thin omitted)
+## Communities (93 total, 25 thin omitted)
+
+### Community 0 - "Pipeline Config & Conditions"
+Cohesion: 0.16
+Nodes (3): AuditFlowClient, Builder, AuditFlowClientBuilderTest
 
 ### Community 1 - "HTTP Retry & WebClient"
-Cohesion: 0.17
-Nodes (6): Builder, Counter, MeterRegistry, HttpRetrySupport, QuarantineService, TransformerDiscovery
+Cohesion: 0.16
+Nodes (9): Builder, HttpRetryProperties, Counter, MeterRegistry, ReactiveCircuitBreakerFactory, Retry, HttpRetrySupport, QuarantineService (+1 more)
 
 ### Community 2 - "Condition Evaluator Tests"
 Cohesion: 0.06
-Nodes (15): BeforeEach, CsvSource, DisplayName, ParameterizedTest, AuditServiceTest, ConditionEvaluatorTest, DeliveryErrorsTest, InMemoryIdempotencyServiceTest (+7 more)
-
-### Community 3 - "Audit Event API & Controller"
-Cohesion: 0.17
-Nodes (4): ConditionProperties, ConditionRule, AuditEventControllerTest, ConditionEvaluator
+Nodes (16): BeforeEach, ConditionProperties, CsvSource, DisplayName, ParameterizedTest, AuditServiceTest, ConditionEvaluatorTest, DeliveryErrorsTest (+8 more)
 
 ### Community 4 - "Idempotency & Redis"
 Cohesion: 0.06
-Nodes (22): AuditApplication, ApiClient, Reactor Context Propagation for Tracing/MDC, CorrelationIdFilter, DlqEndpoint, FilterChain, HttpServletRequest, HttpServletResponse (+14 more)
+Nodes (20): AuditApplication, ApiClient, Reactor Context Propagation for Tracing/MDC, ConditionRule, CorrelationIdFilter, DlqEndpoint, FilterChain, HttpServletRequest (+12 more)
 
 ### Community 5 - "Sink Plugin Registry"
 Cohesion: 0.17
 Nodes (21): Unit tests for the plugin registry allow-list / hardening (P1-4)., _registry(), test_details_captures_optional_metadata(), test_discovers_and_resolves_valid_plugin(), test_import_error_is_excluded_without_crashing(), test_malformed_id_raises_not_found(), test_missing_entry_point_is_excluded(), test_reload_picks_up_new_plugin() (+13 more)
 
 ### Community 6 - "Exception Handling"
-Cohesion: 0.11
-Nodes (9): Poison vs Retryable Failure Classification, AuditFlowException, AuditFlowTransportException, PoisonDeliveryException, PublishException, RetryableDeliveryException, RuntimeException, DeliveryErrors (+1 more)
+Cohesion: 0.13
+Nodes (8): Poison vs Retryable Failure Classification, AuditFlowException, AuditFlowTransportException, PoisonDeliveryException, RetryableDeliveryException, RuntimeException, DeliveryErrors, Throwable
 
 ### Community 7 - "Sink SDK & Base Classes"
-Cohesion: 0.10
-Nodes (20): ABC, Any, BaseSink, BaseTransformer, Optional SDK for AuditFlow plugins.  Plugins stay simple: a transformer module d, Optional base class for transformer plugins., Reshape/enrich the event and return the new event dict., Optional base class for sink plugins. (+12 more)
+Cohesion: 0.07
+Nodes (33): ABC, Any, AuditEventApi, BaseSink, BaseTransformer, Optional SDK for AuditFlow plugins.  Plugins stay simple: a transformer module d, Optional base class for transformer plugins., Reshape/enrich the event and return the new event dict. (+25 more)
 
 ### Community 8 - "Global Exception & Transformer Registry"
 Cohesion: 0.05
 Nodes (25): PluginNotFoundError, PluginRegistry, Plugin registry for dynamically-loaded modules (transformers / sinks).  Hardenin, List the allow-listed plugins (id, type, path)., Full registry view including optional SDK metadata (version, description, proper, Map of discovered-but-excluded plugin id -> {kind, error}., The requested plugin id is not on the discovered allow-list., Discovers, validates, and resolves plugin modules from a fixed set of directorie (+17 more)
 
 ### Community 9 - "Transformation Service Tests"
-Cohesion: 0.22
-Nodes (7): AuditEvent, BiConsumer, AuditFlowClient, DefaultAuditFlowClient, PublishResult, CompletableFuture, HttpRequest
+Cohesion: 0.27
+Nodes (5): AuditEvent, DefaultAuditFlowClient, PublishResult, CompletableFuture, HttpRequest
 
 ### Community 10 - "Service Discovery"
 Cohesion: 0.13
 Nodes (5): Action, RedactionProperties, Rule, RedactionService, RedactionServiceTest
 
 ### Community 11 - "OTel & Observability"
-Cohesion: 0.16
+Cohesion: 0.19
 Nodes (4): AuditFlowConfiguration, PipelineProperties, TransformerProperties, List
 
-### Community 13 - "RabbitMQ Streaming"
-Cohesion: 0.40
-Nodes (3): Health, HealthIndicator, TimeUnit
+### Community 12 - "Circuit Breaker & Rate Limiting"
+Cohesion: 0.20
+Nodes (5): KubernetesClient, KubernetesDiscoveryService, KubernetesSinkDiscovery, LocalDiscoveryService, TransformerDiscovery
 
 ### Community 14 - "Sink Plugins"
-Cohesion: 0.08
-Nodes (11): AfterEach, AutoCloseable, DefaultAuditFlowClientAsyncTest, DefaultAuditFlowClientPublishTest, RetryPolicy, RetryPolicyTest, HttpExchange, IllegalArgumentException (+3 more)
+Cohesion: 0.22
+Nodes (3): RetryPolicy, RetryPolicyTest, IllegalArgumentException
 
 ### Community 15 - "Transformer Plugins"
-Cohesion: 0.14
-Nodes (5): TokenProvider, TokenProviderTest, ClientConfig, HttpClient, Supplier
+Cohesion: 0.18
+Nodes (3): TokenProvider, TokenProviderTest, Supplier
 
 ### Community 17 - "CI/CD Workflows"
-Cohesion: 0.27
-Nodes (3): JsonNode, PipelineOutcome, AuditService
+Cohesion: 0.19
+Nodes (4): SinkProperties, JsonNode, PipelineOutcome, AuditService
+
+### Community 18 - "Kubernetes Discovery"
+Cohesion: 0.28
+Nodes (3): PipelineRateLimiterRegistry, RateLimiter, RateLimiterRegistry
 
 ### Community 19 - "Audit Service & Pipeline"
-Cohesion: 0.16
-Nodes (7): Bean, JacksonConfig, Consumer, ObjectMapper, AuditPublisherService, StreamBridge, AuditSubscriberService
+Cohesion: 0.18
+Nodes (6): Bean, JacksonConfig, Consumer, ObjectMapper, StreamBridge, AuditSubscriberService
 
 ### Community 20 - "Loki & OpenSearch Sinks"
 Cohesion: 0.05
 Nodes (41): Adding your own sink or transformer, Architecture, Asynchronous, decoupled processing, Broker-agnostic transport, Built-in Sinks and Transformers, Centralised audit hub across microservices, Cloud-managed infrastructure, Compliance audit trail (GDPR, SOC 2, ISO 27001, HIPAA) (+33 more)
 
 ### Community 21 - "Cloud Storage Sinks"
-Cohesion: 0.24
-Nodes (6): AuditEventApi, PublishResultTest, AuditEventController, HttpHeaders, OffsetDateTime, UUID
+Cohesion: 0.35
+Nodes (4): PublishResultTest, HttpHeaders, OffsetDateTime, UUID
+
+### Community 22 - "Grafana & Prometheus Config"
+Cohesion: 0.18
+Nodes (10): Commits, Files Created, Implementation Details, Key Design Points, No Concerns, Status, Summary, Task 4 Implementation Report: RetryPolicy (+2 more)
 
 ### Community 23 - "NetLicensing Sink"
 Cohesion: 0.50
@@ -224,16 +253,24 @@ Cohesion: 0.50
 Nodes (3): process(), Splunk Sink - forward audit events to a Splunk HTTP Event Collector (HEC)., Send a single audit event to a Splunk HEC endpoint.
 
 ### Community 38 - "Community 38"
-Cohesion: 0.20
-Nodes (8): HttpRetryProperties, Map, Mono, ReactiveCircuitBreakerFactory, Retry, SinkService, TransformationService, WebClient
+Cohesion: 0.31
+Nodes (4): Map, Mono, TransformationService, WebClient
 
 ### Community 39 - "Community 39"
 Cohesion: 0.11
 Nodes (18): _create_license(), _create_licensee(), NetLicensingClient, process(), _process_item(), NetLicensing Sink - Process checkout transactions and create/update NetLicensing, Process a single purchase order item and create licensee/licenses., Create a new licensee in NetLicensing. (+10 more)
 
-### Community 42 - "Community 42"
-Cohesion: 0.06
-Nodes (15): At-Least-Once Idempotency / Dedup (claim-process-mark), ConditionalOnProperty, CircuitBreakerConfig, CircuitBreakerProperties, PipelineRateLimiterRegistry, PipelineRateLimit, RateLimitProperties, Customizer (+7 more)
+### Community 40 - "Community 40"
+Cohesion: 0.18
+Nodes (10): Commit, Concerns, Files Created, Implementation Details, Next Steps, Process Followed, Status, Summary (+2 more)
+
+### Community 41 - "Community 41"
+Cohesion: 0.11
+Nodes (17): Code-Review Fix Report (2026-06-26), Commit, Files Created, Fix 1 — `jakarta.annotation-api` scope: provided, Fix 2 — ApiClient stub self-documenting comment, Main sources, Modified, Self-Review Notes (+9 more)
+
+### Community 43 - "Community 43"
+Cohesion: 0.20
+Nodes (9): Commits, Files Created, Implementation Details, Implementation Summary, Notes, Status, Task 3 Implementation Report — TokenProvider, TDD Process (+1 more)
 
 ### Community 44 - "Community 44"
 Cohesion: 0.15
@@ -243,9 +280,13 @@ Nodes (12): Adding a transformer or sink, AGENTS.md — Labs64.IO :: AuditFlow, 
 Cohesion: 0.20
 Nodes (5): ApplicationReadyEvent, OpenTelemetry setup for the AuditFlow Sink service.  Exports traces, logs, and m, OpenTelemetry setup for the AuditFlow Transformer service.  Exports traces, logs, OtelLogbackInstaller, OpenTelemetry
 
+### Community 46 - "Community 46"
+Cohesion: 0.50
+Nodes (3): CircuitBreakerConfig, Customizer, ReactiveResilience4JCircuitBreakerFactory
+
 ### Community 47 - "Community 47"
-Cohesion: 0.22
-Nodes (8): Detailed registry view: per-sink version, description, and documented properties, Re-scan the sink directories (hot-reload of newly mounted bootstrap modules)., Set service as ready after startup completes., Send transformed audit events to a destination sink.      The sink is resolved f, registry_details(), registry_reload(), sink(), startup_event()
+Cohesion: 0.18
+Nodes (9): Detailed registry view: per-sink version, description, and documented properties, Re-scan the sink directories (hot-reload of newly mounted bootstrap modules)., Set service as ready after startup completes., Send transformed audit events to a destination sink.      The sink is resolved f, registry_details(), registry_reload(), sink(), startup_event() (+1 more)
 
 ### Community 48 - "Community 48"
 Cohesion: 0.06
@@ -259,6 +300,10 @@ Nodes (8): Advanced Configuration, AuditFlow API Client (Java), Configuration Op
 Cohesion: 0.23
 Nodes (11): format_cef(), format_json(), process(), Syslog Sink - Send events to Syslog server.  This sink sends audit events to a S, Send message via UDP., Send message via TCP., Format event as JSON string., Format event as Common Event Format (CEF).     CEF:Version|Device Vendor|Device (+3 more)
 
+### Community 51 - "Community 51"
+Cohesion: 0.28
+Nodes (5): AutoCloseable, HttpExchange, CannedResponse, CapturedRequest, StubAuditServer
+
 ### Community 52 - "Community 52"
 Cohesion: 0.20
 Nodes (8): Adding a New Sink, Architecture Overview, AuditFlow — Developer Guide, Available sinks (13), Prerequisites, Project Layout, Quick Start, Table of Contents
@@ -267,9 +312,13 @@ Nodes (8): Adding a New Sink, Architecture Overview, AuditFlow — Developer Gui
 Cohesion: 0.18
 Nodes (11): Backend won't start, Container healthcheck failing, Dead Letter Queue filling up, Events not being consumed, Idempotency: events being dropped unexpectedly, Maven build fails with "Java version not supported", Python service hot-reload not working, Sink returns 422 Unprocessable Content (+3 more)
 
+### Community 54 - "Community 54"
+Cohesion: 0.18
+Nodes (10): Commands Run and Output, Commit, Concern: Extra.java not generated (4 models instead of 5), Files Created / Modified, Self-Review Notes, Status: DONE_WITH_CONCERNS, Step 1 — Move spec and remove stray dir, Step 5 — Verify auditflow-api generates models (+2 more)
+
 ### Community 55 - "Community 55"
-Cohesion: 0.32
-Nodes (3): GracefulShutdownManager, EventListener, PreDestroy
+Cohesion: 0.24
+Nodes (5): GracefulShutdownManager, EventListener, HealthIndicator, PreDestroy, TimeUnit
 
 ### Community 56 - "Community 56"
 Cohesion: 0.29
@@ -292,8 +341,16 @@ Cohesion: 0.32
 Nodes (7): ensure_log_group(), ensure_log_stream(), process(), AWS CloudWatch Logs Sink - Send events to AWS CloudWatch Logs.  This sink sends, Ensure log group exists, create if it doesn't., Ensure log stream exists, create if it doesn't., Process an audit event by sending it to CloudWatch Logs.      Args:         even
 
 ### Community 63 - "Community 63"
-Cohesion: 0.27
-Nodes (4): CircuitBreakerRegistry, CircuitBreakerMetricsExporter, PostConstruct, LocalSinkDiscovery
+Cohesion: 0.19
+Nodes (5): CircuitBreakerRegistry, CircuitBreakerMetricsExporter, PostConstruct, LocalSinkDiscovery, SinkDiscovery
+
+### Community 64 - "Community 64"
+Cohesion: 0.29
+Nodes (3): BiConsumer, ClientConfig, HttpClient
+
+### Community 65 - "Community 65"
+Cohesion: 0.33
+Nodes (4): At-Least-Once Idempotency / Dedup (claim-process-mark), ConditionalOnProperty, Claim-on-receive dedup pattern, StringRedisTemplate
 
 ### Community 66 - "Community 66"
 Cohesion: 0.33
@@ -327,6 +384,10 @@ Nodes (6): Backend (Java), End-to-End (stack must be running), Getting-Started N
 Cohesion: 0.50
 Nodes (4): Observability URLs (obs stack only), Quick Reference, Service URLs, Useful commands
 
+### Community 74 - "Community 74"
+Cohesion: 0.50
+Nodes (3): Minor findings (for final review triage), SDD Progress — AuditFlow API Client Library, Tasks
+
 ### Community 75 - "Community 75"
 Cohesion: 0.50
 Nodes (4): Condition operators, Configuring Pipelines, Configuring via JAVA_OPTS, Pipeline structure
@@ -347,33 +408,37 @@ Nodes (3): OpenSearch transformer: flattens an AuditFlow event into an OpenSearc
 Cohesion: 0.50
 Nodes (3): Pass-through transformer: returns the input event unchanged., This is the 'zero' transformation.     It performs no transformation and simply, transform()
 
-### Community 86 - "Community 86"
-Cohesion: 0.22
-Nodes (9): ErrorCode, ErrorResponse, AuditFlowExceptionTest, GlobalExceptionHandler, ExceptionHandler, MethodArgumentNotValidException, NoResourceFoundException, ResponseEntity (+1 more)
+### Community 84 - "Community 84"
+Cohesion: 0.25
+Nodes (7): AuditEvent accessor names (confirmed from generated source), Commands run, Exception hierarchy note, JDK HttpServer header casing (deviation from brief), Self-review notes, Task 7 Report — DefaultAuditFlowClient sync publish + StubAuditServer, Test results
+
+### Community 85 - "Community 85"
+Cohesion: 0.29
+Nodes (6): Commits, Files created, Status: DONE, Task 6 Implementation Report, Tests, What was done
 
 ### Community 87 - "Community 87"
 Cohesion: 0.67
 Nodes (3): Adding a New Transformer, Available transformers (3), Multi-stage transformer chains
 
 ## Knowledge Gaps
-- **109 isolated node(s):** `io.labs64:auditflow-api`, `io.labs64:auditflow`, `OpenAPIConfig`, `What this project is`, `graphify` (+104 more)
+- **173 isolated node(s):** `io.labs64:auditflow-api`, `io.labs64:auditflow`, `OpenAPIConfig`, `Tasks`, `Minor findings (for final review triage)` (+168 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **15 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **25 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `ConsumerHealthIndicator` connect `Consumer Health` to `HTTP Retry & WebClient`, `OTel & Observability`, `RabbitMQ Streaming`, `CI/CD Workflows`, `Community 55`?**
-  _High betweenness centrality (0.021) - this node is a cross-community bridge._
+- **Why does `ConsumerHealthIndicator` connect `Consumer Health` to `HTTP Retry & WebClient`, `OTel & Observability`, `RabbitMQ Streaming`, `Community 47`, `Community 55`?**
+  _High betweenness centrality (0.019) - this node is a cross-community bridge._
 - **What connects `io.labs64:auditflow-api`, `io.labs64:auditflow`, `OpenAPIConfig` to the rest of the system?**
-  _231 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _295 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Condition Evaluator Tests` be split into smaller, more focused modules?**
-  _Cohesion score 0.06498599439775911 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.06136732908386452 - nodes in this community are weakly interconnected._
 - **Should `Idempotency & Redis` be split into smaller, more focused modules?**
-  _Cohesion score 0.05698778833107191 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.05672926447574335 - nodes in this community are weakly interconnected._
 - **Should `Exception Handling` be split into smaller, more focused modules?**
-  _Cohesion score 0.11255411255411256 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.1286549707602339 - nodes in this community are weakly interconnected._
 - **Should `Sink SDK & Base Classes` be split into smaller, more focused modules?**
-  _Cohesion score 0.09971509971509972 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.06557377049180328 - nodes in this community are weakly interconnected._
 - **Should `Global Exception & Transformer Registry` be split into smaller, more focused modules?**
   _Cohesion score 0.053156146179401995 - nodes in this community are weakly interconnected._

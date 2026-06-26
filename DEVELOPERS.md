@@ -18,7 +18,7 @@ Everything you need to work with AuditFlow locally, test it, and troubleshoot is
 - [Health & Observability](#health--observability)
   - [Observability Stack (OTel / Grafana / Prometheus / Loki / Tempo)](#observability-stack)
 - [Troubleshooting](#troubleshooting)
-- [Manual Verification Plan](#manual-verification-plan)
+- [Getting-Started Notebook](#getting-started-notebook-stack-must-be-running)
 
 ---
 
@@ -88,8 +88,10 @@ cp .env.example .env
 # 1. Build and start the full stack
 just up
 
-# 2. Send a test event
-just e2e
+# 2. Publish a test event
+curl -s -X POST http://localhost:8080/api/v1/audit/publish \
+  -H "Content-Type: application/json" \
+  -d '{"eventType":"user.login","sourceSystem":"test","tenantId":"demo"}'
 
 # 3. Check it arrived in the sink
 just log sink
@@ -99,20 +101,19 @@ just log sink
 just down
 ```
 
-That's it. The `e2e` recipe publishes an event through the `zero` (pass-through) transformer to the `logging_sink`. You should see an "Audit Event Logged" entry in the sink output.
-
 ---
 
 ## Project Layout
 
 ```
 labs64.io-auditflow/
+├── auditflow-api/           # Java client library + canonical OpenAPI spec
+│   └── src/main/resources/openapi/openapi-audit-v1.yaml  # Single source of truth for API contract
 ├── auditflow-be/            # Java backend (Spring Boot)
 │   ├── src/main/java/       # Service code
 │   ├── src/test/java/       # JUnit tests
 │   └── src/main/resources/
-│       ├── application.yml  # Main configuration
-│       └── openapi/         # OpenAPI spec (source of truth for API contract)
+│       └── application.yml  # Main configuration (pipelines, broker, OTel endpoints)
 ├── auditflow-transformer/   # Python transformer service
 │   ├── transformer.py       # FastAPI app
 │   ├── transformers/        # Built-in transformers (zero, audit_loki, audit_opensearch)
@@ -186,7 +187,7 @@ mvn spring-boot:run \
 ### Run All Tests
 
 ```bash
-just test      # runs backend + transformer + sink tests
+just test      # runs all tests: API client + backend + transformer + sink
 ```
 
 ### Backend (Java)
@@ -219,7 +220,6 @@ Tests use `pytest` + `httpx` (TestClient). They cover plugin registry, endpoint 
 ### End-to-End (stack must be running)
 
 ```bash
-just e2e       # publishes a test event, check sink logs for confirmation
 just log sink  # watch for "Audit Event Logged"
 ```
 
@@ -231,8 +231,9 @@ plugin registries, publishing events, data redaction, and idempotency.
 **Prerequisites:** `pip install jupyter requests`
 
 ```bash
-just up          # start the stack (default)
-just notebook    # open the notebook in your browser
+just up                        # start the stack (default)
+just notebook-getting-started  # open the getting-started notebook in your browser
+just notebook-load-test        # open the load-testing notebook
 # Run all cells with Kernel → Restart & Run All
 ```
 
@@ -496,9 +497,6 @@ just up obs           # stack + obs overlay (RabbitMQ + 3 services + 5 obs conta
 
 # 2. Wait ~60 s for all containers to reach healthy state
 docker compose ps    # all rows should show "healthy" or "Up"
-
-# 3. Send a test event to trigger traces/logs/metrics
-just e2e
 ```
 
 > **Tip:** `just up obs` already stops any previously-running stack before starting, so you do not need to run `just down` first.
@@ -709,7 +707,6 @@ curl -s http://localhost:8080/actuator/metrics | grep deduplicated
 | `just up` | Build and start the stack (default) |
 | `just up obs` | Stack + observability overlay |
 
-| `just e2e` | Publish a test event (stack must be running) |
 | `just log backend` | Tail backend (Java) logs |
 | `just log sink` | Tail sink (Python) logs |
 | `just log transformer` | Tail transformer (Python) logs |

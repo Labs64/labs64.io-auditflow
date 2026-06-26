@@ -44,7 +44,7 @@ def process(event_data: dict, properties: dict) -> dict:
         message = event_data
 
     # Log the event
-    logger.log(numeric_level, "Audit Event Logged:\n%s", message)
+    logger.log(numeric_level, "Audit Event Logged: \n%s", message)
 
     return {
         "logged": True,

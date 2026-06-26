@@ -145,8 +145,8 @@
     "semantic_hash": "680da113297847014b989579e334285b"
   },
   "auditflow-sink/sink.py": {
-    "mtime": 1782629409.8734257,
-    "ast_hash": "b2c1cbb8a7a3e160c39eb10f0d64c65e",
+    "mtime": 1782561337.607934,
+    "ast_hash": "ffd29acf246c620c49d0a93e10e46c45",
     "semantic_hash": ""
   },
   "auditflow-sink/sinks/aws_cloudwatch_sink.py": {
@@ -200,18 +200,18 @@
     "semantic_hash": "445a81d68fd31a76aff9d4e8b2824e01"
   },
   "auditflow-sink/tracing.py": {
-    "mtime": 1782629198.5676885,
+    "mtime": 1782548672.8117118,
     "ast_hash": "2d31bbe0028cdc6cfb8ce9fc7fe45981",
     "semantic_hash": ""
   },
   "auditflow-transformer/tracing.py": {
-    "mtime": 1782629198.5697446,
+    "mtime": 1782548664.7779038,
     "ast_hash": "d0de02d44caf9e9ee59b2abbefbedc88",
     "semantic_hash": ""
   },
   "auditflow-transformer/transformer.py": {
-    "mtime": 1782629409.873735,
-    "ast_hash": "94a9549b2ad8f3f091868ff14caa3b0c",
+    "mtime": 1782566263.7843099,
+    "ast_hash": "b9bf3971dc3645cf58505dd044aa4324",
     "semantic_hash": ""
   },
   "auditflow-transformer/transformers/audit_loki.py": {
@@ -240,8 +240,8 @@
     "semantic_hash": ""
   },
   "AGENTS.md": {
-    "mtime": 1782630941.3413746,
-    "ast_hash": "ac2db242c2f51f19c67a962b7dfdc32e",
+    "mtime": 1782501906.077335,
+    "ast_hash": "90a5eecf1d95d3fd5da9f2f9f7d14bf7",
     "semantic_hash": ""
   },
   "CLAUDE.md": {
@@ -250,8 +250,8 @@
     "semantic_hash": "d9c1aa00474b45b2de5f587fe328cb8d"
   },
   "README.md": {
-    "mtime": 1782630993.457583,
-    "ast_hash": "93bd34e8c33b40a2b76911612ea61809",
+    "mtime": 1782500285.0143852,
+    "ast_hash": "e42eb948a40c3ae57a9a1184534c374c",
     "semantic_hash": ""
   },
   "auditflow-be/src/main/resources/application-local.yml": {
@@ -260,8 +260,8 @@
     "semantic_hash": ""
   },
   "auditflow-be/src/main/resources/application.yml": {
-    "mtime": 1782629246.922941,
-    "ast_hash": "bcbeef981fa0f3a310bbedce0d9ac007",
+    "mtime": 1782548639.8494704,
+    "ast_hash": "3d25cd20033d2a58ca085a5fe6601268",
     "semantic_hash": ""
   },
   "auditflow-be/src/main/resources/banner.txt": {
@@ -275,8 +275,8 @@
     "semantic_hash": "660281c22ec98e1dee287322018309d9"
   },
   "auditflow-sink/requirements.txt": {
-    "mtime": 1782629523.3814163,
-    "ast_hash": "fb519f00b1e567e2164df7da0f50905a",
+    "mtime": 1782127299.0652578,
+    "ast_hash": "e84cde6b6465d620ffca2a20999a1716",
     "semantic_hash": ""
   },
   "auditflow-transformer/README.md": {
@@ -285,13 +285,13 @@
     "semantic_hash": "d68f71b6240fa10291b9e7e024b8d4f6"
   },
   "auditflow-transformer/requirements.txt": {
-    "mtime": 1782629511.3748932,
-    "ast_hash": "a7627634b5ec7ee4b1c5aabd100f3a37",
+    "mtime": 1782127299.0673244,
+    "ast_hash": "2d1e6b8723311f7ef549304625ba7f16",
     "semantic_hash": ""
   },
   "docker-compose.yml": {
-    "mtime": 1782630300.863576,
-    "ast_hash": "3e1bc5cf18e98c065c21f83dfe64ffaf",
+    "mtime": 1782548648.6666596,
+    "ast_hash": "eda73f64708e59d68c8b2e547e38eb68",
     "semantic_hash": ""
   },
   "auditflow-be/src/main/java/io/labs64/audit/config/CircuitBreakerConfig.java": {
@@ -485,13 +485,13 @@
     "semantic_hash": ""
   },
   "observability/grafana/dashboards/auditflow-overview.json": {
-    "mtime": 1782631086.4862933,
-    "ast_hash": "5a1ab514b180114596da8b14fce57113",
+    "mtime": 1782565399.2971187,
+    "ast_hash": "38a1af3fd6d0a264fa3206c707e48282",
     "semantic_hash": ""
   },
   "DEVELOPERS.md": {
-    "mtime": 1782630982.3311942,
-    "ast_hash": "3980efc3ed5a1e6e43a39aa868c51015",
+    "mtime": 1782500285.0141673,
+    "ast_hash": "a90f7f35d9b15a5281148caf506778f6",
     "semantic_hash": ""
   },
   "docker-compose-observability.yml": {
@@ -544,9 +544,44 @@
     "ast_hash": "32fb6d343480a38759d6c44c80149c1a",
     "semantic_hash": ""
   },
+  ".superpowers/sdd/progress.md": {
+    "mtime": 1782475176.3417084,
+    "ast_hash": "91157bb75895c1342a585c0bf69b3df2",
+    "semantic_hash": ""
+  },
+  ".superpowers/sdd/task-1-brief.md": {
+    "mtime": 1782473513.179996,
+    "ast_hash": "3cdaec691f8ec66b722c1c57142de148",
+    "semantic_hash": ""
+  },
+  ".superpowers/sdd/task-1-report.md": {
+    "mtime": 1782473695.502982,
+    "ast_hash": "24a1a5dd8c1c180267ae667c14950a68",
+    "semantic_hash": ""
+  },
+  ".superpowers/sdd/task-2-brief.md": {
+    "mtime": 1782473827.880633,
+    "ast_hash": "bd8123ed7f131417d820f605f7bf7344",
+    "semantic_hash": ""
+  },
+  ".superpowers/sdd/task-2-report.md": {
+    "mtime": 1782474394.7257862,
+    "ast_hash": "7e4ba003dc1fb5b90c0ca8f48375e259",
+    "semantic_hash": ""
+  },
+  ".superpowers/sdd/task-3-brief.md": {
+    "mtime": 1782474480.058698,
+    "ast_hash": "9d919df14ee6df0507e821773de2c2e3",
+    "semantic_hash": ""
+  },
+  ".superpowers/sdd/task-3-report.md": {
+    "mtime": 1782474583.191202,
+    "ast_hash": "13e9c6f307cb37b17e1efe8070ee365c",
+    "semantic_hash": ""
+  },
   "auditflow-api/pom.xml": {
-    "mtime": 1782630005.5193534,
-    "ast_hash": "d73f2a7b1df6c6d585f505c350acf86b",
+    "mtime": 1782501906.1348643,
+    "ast_hash": "79d6fdbd016b2021d080123b401038d8",
     "semantic_hash": ""
   },
   "auditflow-api/src/main/java/io/labs64/auditflow/ApiClient.java": {
@@ -642,6 +677,46 @@
   "auditflow-api/src/test/java/io/labs64/auditflow/client/support/StubAuditServer.java": {
     "mtime": 1782500093.9185772,
     "ast_hash": "179dca41120028d73e18e5d42ba11d7d",
+    "semantic_hash": ""
+  },
+  ".superpowers/sdd/task-4-brief.md": {
+    "mtime": 1782474646.1440115,
+    "ast_hash": "d8e389b6b50e638f4d1d8a670a5d51c1",
+    "semantic_hash": ""
+  },
+  ".superpowers/sdd/task-4-report.md": {
+    "mtime": 1782474724.6801457,
+    "ast_hash": "0261147c465fe24e4af9927b0100c41b",
+    "semantic_hash": ""
+  },
+  ".superpowers/sdd/task-5-brief.md": {
+    "mtime": 1782474796.8180263,
+    "ast_hash": "0f8293ae05caab7c7201d966f6ec4e5d",
+    "semantic_hash": ""
+  },
+  ".superpowers/sdd/task-5-report.md": {
+    "mtime": 1782474879.5423827,
+    "ast_hash": "02bd191d26373416d5f5bc6471e5cd25",
+    "semantic_hash": ""
+  },
+  ".superpowers/sdd/task-6-brief.md": {
+    "mtime": 1782474943.926429,
+    "ast_hash": "d92a6d844799e06fd9aee44ec97bf2f2",
+    "semantic_hash": ""
+  },
+  ".superpowers/sdd/task-6-report.md": {
+    "mtime": 1782475065.1003785,
+    "ast_hash": "6da30a1be72ab13c7c279091b0cbe88c",
+    "semantic_hash": ""
+  },
+  ".superpowers/sdd/task-7-brief.md": {
+    "mtime": 1782475176.3810234,
+    "ast_hash": "f3b9a0422afd8e46cdbfb1ee500298fc",
+    "semantic_hash": ""
+  },
+  ".superpowers/sdd/task-7-report.md": {
+    "mtime": 1782475489.9131756,
+    "ast_hash": "65a1fd6cc7b43096afd8fe5f3db5c5d6",
     "semantic_hash": ""
   },
   "auditflow-api/README.md": {

@@ -10,12 +10,11 @@ class AuditFlowExceptionTest {
     @Test
     void carriesStatusCodeAndErrorResponse() {
         ErrorResponse body = new ErrorResponse();
-        ValidationException ex = new ValidationException("bad", 400, body);
+        AuditFlowException ex = new AuditFlowException("bad", 400, body);
 
         assertEquals(400, ex.statusCode());
         assertSame(body, ex.errorResponse());
         assertEquals("bad", ex.getMessage());
-        assertTrue(ex instanceof AuditFlowException);
     }
 
     @Test

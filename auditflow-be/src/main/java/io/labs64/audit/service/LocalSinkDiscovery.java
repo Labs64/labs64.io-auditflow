@@ -1,5 +1,6 @@
 package io.labs64.audit.service;
 
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -19,9 +20,13 @@ public class LocalSinkDiscovery implements SinkDiscovery {
     @Value("${sink.local.url:http://localhost:8082}")
     private String sinkUrl;
 
+    @PostConstruct
+    public void logConfig() {
+        logger.info("Local sink discovery: {}", sinkUrl);
+    }
+
     @Override
     public String getSinkUrl() {
-        logger.debug("Using local sink discovery. Sink URL: {}", sinkUrl);
         return sinkUrl;
     }
 }

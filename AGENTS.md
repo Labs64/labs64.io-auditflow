@@ -32,7 +32,7 @@ Rules:
 | `auditflow-api/` | API Client | Java 17, Maven | n/a | Published client library (`io.labs64:auditflow-api`) + canonical OpenAPI spec |
 
 Root-level orchestration:
-- `justfile` — top-level task runner (`just up`, `just up obs`, `just e2e`, `just logs`, `just down`).
+- `justfile` — top-level task runner (`just up`, `just up obs`, `just logs`, `just down`).
 - `docker-compose.yml` — local stack (3 services + RabbitMQ) with a pre-wired happy-path pipeline. Pipelines and redaction are configured via `JAVA_OPTS` system properties.
 - `docker-compose-observability.yml` — observability overlay (`just up obs`): OTel Collector + Tempo + Loki + Prometheus + Grafana. Compose on top of any base stack. See [Observability](#observability) below.
 - `.env.example` — copy to `.env`; supplies `RABBITMQ_USERNAME` / `RABBITMQ_PASSWORD`.
@@ -127,7 +127,8 @@ Both follow the **same plugin pattern** — keep them symmetric when editing one
     `transformers_bootstrap/` and `sinks_bootstrap/`.
 - `GET /registry` lists available modules with version, description, and documented properties (also used as the Docker healthcheck).
 - Existing sinks: `logging_sink`, `webhook_sink`, `syslog_sink`, `loki_sink`, `opensearch_sink`,
-  `aws_s3_sink`, `aws_cloudwatch_sink`, `gcs_sink`, `azure_blob_sink`, `netlicensing_sink`.
+  `aws_s3_sink`, `aws_cloudwatch_sink`, `gcs_sink`, `azure_blob_sink`, `netlicensing_sink`,
+  `datadog_sink`, `splunk_sink`, `snowflake_sink`.
   Existing transformers: `zero` (pass-through), `audit_loki`, `audit_opensearch`.
 
 ### Adding a transformer or sink
@@ -144,7 +145,6 @@ Prefer the `just` recipes. From the repo root:
 ```bash
 just up          # build backend JAR, build all images, start stack (default)
 just up obs      # stack + OTel Collector + Tempo + Loki + Prometheus + Grafana
-just e2e         # publish a test event and confirm it flows to the logging sink
 just log sink    # tail a single service (backend|transformer|sink|rabbitmq)
 just down        # stop containers   |   just clean = also remove volumes
 ```
@@ -154,7 +154,8 @@ Per-service / direct commands:
 ```bash
 # Backend (Java) — note: build is driven from the auditflow-be/pom.xml
 mvn -B clean package -DskipTests --file auditflow-be/pom.xml   # build JAR (needed before its image)
-mvn -B verify --file auditflow-be/pom.xml                      # run unit tests (== just test-be / CI)
+mvn -B verify --file auditflow-be/pom.xml                      # run unit tests (== just test-be)
+# just test also runs test-api (API client) + test-transformer + test-sink
 
 # Python services run with hot reload on the host (RabbitMQ via docker compose --profile full up rabbitmq redis -d)
 cd auditflow-transformer && just run-local   # uvicorn transformer:app --reload on :8081
@@ -164,6 +165,10 @@ cd auditflow-sink        && just run-local   # uvicorn sink:app        --reload 
 Local URLs when the stack is up: backend Swagger `http://localhost:8080/swagger-ui.html`,
 transformer/sink docs `:8081/docs` / `:8082/docs`, RabbitMQ UI `http://localhost:15673` (guest/guest).
 Observability overlay: Grafana `http://localhost:3000` (admin/admin), Prometheus `http://localhost:9090`.
+
+Example notebooks (stack must be running):
+- `just notebook-getting-started` — core features walkthrough (health, publish, redaction, idempotency)
+- `just notebook-load-test` — load-testing the pipeline
 
 > Compose remaps RabbitMQ to host ports **5673/15673** (not the defaults 5672/15672).
 
@@ -180,7 +185,7 @@ Observability overlay: Grafana `http://localhost:3000` (admin/admin), Prometheus
 - Backend tests live in `auditflow-be/src/test/java/...` using JUnit + Spring Boot Test
   (e.g. `AuditServiceTest`, `ConditionEvaluatorTest`, `SinkServiceTest`,
   `TransformationServiceTest`, `KubernetesSinkDiscoveryTest`). Add tests alongside new backend logic.
-- The Python services currently have no automated tests; CI only builds their Docker images.
+- Python services have automated tests using pytest (in the `tests/` directory of each service); run via `just test-transformer` / `just test-sink`. CI builds images and runs these tests.
 - All three Dockerfiles run as a non-root user `l64user` (uid/gid 1064). Preserve this.
 - Logging: backend uses SLF4J/Logback with logstash JSON encoder; `io.labs64` is at DEBUG.
 

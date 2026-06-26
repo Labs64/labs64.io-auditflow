@@ -42,7 +42,11 @@ def setup_telemetry(app, service_name: str) -> None:
         logger_provider = LoggerProvider(resource=resource)
         logger_provider.add_log_record_processor(BatchLogRecordProcessor(OTLPLogExporter()))
         set_logger_provider(logger_provider)
-        logging.getLogger().addHandler(LoggingHandler(level=logging.NOTSET, logger_provider=logger_provider))
+        handler = LoggingHandler(level=logging.NOTSET, logger_provider=logger_provider)
+        logging.getLogger().addHandler(handler)
+        
+        for logger_name in ["uvicorn", "uvicorn.error", "uvicorn.access", "fastapi"]:
+            logging.getLogger(logger_name).addHandler(handler)
 
     # FastAPIInstrumentor extracts the incoming W3C traceparent header automatically,
     # continuing the trace started by the Spring Boot backend.
