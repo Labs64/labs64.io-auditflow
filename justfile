@@ -4,7 +4,7 @@
 #
 # Quick start:
 #   just up          → start stack (default)
-#   just up obs      → start stack + observability
+#   just up otel     → start stack + observability
 #   just test        → run all tests
 #   just down        → stop everything
 #   just clean       → stop + remove volumes (full reset)
@@ -42,10 +42,10 @@ _stop-all:
 # Stack
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Build JAR, images, start stack. Pass "obs" to include observability.
-up obs="": build-be
+# Build JAR, images, start stack. Pass "otel" to include observability.
+up otel="": build-be
     @just _stop-all
-    @docker compose -f docker-compose.yml {{ if obs == "obs" { "-f docker-compose-observability.yml" } else { "" } }} up --build -d
+    @docker compose -f docker-compose.yml {{ if otel == "otel" { "-f docker-compose-observability.yml" } else { "" } }} up --build -d
     @just _urls
 
 # Stop and remove all containers (keeps images)
