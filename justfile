@@ -81,7 +81,11 @@ build-be:
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Run all tests across all three services
-test: test-be test-transformer test-sink
+test: test-api test-be test-transformer test-sink
+
+# Run Java backend unit tests
+test-api:
+    mvn -B verify --file auditflow-api/pom.xml
 
 # Run Java backend unit tests
 test-be:

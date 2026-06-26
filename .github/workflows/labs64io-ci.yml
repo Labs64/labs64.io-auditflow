@@ -12,6 +12,34 @@ on:
 
 jobs:
   # ─────────────────────────────────────────────────────────────────────────────
+  # Java API client library
+  # ─────────────────────────────────────────────────────────────────────────────
+  build-api:
+    name: Build & Test (Java API client)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build and test with Maven
+        run: mvn -B verify --file auditflow-api/pom.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: api-test-results
+          path: auditflow-api/target/surefire-reports/
+          retention-days: 7
+
+  # ─────────────────────────────────────────────────────────────────────────────
   # Java backend
   # ─────────────────────────────────────────────────────────────────────────────
   build-backend:

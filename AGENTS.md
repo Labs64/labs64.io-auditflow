@@ -29,6 +29,7 @@ Rules:
 | `auditflow-be/` | Backend | Java 25, Spring Boot 4.1.0, Maven | 8080 | REST API, broker publish/consume, pipeline orchestration |
 | `auditflow-transformer/` | Transformer | Python 3.13, FastAPI, Uvicorn | 8081 | Dynamically-loaded transform modules |
 | `auditflow-sink/` | Sink | Python 3.13, FastAPI, Uvicorn | 8082 | Dynamically-loaded sink/delivery modules |
+| `auditflow-api/` | API Client | Java 17, Maven | n/a | Published client library (`io.labs64:auditflow-api`) + canonical OpenAPI spec |
 
 Root-level orchestration:
 - `justfile` — top-level task runner (`just up`, `just up obs`, `just e2e`, `just logs`, `just down`).
@@ -62,10 +63,13 @@ Key behaviour:
 ## Backend (`auditflow-be`) details
 
 - **Build is OpenAPI-first.** The `AuditEvent` / `ErrorResponse` models and the `AuditEventApi`
-  interface are **generated at build time** from `src/main/resources/openapi/openapi-audit-v1.yaml`
-  by the `openapi-generator-maven-plugin` (package `io.labs64.audit.v1.*`). To change the API
-  contract, **edit the YAML, not generated code** — generated sources live under
-  `target/generated-sources` and are git-ignored. `AuditEventController implements AuditEventApi`.
+  interface are **generated at build time** from the canonical spec
+  by the `openapi-generator-maven-plugin` (package `io.labs64.audit.v1.*`). The **canonical spec now
+  lives at `auditflow-api/src/main/resources/openapi/openapi-audit-v1.yaml`** (single source of truth
+  for both the backend server interfaces and the `auditflow-api` client models); the backend
+  references it via a relative path. To change the API contract, **edit that YAML, not generated code**
+  — generated sources live under `target/generated-sources` and are git-ignored.
+  `AuditEventController implements AuditEventApi`.
 - **Pipelines are configuration, not code.** Defined under the `auditflow.pipelines` prefix and
   bound by `AuditFlowConfiguration`. Each pipeline = `name`, `enabled`, optional `condition`,
   `transformer.name`, `sink.name`, `sink.properties` (a string map passed to the sink).
@@ -226,7 +230,8 @@ Config files live under `observability/` (one sub-directory per component). The 
 
 | Goal | Where |
 |------|-------|
-| Change the public API contract | `auditflow-be/src/main/resources/openapi/openapi-audit-v1.yaml` |
+| Change the public API contract | `auditflow-api/src/main/resources/openapi/openapi-audit-v1.yaml` (used by both backend and client) |
+| Change the Java client library | `auditflow-api/src/main/java/io/labs64/auditflow/client/` |
 | Add/adjust a pipeline | `auditflow.pipelines` in `application.yml` (or `JAVA_OPTS` in `docker-compose.yml`) |
 | Add a condition operator | `auditflow-be/.../service/ConditionEvaluator.java` |
 | Change broker/topic/binding | `spring.cloud.stream` in `application.yml` |

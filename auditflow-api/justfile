@@ -1,0 +1,20 @@
+APP_NAME := "auditflow-api"
+REGISTRY  := "localhost:5005"
+
+# List available recipes
+default:
+    @just --list
+
+# Compile and package (skip tests)
+build:
+    mvn clean package -DskipTests
+
+# Compile, run tests, and package
+test:
+    mvn clean verify
+
+# Check for available Maven dependency, plugin, and property updates
+check-updates:
+    mvn versions:display-plugin-updates -Dmaven.version.ignore='(?i).*[.-]?(alpha|beta|RC|M)\d*'
+    mvn versions:display-property-updates -Dmaven.version.ignore='(?i).*[.-]?(alpha|beta|RC|M)\d*'
+    mvn versions:display-dependency-updates -DprocessDependencyManagement=false -Dmaven.version.ignore='(?i).*[.-]?(alpha|beta|RC|M)\d*'

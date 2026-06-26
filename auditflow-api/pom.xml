@@ -1,12 +1,10 @@
-<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>io.labs64</groupId>
     <artifactId>auditflow-api</artifactId>
-    <version>1.0.0</version>
+    <version>0.0.1-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>Labs64.IO :: AuditFlow API Client</name>
@@ -20,17 +18,50 @@
         </license>
     </licenses>
 
+    <developers>
+        <developer>
+            <name>Labs64</name>
+            <organization>Labs64</organization>
+            <organizationUrl>https://labs64.io</organizationUrl>
+        </developer>
+    </developers>
+
+    <scm>
+        <connection>scm:git:https://github.com/labs64/auditflow.git</connection>
+        <developerConnection>scm:git:git@github.com:labs64/auditflow.git</developerConnection>
+        <url>https://github.com/labs64/auditflow</url>
+    </scm>
+
+    <distributionManagement>
+        <repository>
+            <id>labs64-nexus</id>
+            <url>${labs64.nexus.releases.url}</url>
+        </repository>
+        <snapshotRepository>
+            <id>labs64-nexus-snapshots</id>
+            <url>${labs64.nexus.snapshots.url}</url>
+        </snapshotRepository>
+    </distributionManagement>
+
     <properties>
         <audit.version>v1</audit.version>
         <maven.compiler.release>17</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
-        <jackson.version>2.21.4</jackson.version>
-        <junit.version>5.11.4</junit.version>
+        <jackson.version>2.22.0</jackson.version>
+        <junit.version>6.1.0</junit.version>
 
+        <!-- PLUGINS -->
+        <maven-enforcer-plugin.version>3.6.3</maven-enforcer-plugin.version>
         <openapi-generator-maven-plugin.version>7.23.0</openapi-generator-maven-plugin.version>
         <build-helper-maven-plugin.version>3.6.1</build-helper-maven-plugin.version>
         <maven-enforcer-plugin.version>3.6.3</maven-enforcer-plugin.version>
+        <maven-source-plugin.version>3.4.0</maven-source-plugin.version>
+        <maven-javadoc-plugin.version>3.12.0</maven-javadoc-plugin.version>
+        <maven-gpg-plugin.version>3.2.8</maven-gpg-plugin.version>
+
+        <labs64.nexus.releases.url>https://nexus.labs64.de/repository/maven-releases/</labs64.nexus.releases.url>
+        <labs64.nexus.snapshots.url>https://nexus.labs64.de/repository/maven-snapshots/</labs64.nexus.snapshots.url>
     </properties>
 
     <dependencies>
@@ -62,6 +93,30 @@
 
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>${maven-enforcer-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>enforce-maven</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireMavenVersion>
+                                    <version>3.6.3</version>
+                                </requireMavenVersion>
+                                <requireJavaVersion>
+                                    <version>${java.version}</version>
+                                </requireJavaVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-enforcer-plugin</artifactId>
@@ -136,4 +191,69 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <id>release</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-source-plugin</artifactId>
+                        <version>${maven-source-plugin.version}</version>
+                        <executions>
+                            <execution>
+                                <id>attach-sources</id>
+                                <goals><goal>jar-no-fork</goal></goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-javadoc-plugin</artifactId>
+                        <version>${maven-javadoc-plugin.version}</version>
+                        <executions>
+                            <execution>
+                                <id>attach-javadoc</id>
+                                <goals><goal>jar</goal></goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>build-helper-maven-plugin</artifactId>
+                        <version>${build-helper-maven-plugin.version}</version>
+                        <executions>
+                            <execution>
+                                <id>attach-openapi-spec</id>
+                                <phase>package</phase>
+                                <goals><goal>attach-artifact</goal></goals>
+                                <configuration>
+                                    <artifacts>
+                                        <artifact>
+                                            <file>${project.basedir}/src/main/resources/openapi/openapi-audit-${audit.version}.yaml</file>
+                                            <type>yaml</type>
+                                            <classifier>openapi</classifier>
+                                        </artifact>
+                                    </artifacts>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-gpg-plugin</artifactId>
+                        <version>${maven-gpg-plugin.version}</version>
+                        <executions>
+                            <execution>
+                                <id>sign-artifacts</id>
+                                <phase>verify</phase>
+                                <goals><goal>sign</goal></goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
