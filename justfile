@@ -92,11 +92,6 @@ obs-up-lite: build-be
 obs-down:
     docker compose -f docker-compose-observability.yml down 2>/dev/null || true
 
-# Open Grafana and Prometheus in the browser
-open-obs:
-    open "http://localhost:3000" 2>/dev/null || xdg-open "http://localhost:3000"
-    open "http://localhost:9090" 2>/dev/null || xdg-open "http://localhost:9090"
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Verification stack: lite + two test pipelines + redaction
 # Supports all four test cases in DEVELOPERS.md
@@ -210,7 +205,7 @@ e2e:
     @curl -s -X POST http://localhost:8080/api/v1/audit/publish \
         -H "Content-Type: application/json" \
         -d '{ \
-            "eventId": "00000000-e2e0-0000-0000-000000000001", \
+            "eventId": "00000000-e2e0-0000-0000-000000000003", \
             "eventType": "e2e.test.event", \
             "sourceSystem": "auditflow/e2e", \
             "tenantId": "LOCAL-DEV", \
@@ -234,6 +229,8 @@ open-ui:
     open "http://localhost:8081/docs"            2>/dev/null || xdg-open "http://localhost:8081/docs"
     open "http://localhost:8082/docs"            2>/dev/null || xdg-open "http://localhost:8082/docs"
     open "http://localhost:15673"                2>/dev/null || xdg-open "http://localhost:15673"
+    open "http://localhost:3000"                 2>/dev/null || xdg-open "http://localhost:3000"
+    open "http://localhost:9090"                 2>/dev/null || xdg-open "http://localhost:9090"
 
 # Open the Jupyter regression test notebook (requires: pip install jupyter requests; just verify must be running)
 notebook:
