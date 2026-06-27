@@ -67,7 +67,8 @@ public class TransformationService {
         logger.debug("Determined transformer '{}' at URL '{}'. Initiating transformation...", transformerName, transformerUrl);
 
         return transformMessage(message, transformerUrl, transformerName)
-                .doOnNext(result -> logger.info("Transformation successful for transformer '{}'. Response: {}", transformerName, result))
+                .doOnNext(result -> logger.info("Transformation successful for transformer '{}'", transformerName))
+                .doOnNext(result -> logger.debug("Response from transformer '{}': {}", transformerName, result))
                 .onErrorMap(e -> {
                     logger.error("Transformation failed for transformer '{}' at URL '{}'. Error: {}", transformerName, transformerUrl, e.getMessage(), e);
                     return DeliveryErrors.classify("Transformation failed", e);

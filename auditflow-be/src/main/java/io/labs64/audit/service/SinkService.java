@@ -84,7 +84,8 @@ public class SinkService {
         logger.debug("Determined sink service '{}' at URL '{}'. Sending to sink...", sinkName, sinkUrl);
 
         return sendEventToSink(message, sinkUrl, sinkName, properties)
-                .doOnNext(result -> logger.info("Event sent to sink '{}' successfully. Response: {}", sinkName, result))
+                .doOnNext(result -> logger.info("Event sent to sink '{}'", sinkName))
+                .doOnNext(result -> logger.debug("Response from sink '{}': {}", sinkName, result))
                 .onErrorMap(e -> {
                     logger.error("Failed to send event to sink '{}' at URL '{}'. Error: {}", sinkName, sinkUrl, e.getMessage(), e);
                     return DeliveryErrors.classify("Failed to send event to sink", e);
