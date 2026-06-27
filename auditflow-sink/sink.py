@@ -105,8 +105,9 @@ async def sink(
         properties = request_body.get("properties", {})
 
         # Execute the sink processing
-        app_logger.info("Processing event through sink '%s'.", sink_id)
-        app_logger.debug("Raw body: %s", request_body)
+        event_id = event_data.get("eventId", "unknown")
+        app_logger.info("Processing event '%s' type='%s' through sink '%s'",
+                        event_id, event_data.get("eventType", ""), sink_id)
         result = process_function(event_data, properties)
 
         # Return success response

@@ -50,8 +50,6 @@ public class TransformationService {
     }
 
     public Mono<String> transform(JsonNode message, String transformerName) {
-        logger.debug("Trigger transformer '{}' process for message", transformerName);
-
         // Argument/configuration validation is fail-fast: it throws synchronously at assembly time.
         // When called from a reactive chain (AuditService), Reactor converts the throw into an onError signal.
         if (transformerName == null || !transformerName.matches("[a-zA-Z0-9_]+")) {
@@ -64,13 +62,12 @@ public class TransformationService {
             throw new IllegalStateException("Transformer URL is empty or null");
         }
 
-        logger.debug("Determined transformer '{}' at URL '{}'. Initiating transformation...", transformerName, transformerUrl);
+        logger.debug("Calling transformer '{}' at '{}'", transformerName, transformerUrl);
 
         return transformMessage(message, transformerUrl, transformerName)
                 .doOnNext(result -> logger.info("Transformation successful for transformer '{}'", transformerName))
-                .doOnNext(result -> logger.debug("Response from transformer '{}': {}", transformerName, result))
                 .onErrorMap(e -> {
-                    logger.error("Transformation failed for transformer '{}' at URL '{}'. Error: {}", transformerName, transformerUrl, e.getMessage(), e);
+                    logger.error("Transformation failed for transformer '{}' at '{}': {}", transformerName, transformerUrl, e.getMessage(), e);
                     return DeliveryErrors.classify("Transformation failed", e);
                 });
     }

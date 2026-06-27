@@ -43,23 +43,22 @@ public class ConditionEvaluator {
             // OR logic - at least one rule must match
             for (ConditionRule rule : rules) {
                 if (evaluateRule(eventJson, rule)) {
-                    logger.debug("Condition matched (any): rule field='{}' operator='{}' value='{}'",
+                    logger.trace("Condition matched (any): rule field='{}' operator='{}' value='{}'",
                             rule.getField(), rule.getOperator(), rule.getValue());
                     return true;
                 }
             }
-            logger.debug("No rules matched for 'any' condition");
+            logger.trace("No rules matched for 'any' condition");
             return false;
         } else {
             // AND logic (default "all") - all rules must match
             for (ConditionRule rule : rules) {
                 if (!evaluateRule(eventJson, rule)) {
-                    logger.debug("Condition not matched (all): rule field='{}' operator='{}' value='{}'",
+                    logger.trace("Condition not matched: field='{}' operator='{}' expected='{}'",
                             rule.getField(), rule.getOperator(), rule.getValue());
                     return false;
                 }
             }
-            logger.debug("All rules matched for 'all' condition");
             return true;
         }
     }

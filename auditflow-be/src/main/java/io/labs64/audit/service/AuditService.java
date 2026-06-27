@@ -12,6 +12,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
@@ -136,6 +137,9 @@ public class AuditService {
             return;
         }
 
+        if (StringUtils.hasText(eventId)) {
+            MDC.put("eventId", eventId);
+        }
         try {
             dispatchToPipelines(eventJson, eventId);
             if (StringUtils.hasText(eventId)) {
@@ -151,6 +155,8 @@ public class AuditService {
                 idempotencyService.release(eventId);
             }
             throw e;
+        } finally {
+            MDC.remove("eventId");
         }
     }
 
@@ -192,11 +198,11 @@ public class AuditService {
         String name = pipeline.getName();
 
         if (!pipeline.isEnabled()) {
-            logger.debug("Pipeline '{}' is disabled, skipping processing.", name);
+            logger.debug("Pipeline '{}' disabled, skipping.", name);
             return Mono.just(recordOutcome(name, PipelineOutcome.SKIPPED));
         }
         if (!conditionEvaluator.evaluate(eventJson, pipeline.getCondition())) {
-            logger.debug("Pipeline '{}' condition not matched, skipping processing.", name);
+            logger.debug("Pipeline '{}' condition not matched, skipping.", name);
             return Mono.just(recordOutcome(name, PipelineOutcome.SKIPPED));
         }
         // Per-pipeline dedup: on a redelivery, skip pipelines that already delivered successfully
@@ -215,13 +221,12 @@ public class AuditService {
                     "Pipeline '" + name + "' rate limit exceeded; will retry on redelivery"));
         }
 
-        logger.debug("Start event processing using pipeline '{}'", name);
+        logger.debug("Processing pipeline '{}'", name);
         long startNanos = System.nanoTime();
         // Mono.defer ensures a synchronous throw during chain assembly (e.g. transformer/sink
         // argument validation) surfaces as an onError signal for THIS pipeline only.
         return Mono.defer(() -> processPipeline(pipeline, eventJson))
-                .doOnNext(result -> logger.debug("Successfully processed event through pipeline '{}'. Sink result: {}",
-                        name, result))
+                .doOnNext(result -> logger.debug("Pipeline '{}' completed successfully.", name))
                 .then(Mono.fromSupplier(() -> {
                     if (StringUtils.hasText(eventId)) {
                         idempotencyService.markPipelineDone(eventId, name);

@@ -67,8 +67,6 @@ public class SinkService {
      * @return Processing result from the sink
      */
     public Mono<String> sendToSink(JsonNode message, String sinkName, Map<String, String> properties) {
-        logger.debug("Send event to sink '{}'", sinkName);
-
         // Argument/configuration validation is fail-fast: it throws synchronously at assembly time.
         // When called from a reactive chain (AuditService), Reactor converts the throw into an onError signal.
         if (sinkName == null || !sinkName.matches("[a-zA-Z0-9_]+")) {
@@ -81,13 +79,12 @@ public class SinkService {
             throw new IllegalStateException("Sink service URL is empty or null");
         }
 
-        logger.debug("Determined sink service '{}' at URL '{}'. Sending to sink...", sinkName, sinkUrl);
+        logger.debug("Sending to sink '{}' at '{}'", sinkName, sinkUrl);
 
         return sendEventToSink(message, sinkUrl, sinkName, properties)
                 .doOnNext(result -> logger.info("Event sent to sink '{}'", sinkName))
-                .doOnNext(result -> logger.debug("Response from sink '{}': {}", sinkName, result))
                 .onErrorMap(e -> {
-                    logger.error("Failed to send event to sink '{}' at URL '{}'. Error: {}", sinkName, sinkUrl, e.getMessage(), e);
+                    logger.error("Failed to send event to sink '{}' at '{}': {}", sinkName, sinkUrl, e.getMessage(), e);
                     return DeliveryErrors.classify("Failed to send event to sink", e);
                 });
     }
