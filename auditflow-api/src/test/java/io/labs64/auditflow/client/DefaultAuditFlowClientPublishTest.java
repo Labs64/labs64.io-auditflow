@@ -1,8 +1,6 @@
 package io.labs64.auditflow.client;
 
-import io.labs64.auditflow.client.exception.PublishFailedException;
-import io.labs64.auditflow.client.exception.UnauthorizedException;
-import io.labs64.auditflow.client.exception.ValidationException;
+import io.labs64.auditflow.client.exception.AuditFlowException;
 import io.labs64.auditflow.client.support.StubAuditServer;
 import io.labs64.auditflow.client.support.StubAuditServer.CannedResponse;
 import io.labs64.auditflow.model.AuditEvent;
@@ -60,6 +58,19 @@ class DefaultAuditFlowClientPublishTest {
     }
 
     @Test
+    void publishUsesCorrelationIdProvider() {
+        server.enqueue(CannedResponse.ok(Map.of()));
+        AuditFlowClient client = AuditFlowClient.builder()
+                .baseUrl(server.baseUrl())
+                .correlationIdProvider(() -> "trace-12345")
+                .build();
+
+        client.publish(new AuditEvent().eventType("api.call"));
+
+        assertEquals("trace-12345", server.lastRequest().headers().get("X-correlation-id").get(0));
+    }
+
+    @Test
     void publishUsesDefaultSourceSystemWhenAbsent() {
         server.enqueue(CannedResponse.ok(Map.of()));
         AuditFlowClient client = AuditFlowClient.builder()
@@ -73,11 +84,11 @@ class DefaultAuditFlowClientPublishTest {
     }
 
     @Test
-    void validationErrorMapsToValidationException() {
+    void httpErrorThrowsAuditFlowException() {
         server.enqueue(CannedResponse.error(400,
                 "{\"code\":\"VALIDATION_ERROR\",\"message\":\"eventType must not be null\",\"timestamp\":\"2025-11-30T10:15:30Z\"}"));
 
-        ValidationException ex = assertThrows(ValidationException.class,
+        AuditFlowException ex = assertThrows(AuditFlowException.class,
                 () -> client().publish(new AuditEvent()));
         assertEquals(400, ex.statusCode());
         assertNotNull(ex.errorResponse());
@@ -85,18 +96,10 @@ class DefaultAuditFlowClientPublishTest {
     }
 
     @Test
-    void unauthorizedMapsToUnauthorizedException() {
-        server.enqueue(CannedResponse.error(401,
-                "{\"code\":\"UNAUTHORIZED\",\"message\":\"auth required\",\"timestamp\":\"2025-11-30T10:15:30Z\"}"));
-
-        assertThrows(UnauthorizedException.class,
-                () -> client().publish(new AuditEvent().eventType("x")));
-    }
-
-    @Test
     void retriesOn503ThenSucceeds() {
         server.enqueue(
-                CannedResponse.error(503, "{\"code\":\"PUBLISH_FAILED\",\"message\":\"broker down\",\"timestamp\":\"2025-11-30T10:15:30Z\"}"),
+                CannedResponse.error(503,
+                        "{\"code\":\"PUBLISH_FAILED\",\"message\":\"broker down\",\"timestamp\":\"2025-11-30T10:15:30Z\"}"),
                 CannedResponse.ok(Map.of()));
 
         PublishResult result = client().publish(new AuditEvent().eventType("x"));
@@ -106,14 +109,18 @@ class DefaultAuditFlowClientPublishTest {
     }
 
     @Test
-    void exhaustedRetriesThrowsPublishFailed() {
+    void exhaustedRetriesThrowsAuditFlowException() {
         server.enqueue(
-                CannedResponse.error(503, "{\"code\":\"PUBLISH_FAILED\",\"message\":\"down\",\"timestamp\":\"2025-11-30T10:15:30Z\"}"),
-                CannedResponse.error(503, "{\"code\":\"PUBLISH_FAILED\",\"message\":\"down\",\"timestamp\":\"2025-11-30T10:15:30Z\"}"),
-                CannedResponse.error(503, "{\"code\":\"PUBLISH_FAILED\",\"message\":\"down\",\"timestamp\":\"2025-11-30T10:15:30Z\"}"));
+                CannedResponse.error(503,
+                        "{\"code\":\"PUBLISH_FAILED\",\"message\":\"down\",\"timestamp\":\"2025-11-30T10:15:30Z\"}"),
+                CannedResponse.error(503,
+                        "{\"code\":\"PUBLISH_FAILED\",\"message\":\"down\",\"timestamp\":\"2025-11-30T10:15:30Z\"}"),
+                CannedResponse.error(503,
+                        "{\"code\":\"PUBLISH_FAILED\",\"message\":\"down\",\"timestamp\":\"2025-11-30T10:15:30Z\"}"));
 
-        assertThrows(PublishFailedException.class,
+        assertThrows(AuditFlowException.class,
                 () -> client().publish(new AuditEvent().eventType("x")));
         assertEquals(3, server.requestCount());
     }
+
 }

@@ -9,8 +9,7 @@ class AuditEventsTest {
 
     @Test
     void buildsEventWithExtraEntries() {
-        AuditEvent event = AuditEvents.builder()
-                .eventType("user.login")
+        AuditEvent event = AuditEvents.builder("user.login")
                 .sourceSystem("auth-service")
                 .tenantId("V12345678")
                 .extra("userId", "u1")
@@ -26,7 +25,7 @@ class AuditEventsTest {
 
     @Test
     void buildsMinimalEventWithoutExtra() {
-        AuditEvent event = AuditEvents.builder().eventType("api.call").build();
+        AuditEvent event = AuditEvents.builder("api.call").build();
 
         assertEquals("api.call", event.getEventType());
         assertNull(event.getExtra());

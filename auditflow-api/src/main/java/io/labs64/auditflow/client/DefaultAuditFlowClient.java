@@ -2,11 +2,7 @@ package io.labs64.auditflow.client;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.labs64.auditflow.client.exception.AuditFlowException;
-import io.labs64.auditflow.client.exception.AuditFlowServerException;
 import io.labs64.auditflow.client.exception.AuditFlowTransportException;
-import io.labs64.auditflow.client.exception.PublishFailedException;
-import io.labs64.auditflow.client.exception.UnauthorizedException;
-import io.labs64.auditflow.client.exception.ValidationException;
 import io.labs64.auditflow.model.AuditEvent;
 import io.labs64.auditflow.model.ErrorResponse;
 
@@ -31,43 +27,73 @@ final class DefaultAuditFlowClient implements AuditFlowClient {
 
     DefaultAuditFlowClient(ClientConfig config) {
         this.config = config;
-        HttpClient.Builder builder = HttpClient.newBuilder().connectTimeout(config.connectTimeout());
-        if (config.executor() != null) {
-            builder.executor(config.executor());
+        if (config.httpClient() != null) {
+            this.httpClient = config.httpClient();
+        } else {
+            this.httpClient = HttpClient.newBuilder().connectTimeout(config.connectTimeout()).build();
         }
-        this.httpClient = builder.build();
         String base = config.baseUrl().toString().replaceAll("/+$", "");
         this.publishUri = URI.create(base + PUBLISH_PATH);
     }
 
     @Override
     public PublishResult publish(AuditEvent event) {
-        AuditEvent prepared = prepare(event);
-        HttpRequest request = buildRequest(prepared);
-        RetryPolicy retry = config.retryPolicy();
-
-        AuditFlowException lastRetryable = null;
-        for (int attempt = 1; attempt <= retry.maxAttempts(); attempt++) {
-            sleep(retry.backoffBeforeAttempt(attempt));
-            HttpResponse<String> response = send(request);
-            int status = response.statusCode();
-            if (status >= 200 && status < 300) {
-                return PublishResult.from(status, response.headers());
+        try {
+            return publishAsync(event).join();
+        } catch (CompletionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof AuditFlowException) {
+                throw (AuditFlowException) cause;
             }
-            AuditFlowException mapped = mapError(status, response.body());
-            if (retry.isRetryableStatus(status)) {
-                lastRetryable = mapped;
-                continue;
+            if (cause instanceof RuntimeException) {
+                throw (RuntimeException) cause;
             }
-            throw mapped;
+            throw new AuditFlowException("Unexpected error during publish", cause);
         }
-        throw lastRetryable;
     }
 
     @Override
     public CompletableFuture<PublishResult> publishAsync(AuditEvent event) {
-        return CompletableFuture.supplyAsync(() -> publish(event),
-                config.executor() != null ? config.executor() : Runnable::run);
+        AuditEvent prepared = prepare(event);
+        HttpRequest request = buildRequest(prepared);
+        return sendAsyncWithRetry(request, 1);
+    }
+
+    private CompletableFuture<PublishResult> sendAsyncWithRetry(HttpRequest request, int attempt) {
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .handle((response, ex) -> {
+                    if (ex != null) {
+                        Throwable cause = ex instanceof CompletionException && ex.getCause() != null ? ex.getCause() : ex;
+                        if (cause instanceof IOException && attempt < config.retryPolicy().maxAttempts()) {
+                            return retryAsync(request, attempt + 1, cause);
+                        }
+                        if (cause instanceof AuditFlowException) {
+                            throw (AuditFlowException) cause;
+                        }
+                        throw new AuditFlowTransportException("Failed to send audit event", cause);
+                    }
+
+                    int status = response.statusCode();
+                    if (status >= 200 && status < 300) {
+                        return CompletableFuture.completedFuture(PublishResult.from(status, response.headers()));
+                    }
+
+                    AuditFlowException mapped = mapError(status, response.body());
+                    if (config.retryPolicy().isRetryableStatus(status) && attempt < config.retryPolicy().maxAttempts()) {
+                        return retryAsync(request, attempt + 1, mapped);
+                    }
+                    throw mapped;
+                }).thenCompose(f -> f);
+    }
+
+    private CompletableFuture<PublishResult> retryAsync(HttpRequest request, int nextAttempt, Throwable lastError) {
+        Duration backoff = config.retryPolicy().backoffBeforeAttempt(nextAttempt);
+        if (backoff.isZero() || backoff.isNegative()) {
+            return sendAsyncWithRetry(request, nextAttempt);
+        }
+        return CompletableFuture.supplyAsync(() -> null,
+                CompletableFuture.delayedExecutor(backoff.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS))
+                .thenCompose(v -> sendAsyncWithRetry(request, nextAttempt));
     }
 
     @Override
@@ -89,7 +115,14 @@ final class DefaultAuditFlowClient implements AuditFlowClient {
             event.setSourceSystem(config.defaultSourceSystem());
         }
         if (event.getCorrelationId() == null) {
-            event.setCorrelationId(UUID.randomUUID().toString());
+            String correlationId = null;
+            if (config.correlationIdProvider() != null) {
+                correlationId = config.correlationIdProvider().get();
+            }
+            if (correlationId == null || correlationId.isBlank()) {
+                correlationId = UUID.randomUUID().toString();
+            }
+            event.setCorrelationId(correlationId);
         }
         return event;
     }
@@ -111,16 +144,7 @@ final class DefaultAuditFlowClient implements AuditFlowClient {
         return builder.build();
     }
 
-    private HttpResponse<String> send(HttpRequest request) {
-        try {
-            return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        } catch (IOException e) {
-            throw new AuditFlowTransportException("Failed to send audit event", e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new AuditFlowTransportException("Interrupted while sending audit event", e);
-        }
-    }
+
 
     private String serialize(AuditEvent event) {
         try {
@@ -136,12 +160,7 @@ final class DefaultAuditFlowClient implements AuditFlowClient {
         String message = error != null && error.getMessage() != null
                 ? error.getMessage()
                 : "AuditFlow request failed with HTTP " + status;
-        return switch (status) {
-            case 400 -> new ValidationException(message, status, error);
-            case 401 -> new UnauthorizedException(message, status, error);
-            case 503 -> new PublishFailedException(message, status, error);
-            default -> new AuditFlowServerException(message, status, error);
-        };
+        return new AuditFlowException(message, status, error);
     }
 
     private ErrorResponse parseError(String body) {
@@ -155,15 +174,5 @@ final class DefaultAuditFlowClient implements AuditFlowClient {
         }
     }
 
-    private static void sleep(Duration duration) {
-        if (duration.isZero() || duration.isNegative()) {
-            return;
-        }
-        try {
-            Thread.sleep(duration.toMillis());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new AuditFlowTransportException("Interrupted during retry backoff", e);
-        }
-    }
+
 }

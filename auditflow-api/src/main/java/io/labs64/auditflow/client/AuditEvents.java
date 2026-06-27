@@ -8,18 +8,18 @@ public final class AuditEvents {
     private AuditEvents() {
     }
 
-    public static Builder builder() {
-        return new Builder();
+    public static Builder builder(String eventType) {
+        if (eventType == null || eventType.isBlank()) {
+            throw new IllegalArgumentException("eventType is required");
+        }
+        Builder b = new Builder();
+        b.event.setEventType(eventType);
+        return b;
     }
 
     public static final class Builder {
         private final AuditEvent event = new AuditEvent();
         private boolean hasExtra;
-
-        public Builder eventType(String eventType) {
-            event.setEventType(eventType);
-            return this;
-        }
 
         public Builder sourceSystem(String sourceSystem) {
             event.setSourceSystem(sourceSystem);
@@ -33,6 +33,21 @@ public final class AuditEvents {
 
         public Builder correlationId(String correlationId) {
             event.setCorrelationId(correlationId);
+            return this;
+        }
+
+        public Builder eventId(java.util.UUID eventId) {
+            event.setEventId(eventId);
+            return this;
+        }
+
+        public Builder eventTime(java.time.OffsetDateTime eventTime) {
+            event.setEventTime(eventTime);
+            return this;
+        }
+
+        public Builder geolocation(io.labs64.auditflow.model.Geolocation geolocation) {
+            event.setGeolocation(geolocation);
             return this;
         }
 

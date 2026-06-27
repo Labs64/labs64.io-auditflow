@@ -1,6 +1,6 @@
 package io.labs64.auditflow.client;
 
-import io.labs64.auditflow.client.exception.ValidationException;
+import io.labs64.auditflow.client.exception.AuditFlowException;
 import io.labs64.auditflow.client.support.StubAuditServer;
 import io.labs64.auditflow.client.support.StubAuditServer.CannedResponse;
 import io.labs64.auditflow.model.AuditEvent;
@@ -53,7 +53,7 @@ class DefaultAuditFlowClientAsyncTest {
         CompletableFuture<PublishResult> future = client.publishAsync(new AuditEvent());
 
         ExecutionException ex = assertThrows(ExecutionException.class, () -> future.get(5, TimeUnit.SECONDS));
-        assertInstanceOf(ValidationException.class, ex.getCause());
+        assertInstanceOf(AuditFlowException.class, ex.getCause());
     }
 
     @Test
@@ -74,6 +74,6 @@ class DefaultAuditFlowClientAsyncTest {
         assertDoesNotThrow(() -> client.fireAndForget(new AuditEvent()));
 
         assertTrue(latch.await(5, TimeUnit.SECONDS), "error handler was not invoked");
-        assertInstanceOf(ValidationException.class, captured.get());
+        assertInstanceOf(AuditFlowException.class, captured.get());
     }
 }

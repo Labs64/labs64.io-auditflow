@@ -31,6 +31,27 @@ public interface AuditFlowClient {
         return new Builder();
     }
 
+    /** Creates a client configured entirely from standard environment variables (AUDITFLOW_URL, AUDITFLOW_TOKEN, AUDITFLOW_DEFAULT_SOURCE). */
+    static AuditFlowClient fromEnv() {
+        String url = System.getenv("AUDITFLOW_URL");
+        if (url == null || url.isBlank()) {
+            throw new IllegalStateException("AUDITFLOW_URL environment variable is required");
+        }
+        Builder builder = builder().baseUrl(url);
+        
+        String token = System.getenv("AUDITFLOW_TOKEN");
+        if (token != null && !token.isBlank()) {
+            builder.token(token);
+        }
+        
+        String source = System.getenv("AUDITFLOW_DEFAULT_SOURCE");
+        if (source != null && !source.isBlank()) {
+            builder.defaultSourceSystem(source);
+        }
+        
+        return builder.build();
+    }
+
     /** Fluent builder for {@link AuditFlowClient}. */
     final class Builder {
 
@@ -42,9 +63,10 @@ public interface AuditFlowClient {
         private Duration connectTimeout = Duration.ofSeconds(5);
         private Duration requestTimeout = Duration.ofSeconds(10);
         private RetryPolicy retryPolicy = RetryPolicy.exponential(3);
-        private Executor executor;
         private ObjectMapper objectMapper;
         private BiConsumer<AuditEvent, Throwable> errorHandler;
+        private java.util.function.Supplier<String> correlationIdProvider;
+        private java.net.http.HttpClient httpClient;
 
         private Builder() {
         }
@@ -84,10 +106,7 @@ public interface AuditFlowClient {
             return this;
         }
 
-        public Builder executor(Executor executor) {
-            this.executor = executor;
-            return this;
-        }
+
 
         public Builder objectMapper(ObjectMapper objectMapper) {
             this.objectMapper = objectMapper;
@@ -96,6 +115,16 @@ public interface AuditFlowClient {
 
         public Builder errorHandler(BiConsumer<AuditEvent, Throwable> errorHandler) {
             this.errorHandler = errorHandler;
+            return this;
+        }
+
+        public Builder correlationIdProvider(java.util.function.Supplier<String> correlationIdProvider) {
+            this.correlationIdProvider = correlationIdProvider;
+            return this;
+        }
+
+        public Builder httpClient(java.net.http.HttpClient httpClient) {
+            this.httpClient = httpClient;
             return this;
         }
 
@@ -115,9 +144,10 @@ public interface AuditFlowClient {
                     connectTimeout,
                     requestTimeout,
                     retryPolicy,
-                    executor,
                     mapper,
-                    handler);
+                    handler,
+                    correlationIdProvider,
+                    httpClient);
         }
 
         public AuditFlowClient build() {
