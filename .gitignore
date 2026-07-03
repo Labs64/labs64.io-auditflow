@@ -49,5 +49,4 @@ graphify-out/cache
 graphify-out/cost.json
 
 # --- Docs / notebooks ---
-docs/superpowers
 examples/.ipynb_checkpoints
