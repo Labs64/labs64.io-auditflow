@@ -22,6 +22,11 @@ Rules:
 - Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
 - After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
 
+## Superpowers
+
+- **Save plans to:** `.claude/superpowers/plans/YYYY-MM-DD-{session-slug}/plan.md`
+- **Save specs to:** `.claude/superpowers/specs/YYYY-MM-DD-{session-slug}/specs.md`
+
 ## Repository layout
 
 | Path | Service | Stack | Port | Role |
