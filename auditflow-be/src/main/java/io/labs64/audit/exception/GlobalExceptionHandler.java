@@ -13,8 +13,12 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import com.fasterxml.jackson.databind.exc.InvalidFormatException;
+import com.fasterxml.jackson.databind.JsonMappingException.Reference;
 
 import java.time.OffsetDateTime;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -77,6 +81,31 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
                 .body(buildError(ErrorCode.VALIDATION_ERROR, ex.getMessage()));
+    }
+
+    /**
+     * Handle {@link HttpMessageNotReadableException} — thrown when Jackson fails
+     * to deserialize the request body (e.g. malformed JSON, invalid UUID).
+     * Returns HTTP 400.
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorResponse> handleNotReadable(
+            HttpMessageNotReadableException ex, WebRequest request) {
+        String message;
+        if (ex.getCause() instanceof InvalidFormatException ife) {
+            String field = ife.getPath().stream()
+                    .map(Reference::getFieldName)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.joining("."));
+            message = field.isBlank()
+                    ? "Invalid value in request body"
+                    : "Invalid value for field '" + field + "'";
+        } else {
+            message = "Malformed request body";
+        }
+        logger.warn("Malformed request body: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(buildError(ErrorCode.VALIDATION_ERROR, message));
     }
 
     // -------------------------------------------------------------------------
