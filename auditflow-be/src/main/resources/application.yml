@@ -88,27 +88,9 @@ management:
     readinessState:
       enabled: true
 
-  # Distributed Tracing via OTLP/HTTP → OpenTelemetry Collector
-  tracing:
-    sampling:
-      probability: 1.0    # 100 % in dev; lower for production (e.g. 0.1)
-  # Spring Boot 4.1 renamed the OTLP logging prefix to management.opentelemetry.logging.export.otlp.*
-  # management.otlp.logging.endpoint is silently ignored and was removed.
-  opentelemetry:
-    logging:
-      export:
-        otlp:
-          endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/logs
-  otlp:
-    tracing:
-      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
-    metrics:
-    distribution:
-      percentiles-histogram:
-        http.server.requests: true
-      export:
-        url: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/metrics
-        step: 30s
+  # Tracing/log export is infrastructure-owned: the OTel Java Agent (bundled in the image,
+  # activated via JAVA_TOOL_OPTIONS) reads standard OTEL_* environment variables.
+  # Sampling: OTEL_TRACES_SAMPLER / OTEL_TRACES_SAMPLER_ARG on the deployment.
 
   # Metrics
   metrics:
