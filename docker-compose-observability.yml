@@ -85,11 +85,18 @@ services:
     networks:
       - auditflow-net
 
-  # --- Service extensions: inject OTLP config into existing app services ---
+  # --- Service extensions: enable runtime instrumentation via env only (same images) ---
 
   backend:
     environment:
+      # Activates the agent bundled in the image; without this overlay the JVM runs agent-free.
+      JAVA_TOOL_OPTIONS: "-javaagent:/otel/opentelemetry-javaagent.jar"
+      OTEL_SERVICE_NAME: auditflow
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      # Metrics stay on Micrometer -> /actuator/prometheus scrape (dashboard-name stability);
+      # flip to "otlp" to get agent semconv metrics + exemplars instead.
+      OTEL_METRICS_EXPORTER: none
     depends_on:
       otel-collector:
         condition: service_started
@@ -97,8 +104,10 @@ services:
   transformer:
     environment:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
       OTEL_SERVICE_NAME: auditflow-transformer
       OTEL_PYTHON_LOG_CORRELATION: "true"
+      OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED: "true"
       OTEL_LOGS_EXPORTER: "otlp"
       OTEL_METRICS_EXPORTER: "otlp"
     depends_on:
@@ -108,8 +117,10 @@ services:
   sink:
     environment:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
       OTEL_SERVICE_NAME: auditflow-sink
       OTEL_PYTHON_LOG_CORRELATION: "true"
+      OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED: "true"
       OTEL_LOGS_EXPORTER: "otlp"
       OTEL_METRICS_EXPORTER: "otlp"
     depends_on:
