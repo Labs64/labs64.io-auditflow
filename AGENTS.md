@@ -51,6 +51,7 @@ Both use the same plugin pattern — keep symmetric when editing one.
 - ID validated against `^[a-zA-Z0-9_]+$` — **keep this regex consistent** with Java `TransformationService`/`SinkService`.
 - Module resolution: `transformers/` / `sinks/` (shipped), `transformers_bootstrap/` / `sinks_bootstrap/` (mounted at runtime, git-ignored).
 - `GET /registry` lists available modules (also Docker healthcheck).
+- `telemetry.py` = business telemetry abstraction (no OpenTelemetry imports in app code; auto-instrumentation via `entrypoint.sh` when `OTEL_EXPORTER_OTLP_ENDPOINT` is set).
 
 ### Adding a transformer or sink
 
@@ -85,7 +86,7 @@ Local URLs: Swagger `:8080/swagger-ui.html`, transformer/sink `:8081/docs` / `:8
 - **Credentials from env vars only** — `RABBITMQ_USERNAME`/`RABBITMQ_PASSWORD` have no defaults.
 - Backend tests: JUnit 5 + Spring Boot Test in `auditflow-be/src/test/java/`.
 - Python tests: pytest in `tests/` directories, run via `just test-transformer` / `just test-sink`.
-- Logging: SLF4J/Logback with logstash JSON encoder; `io.labs64` at DEBUG.
+- Logging: SLF4J/Logback with logstash JSON encoder to stdout; `io.labs64` at DEBUG. trace_id/span_id MDC populated by the OTel Java Agent when observability is enabled.
 
 ## Where to make common changes
 
@@ -99,4 +100,5 @@ Local URLs: Swagger `:8080/swagger-ui.html`, transformer/sink `:8081/docs` / `:8
 | Add sink | `auditflow-sink/sinks/<name>.py` |
 | OTel Collector config | `observability/otel-collector/config.yaml` |
 | Grafana dashboard | `observability/grafana/dashboards/*.json` |
-| OTLP logging endpoint | `management.opentelemetry.logging.export.otlp.endpoint` in `application.yml` |
+| Observability toggle (local) | `docker-compose-observability.yml` (`just up obs`) — env-only, no rebuild |
+| Business telemetry | `auditflow-be` src/main/java/io/labs64/audit/telemetry/, transformer/sink `telemetry.py` |
