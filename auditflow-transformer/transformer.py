@@ -33,8 +33,8 @@ app.get('/ready')(readiness)
 app.get('/live')(liveness)
 app.get('/info')(service_info)
 
-from tracing import setup_telemetry
-setup_telemetry(app, service_name="auditflow-transformer")
+from telemetry import get_business_telemetry
+business_telemetry = get_business_telemetry()
 
 @app.on_event("startup")
 async def startup_event():
@@ -103,6 +103,7 @@ async def transform(
         app_logger.info("Processing event '%s' type='%s' through transformer '%s'",
                         event_id, json_data.get("eventType", ""), transformer_id)
         transformed_data = transformation_function(json_data)
+        business_telemetry.transformation_completed(transformer_id, True)
 
         return JSONResponse(content=transformed_data, status_code=200)
 
@@ -111,6 +112,7 @@ async def transform(
         raise http_exc
     except Exception as e:
         app_logger.error("An unexpected error occurred in transform endpoint: %s", e, exc_info=True)
+        business_telemetry.transformation_completed(transformer_id, False)
         raise HTTPException(
             status_code=500,
             detail=f"An unexpected error occurred while processing event through transformer '{transformer_id}': {e}"
