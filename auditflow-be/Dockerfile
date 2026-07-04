@@ -16,6 +16,13 @@ ARG GROUP_NAME=l64group
 RUN addgroup -g ${GROUP_ID} ${GROUP_NAME} && \
     adduser -D -u ${USER_ID} -G ${GROUP_NAME} ${USER_NAME}
 
+# OpenTelemetry Java Agent — bundled but inert. Deployment config enables it via
+# JAVA_TOOL_OPTIONS=-javaagent:/otel/opentelemetry-javaagent.jar (observability is an
+# infrastructure concern; same image runs with and without it).
+ARG OTEL_JAVAAGENT_VERSION=2.29.0
+ADD https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${OTEL_JAVAAGENT_VERSION}/opentelemetry-javaagent.jar /otel/opentelemetry-javaagent.jar
+RUN chmod 444 /otel/opentelemetry-javaagent.jar
+
 # Set working directory
 WORKDIR /home/${USER_NAME}
 
