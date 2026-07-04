@@ -27,9 +27,14 @@ COPY --chown=${USER_NAME}:${GROUP_NAME} requirements.txt .
 RUN python -m pip install --upgrade pip --no-cache-dir && \
     pip install --no-cache-dir -r requirements.txt
 
+# Observability runtime (infrastructure-owned; see requirements-otel.txt / entrypoint.sh)
+COPY --chown=${USER_NAME}:${GROUP_NAME} requirements-otel.txt .
+RUN pip install --no-cache-dir -r requirements-otel.txt
+
 # Copy application files (after deps so layer is cached on code-only changes)
 COPY --chown=${USER_NAME}:${GROUP_NAME} sink.py .
-COPY --chown=${USER_NAME}:${GROUP_NAME} tracing.py .
+COPY --chown=${USER_NAME}:${GROUP_NAME} telemetry.py .
+COPY --chown=${USER_NAME}:${GROUP_NAME} --chmod=755 entrypoint.sh .
 COPY --chown=${USER_NAME}:${GROUP_NAME} plugin_registry.py .
 COPY --chown=${USER_NAME}:${GROUP_NAME} auditflow_sdk.py .
 COPY --chown=${USER_NAME}:${GROUP_NAME} health.py .
@@ -49,5 +54,6 @@ USER ${USER_NAME}
 HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=3 \
     CMD wget -qO- http://127.0.0.1:8082/sinks || exit 1
 
-# Run the FastAPI application using Uvicorn
+# entrypoint.sh enables OTel auto-instrumentation iff OTEL_EXPORTER_OTLP_ENDPOINT is set
+ENTRYPOINT ["./entrypoint.sh"]
 CMD ["uvicorn", "sink:app", "--host", "0.0.0.0", "--port", "8082"]

@@ -33,8 +33,8 @@ app.get('/ready')(readiness)
 app.get('/live')(liveness)
 app.get('/info')(service_info)
 
-from tracing import setup_telemetry
-setup_telemetry(app, service_name="auditflow-sink")
+from telemetry import get_business_telemetry
+business_telemetry = get_business_telemetry()
 
 @app.on_event("startup")
 async def startup_event():
@@ -109,6 +109,7 @@ async def sink(
         app_logger.info("Processing event '%s' type='%s' through sink '%s'",
                         event_id, event_data.get("eventType", ""), sink_id)
         result = process_function(event_data, properties)
+        business_telemetry.sink_completed(sink_id, True)
 
         # Return success response
         return JSONResponse(
@@ -126,6 +127,7 @@ async def sink(
         raise http_exc
     except Exception as e:
         app_logger.error("An unexpected error occurred in sink endpoint: %s", e, exc_info=True)
+        business_telemetry.sink_completed(sink_id, False)
         raise HTTPException(
             status_code=500,
             detail=f"An unexpected error occurred while processing event through sink '{sink_id}': {e}"
