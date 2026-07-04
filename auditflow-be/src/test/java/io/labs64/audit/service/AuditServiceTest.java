@@ -10,6 +10,7 @@ import io.labs64.audit.config.AuditFlowConfiguration.TransformerProperties;
 import io.labs64.audit.config.ConsumerHealthIndicator;
 import io.labs64.audit.config.PipelineRateLimiterRegistry;
 import io.labs64.audit.exception.RetryableDeliveryException;
+import io.labs64.audit.telemetry.NoopBusinessTelemetry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import reactor.core.publisher.Mono;
 import org.junit.jupiter.api.BeforeEach;
@@ -72,7 +73,8 @@ class AuditServiceTest {
                         new io.labs64.audit.config.RateLimitProperties(),
                         io.github.resilience4j.ratelimiter.RateLimiterRegistry.ofDefaults(),
                         meterRegistry
-                )
+                ),
+                new NoopBusinessTelemetry()
         );
     }
 

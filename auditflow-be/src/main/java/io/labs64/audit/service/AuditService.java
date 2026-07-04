@@ -8,6 +8,7 @@ import io.labs64.audit.config.PipelineRateLimiterRegistry;
 import io.labs64.audit.exception.PoisonDeliveryException;
 import io.labs64.audit.exception.RetryableDeliveryException;
 import io.micrometer.core.instrument.Counter;
+import io.labs64.audit.telemetry.BusinessTelemetry;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -39,6 +40,7 @@ public class AuditService {
     private final ObjectMapper objectMapper;
     private final MeterRegistry meterRegistry;
     private final Counter deduplicatedCounter;
+    private final BusinessTelemetry businessTelemetry;
     private final ConsumerHealthIndicator consumerHealthIndicator;
     private final PipelineRateLimiterRegistry pipelineRateLimiterRegistry;
 
@@ -71,7 +73,8 @@ public class AuditService {
             ObjectMapper objectMapper,
             MeterRegistry meterRegistry,
             ConsumerHealthIndicator consumerHealthIndicator,
-            PipelineRateLimiterRegistry pipelineRateLimiterRegistry) {
+            PipelineRateLimiterRegistry pipelineRateLimiterRegistry,
+            BusinessTelemetry businessTelemetry) {
         this.auditFlowConfiguration = auditFlowConfiguration;
         this.transformationService = transformationService;
         this.sinkService = sinkService;
@@ -83,6 +86,7 @@ public class AuditService {
         this.deduplicatedCounter = meterRegistry.counter("auditflow.events.deduplicated");
         this.consumerHealthIndicator = consumerHealthIndicator;
         this.pipelineRateLimiterRegistry = pipelineRateLimiterRegistry;
+        this.businessTelemetry = businessTelemetry;
     }
 
     @PostConstruct
@@ -140,6 +144,7 @@ public class AuditService {
         if (StringUtils.hasText(eventId)) {
             MDC.put("eventId", eventId);
         }
+        businessTelemetry.auditEventReceived(eventId, eventJson.path("eventType").asText(null));
         try {
             dispatchToPipelines(eventJson, eventId);
             if (StringUtils.hasText(eventId)) {
@@ -253,6 +258,7 @@ public class AuditService {
     }
 
     private PipelineOutcome recordOutcome(String pipelineName, PipelineOutcome outcome) {
+        businessTelemetry.pipelineCompleted(pipelineName, outcome.name());
         meterRegistry.counter("auditflow.pipeline.outcomes", "pipeline", pipelineName, "outcome", outcome.name())
                 .increment();
         return outcome;
