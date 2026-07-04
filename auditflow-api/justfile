@@ -7,7 +7,7 @@ default:
 
 # Compile and package (skip tests)
 build:
-    mvn clean package -DskipTests
+    mvn clean install -DskipTests
 
 # Compile, run tests, and package
 test:

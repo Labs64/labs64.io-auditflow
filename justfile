@@ -86,8 +86,12 @@ log service:
 # Build
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Build and install the API client (required before building the backend Docker image)
+build-api:
+    mvn -B clean install -DskipTests --file auditflow-api/pom.xml
+
 # Build the Spring Boot JAR (required before building the backend Docker image)
-build-be:
+build-be: build-api
     mvn -B clean package -DskipTests --file auditflow-be/pom.xml
 
 # ─────────────────────────────────────────────────────────────────────────────
