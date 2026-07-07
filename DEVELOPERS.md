@@ -27,7 +27,7 @@ Everything you need to work with AuditFlow locally, test it, and troubleshoot is
 AuditFlow is a microservices-based audit-logging pipeline:
 
 ```
-POST /api/v1/audit/publish
+POST /audit/publish  (direct; via gateway: /auditflow/api/v1/audit/publish)
         │
         ▼
     Backend (Java / Spring Boot :8080)
@@ -89,7 +89,7 @@ cp .env.example .env
 just up
 
 # 2. Publish a test event
-curl -s -X POST http://localhost:8080/api/v1/audit/publish \
+curl -s -X POST http://localhost:8080/audit/publish \
   -H "Content-Type: application/json" \
   -d '{"eventType":"user.login","sourceSystem":"test","tenantId":"demo"}'
 

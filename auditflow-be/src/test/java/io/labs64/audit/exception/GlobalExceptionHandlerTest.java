@@ -52,7 +52,7 @@ class GlobalExceptionHandlerTest {
                 }
                 """;
 
-        mockMvc.perform(post("/api/v1/audit/publish")
+        mockMvc.perform(post("/audit/publish")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(badPayload))
                 .andExpect(status().isBadRequest())
@@ -66,7 +66,7 @@ class GlobalExceptionHandlerTest {
     void malformedJsonReturns400() throws Exception {
         String badPayload = "{ malformed: json ";
 
-        mockMvc.perform(post("/api/v1/audit/publish")
+        mockMvc.perform(post("/audit/publish")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(badPayload))
                 .andExpect(status().isBadRequest())

@@ -39,6 +39,13 @@
         <build-helper-maven-plugin.version>3.6.1</build-helper-maven-plugin.version>
     </properties>
 
+    <repositories>
+        <repository>
+            <id>jitpack.io</id>
+            <url>https://jitpack.io</url>
+        </repository>
+    </repositories>
+
     <dependencyManagement>
         <dependencies>
             <dependency>
@@ -92,6 +99,14 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- Trusted gateway auth-context (RFC-03): X-Auth-* parsing, fail-closed
+             enforcement and propagation. Served by JitPack from Labs64/labs64.io-commons. -->
+        <dependency>
+            <groupId>com.github.Labs64.labs64.io-commons</groupId>
+            <artifactId>l64-auth-context-spring-boot-starter</artifactId>
+            <version>v0.1.0</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

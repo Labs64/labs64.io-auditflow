@@ -1,7 +1,7 @@
 # AuditFlow API Client (Java)
 
 Minimal-dependency Java client for the [Labs64.IO AuditFlow](https://labs64.io) API.
-Wraps `POST /api/v1/audit/publish` with auto event-id, correlation propagation, retries, and synchronous / async / fire-and-forget publishing.
+Wraps `POST <baseUrl>/audit/publish` with auto event-id, correlation propagation, retries, and synchronous / async / fire-and-forget publishing.
 
 ## Install
 
@@ -27,7 +27,7 @@ For advanced configurations, use the fluent builder:
 
 ```java
 AuditFlowClient client = AuditFlowClient.builder()
-        .baseUrl("https://audit.labs64.io/api/v1")
+        .baseUrl("https://gateway.labs64.io/auditflow/api/v1")
         .token("eyJ...")                       // or .tokenProvider(() -> jwtCache.current())
         .defaultSourceSystem("netlicensing/core")
         // Use for OpenTelemetry trace propagation:
@@ -58,7 +58,7 @@ client.fireAndForget(event);
 
 | Builder method | Default | Purpose |
 |----------------|---------|---------|
-| `baseUrl(String)` | (required) | API base URL, e.g. `https://host/api/v1` |
+| `baseUrl(String)` | (required) | API base URL, e.g. `https://gateway.host/auditflow/api/v1` (gateway) or `http://auditflow-be:8080` (direct, root-mapped) |
 | `token(String)` / `tokenProvider(TokenProvider)` | none | Bearer auth; `tokenProvider` re-evaluated per request |
 | `defaultSourceSystem(String)` | none | Used when an event has no `sourceSystem` |
 | `correlationIdProvider(Supplier<String>)` | none | Dynamically injects OTel / Distributed Trace IDs into events |

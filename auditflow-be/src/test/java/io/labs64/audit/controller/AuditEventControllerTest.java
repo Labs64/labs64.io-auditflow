@@ -3,6 +3,7 @@ package io.labs64.audit.controller;
 import io.labs64.audit.config.CorrelationIdFilter;
 import io.labs64.audit.publisher.AuditPublisherService;
 import io.labs64.audit.v1.model.AuditEvent;
+import io.labs64.authcontext.test.WithUserContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -104,5 +105,43 @@ class AuditEventControllerTest {
         verify(publisherService).publishMessage(captor.capture());
 
         assertNull(captor.getValue().getCorrelationId());
+    }
+
+    @Test
+    @WithUserContext(user = "jdoe", tenant = "t_100")
+    void gatewayTenantOverridesClientSuppliedTenant() {
+        when(publisherService.publishMessage(any())).thenReturn(true);
+        AuditEventController controller = new AuditEventController(publisherService);
+
+        ArgumentCaptor<AuditEvent> captor = ArgumentCaptor.forClass(AuditEvent.class);
+        controller.publishEvent(newEvent().tenantId("t_spoofed"));
+        verify(publisherService).publishMessage(captor.capture());
+
+        assertEquals("t_100", captor.getValue().getTenantId());
+    }
+
+    @Test
+    @WithUserContext(user = "jdoe", tenant = "-")
+    void tenantlessContextPreservesClientSuppliedTenant() {
+        when(publisherService.publishMessage(any())).thenReturn(true);
+        AuditEventController controller = new AuditEventController(publisherService);
+
+        ArgumentCaptor<AuditEvent> captor = ArgumentCaptor.forClass(AuditEvent.class);
+        controller.publishEvent(newEvent().tenantId("t_client"));
+        verify(publisherService).publishMessage(captor.capture());
+
+        assertEquals("t_client", captor.getValue().getTenantId());
+    }
+
+    @Test
+    void noContextPreservesClientSuppliedTenant() {
+        when(publisherService.publishMessage(any())).thenReturn(true);
+        AuditEventController controller = new AuditEventController(publisherService);
+
+        ArgumentCaptor<AuditEvent> captor = ArgumentCaptor.forClass(AuditEvent.class);
+        controller.publishEvent(newEvent().tenantId("t_client"));
+        verify(publisherService).publishMessage(captor.capture());
+
+        assertEquals("t_client", captor.getValue().getTenantId());
     }
 }

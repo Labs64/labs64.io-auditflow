@@ -33,7 +33,7 @@ Most teams end up reinventing audit logging in every service — one writes to a
 AuditFlow pulls that responsibility into one place. A service emits an audit event with a single REST call; AuditFlow buffers it on a message broker, redacts the fields that shouldn't be stored, evaluates it against your configured **pipelines**, and delivers the result to one or more destinations (called **sinks**). Want audit data to flow somewhere new? Edit YAML — don't redeploy every service.
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/audit/publish \
+curl -X POST http://localhost:8080/audit/publish \
   -H "Content-Type: application/json" \
   -d '{
     "eventType":    "user.login",
@@ -211,7 +211,7 @@ The public API contract lives in a single YAML spec. Java models and the control
 ## Architecture
 
 ```
-POST /api/v1/audit/publish
+POST /audit/publish  (direct; via gateway: /auditflow/api/v1/audit/publish)
         │
         ▼
   Backend  (Java · Spring Boot · :8080)
