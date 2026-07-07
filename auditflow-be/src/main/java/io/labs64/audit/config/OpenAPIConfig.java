@@ -32,7 +32,7 @@ import org.springframework.context.annotation.Configuration;
                         description = "Via API Gateway (Traefik owns and strips the version prefix)"
                 ),
                 @Server(
-                        url = "http://localhost:8080",
+                        url = "/",
                         description = "Local Development Server (direct, root-mapped)"
                 )
         },
