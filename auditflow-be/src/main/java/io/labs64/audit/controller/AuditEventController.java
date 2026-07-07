@@ -60,7 +60,7 @@ public class AuditEventController implements AuditEventApi {
         }
 
         // The gateway-derived tenant is authoritative: a client-supplied tenantId in the
-        // payload never overrides the trusted X-Auth-Tenant context (RFC-03).
+        // payload never overrides the trusted X-Auth-Tenant context.
         UserContextHolder.get().ifPresent(context -> {
             if (context.tenantId() != null) {
                 event.setTenantId(context.tenantId());

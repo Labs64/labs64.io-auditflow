@@ -101,7 +101,7 @@
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
-        <!-- Trusted gateway auth-context (RFC-03): X-Auth-* parsing, fail-closed
+        <!-- Trusted gateway auth-context: X-Auth-* parsing, fail-closed
              enforcement and propagation. Served by JitPack from Labs64/labs64.io-commons. -->
         <dependency>
             <groupId>com.github.Labs64.labs64.io-commons</groupId>
