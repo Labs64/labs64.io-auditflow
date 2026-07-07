@@ -107,6 +107,10 @@ services:
       SPRING_RABBITMQ_HOST: rabbitmq
       TRANSFORMER_LOCAL_URL: http://transformer:8081
       SINK_LOCAL_URL: http://sink:8082
+      # Local compose runs without the Traefik gateway, so no trusted X-Auth-*
+      # headers exist — disable the fail-closed auth-context filter here only.
+      # In Kubernetes the gateway supplies the headers and this stays enabled.
+      LABS64_AUTH_CONTEXT_ENABLED: "false"
       JAVA_OPTS: >-
         -Dauditflow.idempotency.store=memory
         -Dspring.autoconfigure.exclude=org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration,org.springframework.boot.data.redis.autoconfigure.DataRedisReactiveAutoConfiguration,org.springframework.boot.data.redis.autoconfigure.health.DataRedisHealthContributorAutoConfiguration,org.springframework.boot.data.redis.autoconfigure.health.DataRedisReactiveHealthContributorAutoConfiguration

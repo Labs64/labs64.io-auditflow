@@ -28,12 +28,12 @@ import org.springframework.context.annotation.Configuration;
         ),
         servers = {
                 @Server(
-                        url = "/",
-                        description = "Default Server"
+                        url = "/auditflow/api/v1",
+                        description = "Via API Gateway (Traefik owns and strips the version prefix)"
                 ),
                 @Server(
-                        url = "http://localhost:8080",
-                        description = "Local Development Server"
+                        url = "/",
+                        description = "Local Development Server (direct, root-mapped)"
                 )
         },
         security = {

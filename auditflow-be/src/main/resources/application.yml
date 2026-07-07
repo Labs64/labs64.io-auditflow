@@ -69,6 +69,18 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
 
+# Trusted gateway auth-context (RFC-03, l64-auth-context-spring-boot-starter).
+# Fail-closed: non-public paths 401 without valid X-Auth-* headers from the
+# gateway. Disabled in docker-compose (no gateway there); enabled in k8s.
+labs64:
+  auth-context:
+    enabled: true
+    public-paths:
+      - /actuator
+      - /v3/api-docs
+      - /swagger-ui
+      - /error
+
 # Actuator Configuration
 management:
   endpoints:

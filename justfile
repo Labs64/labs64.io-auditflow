@@ -22,7 +22,7 @@ default:
 # Print all service URLs
 _urls:
     @echo ""
-    @echo "  Backend API:        http://localhost:8080/api/v1"
+    @echo "  Backend API:        http://localhost:8080"
     @echo "  Backend Health:     http://localhost:8080/actuator/health"
     @echo "  Backend Swagger UI: http://localhost:8080/swagger-ui.html"
     @echo "  Transformer API:    http://localhost:8081/docs"

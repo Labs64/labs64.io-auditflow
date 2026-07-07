@@ -20,7 +20,7 @@ Root files: `justfile` (task runner), `docker-compose.yml` (local stack), `docke
 ## Data flow
 
 ```
-POST /api/v1/audit/publish
+POST /audit/publish  (direct; via gateway: /auditflow/api/v1/audit/publish — Traefik owns and strips the version prefix)
     → AuditPublisherService → RabbitMQ topic
     → AuditSubscriberService → AuditService.processAuditEvent()
     → for each enabled pipeline:
