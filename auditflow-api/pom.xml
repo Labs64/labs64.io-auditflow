@@ -59,8 +59,8 @@
         <maven-javadoc-plugin.version>3.12.0</maven-javadoc-plugin.version>
         <maven-gpg-plugin.version>3.2.8</maven-gpg-plugin.version>
 
-        <labs64.nexus.releases.url>https://nexus.labs64.de/repository/maven-releases/</labs64.nexus.releases.url>
-        <labs64.nexus.snapshots.url>https://nexus.labs64.de/repository/maven-snapshots/</labs64.nexus.snapshots.url>
+        <labs64.nexus.releases.url>https://nexus.labs64.com/repository/maven-releases/</labs64.nexus.releases.url>
+        <labs64.nexus.snapshots.url>https://nexus.labs64.com/repository/maven-snapshots/</labs64.nexus.snapshots.url>
     </properties>
 
     <dependencies>
