@@ -11,10 +11,8 @@ info:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
 servers:
-  - url: /auditflow/api/v1
-    description: Via API Gateway (Traefik owns and strips the version prefix)
-  - url: http://localhost:8080
-    description: Local Development Server (direct, root-mapped)
+  - url: /api/v1
+    description: Via API Gateway (Traefik strips the module prefix)
 tags:
   - name: AuditEvent
     description: Operations to manage and publish audit events.
