@@ -67,7 +67,9 @@ public class PipelineRateLimiterRegistry {
         return pipelineRateLimiters.computeIfAbsent(pipelineName, name -> {
             RateLimiter rateLimiter = createDefaultRateLimiter(name);
             registerMetrics(name, rateLimiter);
-            logger.debug("Created default rate limiter for pipeline '{}'", name);
+            logger.info("Created default rate limiter for pipeline '{}' (limit: {}/{} )",
+                    name, rateLimitProperties.getDefaultLimitForPeriod(),
+                    rateLimitProperties.getDefaultLimitRefreshPeriod());
             return rateLimiter;
         });
     }

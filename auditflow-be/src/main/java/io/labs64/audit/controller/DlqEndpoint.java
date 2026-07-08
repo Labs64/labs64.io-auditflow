@@ -33,6 +33,7 @@ public class DlqEndpoint {
 
     @ReadOperation
     public Map<String, Object> getDlqInfo() {
+        logger.info("DLQ info requested");
         Map<String, Object> info = new HashMap<>();
 
         try {
@@ -44,7 +45,7 @@ public class DlqEndpoint {
             info.put("messageCount", messageCount != null ? messageCount : 0);
             info.put("status", "available");
         } catch (Exception e) {
-            logger.error("Failed to get DLQ info: {}", e.getMessage());
+            logger.error("Failed to get DLQ info", e);
             info.put("status", "error");
             info.put("error", e.getMessage());
         }
@@ -54,8 +55,10 @@ public class DlqEndpoint {
 
     @WriteOperation
     public Map<String, Object> retryAllMessages() {
+        logger.warn("DLQ retry requested — retrying all messages");
         Map<String, Object> result = new HashMap<>();
         int retriedCount = 0;
+        int failedCount = 0;
 
         try {
             Message message = rabbitTemplate.receive(DLQ_QUEUE_NAME, 1000);
@@ -63,18 +66,21 @@ public class DlqEndpoint {
                 try {
                     rabbitTemplate.send(MAIN_QUEUE_NAME, message);
                     retriedCount++;
-                    logger.debug("Retried message from DLQ to main queue");
                 } catch (Exception e) {
-                    logger.error("Failed to retry message: {}", e.getMessage());
+                    failedCount++;
+                    logger.error("Failed to retry DLQ message", e);
                 }
                 message = rabbitTemplate.receive(DLQ_QUEUE_NAME, 100);
             }
 
+            logger.info("DLQ retry completed — retried: {}, failed: {}", retriedCount, failedCount);
             result.put("status", "success");
             result.put("retriedCount", retriedCount);
-            result.put("message", "Retried " + retriedCount + " messages from DLQ");
+            result.put("failedCount", failedCount);
+            result.put("message", "Retried " + retriedCount + " messages from DLQ" +
+                    (failedCount > 0 ? " (" + failedCount + " failed)" : ""));
         } catch (Exception e) {
-            logger.error("Failed to retry DLQ messages: {}", e.getMessage());
+            logger.error("Failed to retry DLQ messages", e);
             result.put("status", "error");
             result.put("error", e.getMessage());
         }

@@ -26,7 +26,12 @@ public class AuditFlowConfiguration {
 
     @PostConstruct
     public void logConfiguration() {
-        logger.debug("Loaded {} pipelines at AuditFlowConfiguration", pipelines.size());
+        long enabledCount = pipelines.stream().filter(PipelineProperties::isEnabled).count();
+        logger.info("AuditFlow configuration loaded — {} pipelines ({} enabled): {}",
+                pipelines.size(), enabledCount,
+                pipelines.stream()
+                        .map(p -> p.getName() + (p.isEnabled() ? "" : " [disabled]"))
+                        .toList());
     }
 
     public static class PipelineProperties {

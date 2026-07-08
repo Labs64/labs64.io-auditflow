@@ -2,6 +2,8 @@ package io.labs64.audit.config;
 
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig.SlidingWindowType;
 import io.github.resilience4j.timelimiter.TimeLimiterConfig;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.cloud.circuitbreaker.resilience4j.ReactiveResilience4JCircuitBreakerFactory;
 import org.springframework.cloud.circuitbreaker.resilience4j.Resilience4JConfigBuilder;
@@ -19,10 +21,20 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class CircuitBreakerConfig {
 
+    private static final Logger log = LoggerFactory.getLogger(CircuitBreakerConfig.class);
+
     @Bean
     @ConditionalOnProperty(prefix = "auditflow.circuitbreaker", name = "enabled", havingValue = "true", matchIfMissing = true)
     public Customizer<ReactiveResilience4JCircuitBreakerFactory> defaultCircuitBreakerCustomizer(
             CircuitBreakerProperties properties) {
+        log.info("Circuit breaker configured — slidingWindowSize: {}, failureRateThreshold: {}, "
+                + "slowCallRateThreshold: {}, waitDuration: {}, timeout: {}",
+                properties.getSlidingWindowSize(),
+                properties.getFailureRateThreshold(),
+                properties.getSlowCallRateThreshold(),
+                properties.getWaitDurationInOpenState(),
+                properties.getTimeLimiterTimeout());
+
         return factory -> factory.configureDefault(id -> new Resilience4JConfigBuilder(id)
                 .circuitBreakerConfig(io.github.resilience4j.circuitbreaker.CircuitBreakerConfig.custom()
                         .slidingWindowType(SlidingWindowType.COUNT_BASED)

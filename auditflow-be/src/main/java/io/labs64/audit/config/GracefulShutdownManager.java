@@ -29,7 +29,7 @@ public class GracefulShutdownManager {
 
     @EventListener(ApplicationReadyEvent.class)
     public void onApplicationReady() {
-        logger.info("Application ready. Graceful shutdown manager active.");
+        logger.info("Application ready. Graceful shutdown manager active (drain timeout: {}s).", DRAIN_TIMEOUT_SECONDS);
     }
 
     @PreDestroy
