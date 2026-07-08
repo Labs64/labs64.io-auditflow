@@ -8,6 +8,8 @@ import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -127,6 +129,45 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(buildError(ErrorCode.PUBLISH_FAILED, ex.getMessage()));
+    }
+
+    // -------------------------------------------------------------------------
+    // Request routing (wrong method / unsupported media type)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Handle {@link HttpRequestMethodNotSupportedException} — the endpoint exists
+     * but the HTTP method is not mapped (e.g. {@code GET} on a POST-only path).
+     * Returns HTTP 405 Method Not Allowed instead of falling through to the
+     * generic 500 catch-all.
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleMethodNotSupported(
+            HttpRequestMethodNotSupportedException ex,
+            WebRequest request) {
+
+        logger.warn("Method not allowed: {}", ex.getMessage());
+
+        return ResponseEntity
+                .status(HttpStatus.METHOD_NOT_ALLOWED)
+                .body(buildError(ErrorCode.VALIDATION_ERROR, ex.getMessage()));
+    }
+
+    /**
+     * Handle {@link HttpMediaTypeNotSupportedException} — the request carries an
+     * unsupported {@code Content-Type} (e.g. {@code text/plain} on a JSON-only
+     * endpoint). Returns HTTP 415 Unsupported Media Type instead of 500.
+     */
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleMediaTypeNotSupported(
+            HttpMediaTypeNotSupportedException ex,
+            WebRequest request) {
+
+        logger.warn("Unsupported media type: {}", ex.getMessage());
+
+        return ResponseEntity
+                .status(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
+                .body(buildError(ErrorCode.VALIDATION_ERROR, ex.getMessage()));
     }
 
     // -------------------------------------------------------------------------

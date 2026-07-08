@@ -18,6 +18,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -72,6 +73,32 @@ class GlobalExceptionHandlerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
                 .andExpect(jsonPath("$.message").value("Malformed request body"));
+    }
+
+    @Test
+    void wrongMethodReturns405() throws Exception {
+        mockMvc.perform(get("/audit/publish"))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.timestamp").exists());
+    }
+
+    @Test
+    void unsupportedMediaTypeReturns415() throws Exception {
+        String payload = """
+                {
+                  "eventId": "11111111-1111-1111-1111-111111111111",
+                  "sourceSystem": "test",
+                  "eventType": "test.event"
+                }
+                """;
+
+        mockMvc.perform(post("/audit/publish")
+                        .contentType(MediaType.TEXT_PLAIN)
+                        .content(payload))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
 }
