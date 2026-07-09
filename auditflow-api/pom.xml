@@ -7,8 +7,8 @@
     <version>0.0.1-SNAPSHOT</version>
     <packaging>jar</packaging>
 
-    <name>Labs64.IO :: AuditFlow API Client</name>
-    <description>Minimal-dependency Java client for the Labs64.IO AuditFlow API.</description>
+    <name>Labs64.IO :: AuditFlow API</name>
+    <description>Shared Java contract (validated models) and client for the Labs64.IO AuditFlow API.</description>
     <url>https://labs64.io</url>
 
     <licenses>
@@ -83,6 +83,13 @@
         </dependency>
 
         <dependency>
+            <groupId>jakarta.validation</groupId>
+            <artifactId>jakarta.validation-api</artifactId>
+            <version>3.1.1</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <version>${junit.version}</version>
@@ -151,7 +158,7 @@
                                 <library>native</library>
                                 <serializationLibrary>jackson</serializationLibrary>
                                 <useJakartaEe>true</useJakartaEe>
-                                <useBeanValidation>false</useBeanValidation>
+                                <useBeanValidation>true</useBeanValidation>
                                 <annotationLibrary>none</annotationLibrary>
                                 <openApiNullable>false</openApiNullable>
                                 <hideGenerationTimestamp>true</hideGenerationTimestamp>
@@ -239,6 +246,12 @@
                                 <id>sign-artifacts</id>
                                 <phase>verify</phase>
                                 <goals><goal>sign</goal></goals>
+                                <configuration>
+                                    <gpgArguments>
+                                        <arg>--pinentry-mode</arg>
+                                        <arg>loopback</arg>
+                                    </gpgArguments>
+                                </configuration>
                             </execution>
                         </executions>
                     </plugin>

@@ -13,7 +13,7 @@ For codebase questions, run `graphify query "<question>"` when graphify-out/grap
 | `auditflow-be/` | Backend | Java 25, Spring Boot 4.1, Maven | 8080 |
 | `auditflow-transformer/` | Transformer | Python 3.13, FastAPI | 8081 |
 | `auditflow-sink/` | Sink | Python 3.13, FastAPI | 8082 |
-| `auditflow-api/` | API Client | Java 17, Maven | n/a |
+| `auditflow-api/` | API contract + client (shared, validated models) | Java 17, Maven | n/a |
 
 Root files: `justfile` (task runner), `docker-compose.yml` (local stack), `docker-compose-observability.yml` (observability overlay via `just up obs`).
 

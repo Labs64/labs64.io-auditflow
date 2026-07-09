@@ -1,0 +1,188 @@
+name: Labs64.IO - AuditFlow API - Release
+
+# Publishes the auditflow-api Java client to Labs64 Nexus so auditflow-be and other
+# modules can consume it as a Maven dependency (io.labs64:auditflow-api).
+#
+#   * push to master (auditflow-api/**) -> deploy the current -SNAPSHOT to Nexus snapshots
+#   * workflow_dispatch (release-version) -> pinned, GPG-signed release to Nexus releases,
+#     tag it, then bump master to the next -SNAPSHOT
+#
+# Nexus auth: L64_PUB_CI_USERNAME / L64_PUB_CI_PASSWORD (servers labs64-nexus[-snapshots]).
+# Release signing: GPG_KEY / GPG_KEY_PASS.
+
+on:
+  push:
+    branches: [ "master" ]
+    paths:
+      - "auditflow-api/**"
+      - ".github/workflows/labs64io-release-api.yml"
+  workflow_dispatch:
+    inputs:
+      release-version:
+        required: true
+        description: The release version X.Y.Z
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auditflow-api-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Snapshot publish on every master push that touches auditflow-api
+  # ─────────────────────────────────────────────────────────────────────────────
+  snapshot:
+    name: Publish snapshot
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: auditflow-api
+
+    steps:
+      - name: Checkout the sources
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Prepare Maven settings.xml
+        run: |
+          mkdir -p ~/.m2
+          cat > ~/.m2/settings.xml <<'EOF'
+          <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                    xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 http://maven.apache.org/xsd/settings-1.0.0.xsd">
+            <servers>
+              <server>
+                <id>labs64-nexus</id>
+                <username>${env.L64_PUB_CI_USERNAME}</username>
+                <password>${env.L64_PUB_CI_PASSWORD}</password>
+              </server>
+              <server>
+                <id>labs64-nexus-snapshots</id>
+                <username>${env.L64_PUB_CI_USERNAME}</username>
+                <password>${env.L64_PUB_CI_PASSWORD}</password>
+              </server>
+            </servers>
+          </settings>
+          EOF
+
+      # Only publish when the working version is a SNAPSHOT — never push a release
+      # version into the snapshots repository.
+      - name: Deploy snapshot to Labs64 Nexus
+        env:
+          L64_PUB_CI_USERNAME: ${{ secrets.L64_PUB_CI_USERNAME }}
+          L64_PUB_CI_PASSWORD: ${{ secrets.L64_PUB_CI_PASSWORD }}
+        run: |
+          VERSION="$(mvn -q -ntp -DforceStdout help:evaluate -Dexpression=project.version)"
+          echo "Current version: $VERSION"
+          if [[ "$VERSION" != *-SNAPSHOT ]]; then
+            echo "Version $VERSION is not a SNAPSHOT — skipping snapshot deploy."
+            exit 0
+          fi
+          mvn -B -ntp -s ~/.m2/settings.xml -DskipTests clean deploy
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Pinned release on manual dispatch
+  # ─────────────────────────────────────────────────────────────────────────────
+  release:
+    name: Release ${{ github.event.inputs.release-version }}
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+
+    env:
+      # Bind the dispatch input to an env var once; never interpolate the raw
+      # ${{ ... }} expression into a run: script.
+      RELEASE_VERSION: ${{ github.event.inputs.release-version }}
+
+    steps:
+      - name: Validate release version
+        run: |
+          if ! [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release version '$RELEASE_VERSION' (expected X.Y.Z)"
+            exit 1
+          fi
+
+      - name: Checkout the sources
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Configure Git
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "netlicensing@labs64.com"
+
+      - name: Prepare Maven settings.xml
+        run: |
+          mkdir -p ~/.m2
+          cat > ~/.m2/settings.xml <<'EOF'
+          <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                    xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 http://maven.apache.org/xsd/settings-1.0.0.xsd">
+            <servers>
+              <server>
+                <id>labs64-nexus</id>
+                <username>${env.L64_PUB_CI_USERNAME}</username>
+                <password>${env.L64_PUB_CI_PASSWORD}</password>
+              </server>
+              <server>
+                <id>labs64-nexus-snapshots</id>
+                <username>${env.L64_PUB_CI_USERNAME}</username>
+                <password>${env.L64_PUB_CI_PASSWORD}</password>
+              </server>
+            </servers>
+          </settings>
+          EOF
+
+      - name: Import GPG key
+        run: |
+          echo "${{ secrets.GPG_KEY }}" | base64 -d | \
+            gpg --batch --pinentry-mode loopback --passphrase "${{ secrets.GPG_KEY_PASS }}" --import
+
+      - name: Set release version
+        working-directory: auditflow-api
+        run: mvn -B -ntp versions:set -DnewVersion="$RELEASE_VERSION" -DgenerateBackupPoms=false
+
+      - name: Deploy release to Labs64 Nexus
+        working-directory: auditflow-api
+        env:
+          L64_PUB_CI_USERNAME: ${{ secrets.L64_PUB_CI_USERNAME }}
+          L64_PUB_CI_PASSWORD: ${{ secrets.L64_PUB_CI_PASSWORD }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_KEY_PASS }}
+        run: mvn -B -ntp -s ~/.m2/settings.xml clean deploy -P release
+
+      - name: Commit release and tag
+        run: |
+          git add auditflow-api/pom.xml
+          git diff-index --quiet HEAD || git commit -m "chore: release auditflow-api ${RELEASE_VERSION}"
+          git tag -a "auditflow-api-v${RELEASE_VERSION}" -m "auditflow-api ${RELEASE_VERSION}" || true
+
+      # Keep master on a SNAPSHOT so the snapshot job keeps publishing between releases.
+      - name: Bump to next development version
+        working-directory: auditflow-api
+        run: |
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$RELEASE_VERSION"
+          NEXT="${MAJOR}.${MINOR}.$((PATCH + 1))-SNAPSHOT"
+          echo "Next development version: $NEXT"
+          mvn -B -ntp versions:set -DnewVersion="$NEXT" -DgenerateBackupPoms=false
+          cd ..
+          git add auditflow-api/pom.xml
+          git commit -m "chore: start next development iteration ${NEXT}"
+
+      - name: Push commits and tag
+        run: |
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+          git push origin "auditflow-api-v${RELEASE_VERSION}"
