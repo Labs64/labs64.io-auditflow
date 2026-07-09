@@ -1,4 +1,4 @@
-package io.labs64.audit.v1.model;
+package io.labs64.auditflow.model;
 
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
@@ -16,6 +16,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * new optional AuditEvent fields, relaxed Geolocation coordinates, and the
  * UNAUTHORIZED error code. These assertions only compile/pass after the YAML
  * spec is updated and the models regenerated.
+ *
+ * The models now live in the shared io.labs64:auditflow-api jar (package
+ * io.labs64.auditflow.model); this test guards that contract.
  */
 class AuditEventSchemaTest {
 

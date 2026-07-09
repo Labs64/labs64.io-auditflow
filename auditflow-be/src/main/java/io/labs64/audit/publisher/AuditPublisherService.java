@@ -28,7 +28,7 @@ public class AuditPublisherService {
         this.redactionService = redactionService;
     }
 
-    public boolean publishMessage(io.labs64.audit.v1.model.AuditEvent event) {
+    public boolean publishMessage(io.labs64.auditflow.model.AuditEvent event) {
         String json;
         try {
             // PII redaction happens here, before publish, so raw PII never enters the broker.

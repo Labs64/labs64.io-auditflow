@@ -3,7 +3,7 @@ package io.labs64.audit.controller;
 import io.labs64.audit.config.CorrelationIdFilter;
 import io.labs64.audit.exception.PublishException;
 import io.labs64.audit.v1.api.AuditEventApi;
-import io.labs64.audit.v1.model.AuditEvent;
+import io.labs64.auditflow.model.AuditEvent;
 import io.labs64.audit.publisher.AuditPublisherService;
 import io.labs64.authcontext.UserContextHolder;
 import jakarta.validation.Valid;

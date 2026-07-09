@@ -22,6 +22,7 @@
         <audit.version>v1</audit.version>
         <!-- DEPENDENCIES -->
         <java.version>25</java.version>
+        <auditflow-api.version>0.0.1-SNAPSHOT</auditflow-api.version>
         <spring-cloud.version>2025.1.2</spring-cloud.version>
         <logstash.version>9.0</logstash.version>
         <springdoc.version>3.0.3</springdoc.version>
@@ -102,6 +103,12 @@
             <groupId>io.labs64</groupId>
             <artifactId>auth-context-spring-boot-starter</artifactId>
             <version>0.1.1</version>
+        </dependency>
+
+        <dependency>
+            <groupId>io.labs64</groupId>
+            <artifactId>auditflow-api</artifactId>
+            <version>${auditflow-api.version}</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -216,6 +223,17 @@
             <name>Labs64 Nexus Releases</name>
             <url>https://nexus.labs64.com/repository/maven-releases/</url>
         </repository>
+        <repository>
+            <id>labs64-nexus-snapshots</id>
+            <name>Labs64 Nexus Snapshots</name>
+            <url>https://nexus.labs64.com/repository/maven-snapshots/</url>
+            <releases>
+                <enabled>false</enabled>
+            </releases>
+            <snapshots>
+                <enabled>true</enabled>
+            </snapshots>
+        </repository>
     </repositories>
 
     <build>
@@ -263,7 +281,10 @@
                             <generatorName>spring</generatorName>
                             <output>${project.build.directory}/generated-sources</output>
                             <apiPackage>io.labs64.audit.${audit.version}.api</apiPackage>
-                            <modelPackage>io.labs64.audit.${audit.version}.model</modelPackage>
+                            <!-- Models come from the io.labs64:auditflow-api jar; generate the
+                                 server API interfaces only and point them at the jar's package. -->
+                            <modelPackage>io.labs64.auditflow.model</modelPackage>
+                            <generateModels>false</generateModels>
                             <generateSupportingFiles>true</generateSupportingFiles>
                             <configOptions>
                                 <useTags>true</useTags>

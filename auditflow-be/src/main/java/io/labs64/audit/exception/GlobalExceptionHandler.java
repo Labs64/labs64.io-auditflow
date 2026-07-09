@@ -1,7 +1,7 @@
 package io.labs64.audit.exception;
 
-import io.labs64.audit.v1.model.ErrorCode;
-import io.labs64.audit.v1.model.ErrorResponse;
+import io.labs64.auditflow.model.ErrorCode;
+import io.labs64.auditflow.model.ErrorResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
