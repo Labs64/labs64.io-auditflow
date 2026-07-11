@@ -24,6 +24,10 @@ paths:
       tags:
         - AuditEvent
       description: Publishes an audit event to a message broker for asynchronous processing through configured pipelines.
+      x-labs64-auth:
+        tenant: false
+        scopes:
+          - audit-event:write
       security:
         - bearerAuth: []
       requestBody:

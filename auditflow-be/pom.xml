@@ -38,6 +38,11 @@
         <maven-enforcer-plugin.version>3.6.3</maven-enforcer-plugin.version>
         <openapi-generator-maven-plugin.version>7.23.0</openapi-generator-maven-plugin.version>
         <build-helper-maven-plugin.version>3.6.1</build-helper-maven-plugin.version>
+        <exec-maven-plugin.version>3.6.2</exec-maven-plugin.version>
+        <!-- OpenAPI auth preprocessor paths -->
+        <openapi.source>${project.basedir}/../auditflow-api/src/main/resources/openapi/openapi-audit-${audit.version}.yaml</openapi.source>
+        <openapi.generated>${project.build.directory}/generated-openapi/openapi-audit-${audit.version}.yaml</openapi.generated>
+        <auth-policy.generated>${project.build.directory}/generated-resources/auth-policy.json</auth-policy.generated>
     </properties>
 
 
@@ -154,6 +159,12 @@
             <artifactId>jackson-datatype-jsr310</artifactId>
             <version>${jackson-datatype.version}</version>
         </dependency>
+        <!-- YAML support for OpenApiAuthPreprocessor (build-time only) -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.dataformat</groupId>
+            <artifactId>jackson-dataformat-yaml</artifactId>
+            <version>${jackson-datatype.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
@@ -266,6 +277,32 @@
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
             <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>${exec-maven-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>generate-auth-openapi-policy</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>io.labs64.authcontext.openapi.OpenApiAuthPreprocessorCli</mainClass>
+                            <classpathScope>compile</classpathScope>
+                            <arguments>
+                                <argument>--input</argument>
+                                <argument>${openapi.source}</argument>
+                                <argument>--openapi-output</argument>
+                                <argument>${openapi.generated}</argument>
+                                <argument>--policy-output</argument>
+                                <argument>${auth-policy.generated}</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
                 <groupId>org.openapitools</groupId>
                 <artifactId>openapi-generator-maven-plugin</artifactId>
                 <version>${openapi-generator-maven-plugin.version}</version>
@@ -277,7 +314,7 @@
                         </goals>
                         <phase>generate-sources</phase>
                         <configuration>
-                            <inputSpec>${project.basedir}/../auditflow-api/src/main/resources/openapi/openapi-audit-${audit.version}.yaml</inputSpec>
+                            <inputSpec>${openapi.generated}</inputSpec>
                             <generatorName>spring</generatorName>
                             <output>${project.build.directory}/generated-sources</output>
                             <apiPackage>io.labs64.audit.${audit.version}.api</apiPackage>
@@ -311,6 +348,20 @@
                             <sources>
                                 <source>${project.build.directory}/generated-sources</source>
                             </sources>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>add-generated-resources</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>add-resource</goal>
+                        </goals>
+                        <configuration>
+                            <resources>
+                                <resource>
+                                    <directory>${project.build.directory}/generated-resources</directory>
+                                </resource>
+                            </resources>
                         </configuration>
                     </execution>
                 </executions>
