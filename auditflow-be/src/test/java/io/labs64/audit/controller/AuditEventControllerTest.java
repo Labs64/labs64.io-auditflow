@@ -3,7 +3,7 @@ package io.labs64.audit.controller;
 import io.labs64.audit.config.CorrelationIdFilter;
 import io.labs64.audit.publisher.AuditPublisherService;
 import io.labs64.auditflow.model.AuditEvent;
-import io.labs64.authcontext.test.WithUserContext;
+import io.labs64.authcontext.test.WithAuthContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -108,7 +108,7 @@ class AuditEventControllerTest {
     }
 
     @Test
-    @WithUserContext(user = "jdoe", tenant = "t_100")
+    @WithAuthContext(user = "jdoe", tenant = "t_100")
     void gatewayTenantOverridesClientSuppliedTenant() {
         when(publisherService.publishMessage(any())).thenReturn(true);
         AuditEventController controller = new AuditEventController(publisherService);
@@ -121,7 +121,7 @@ class AuditEventControllerTest {
     }
 
     @Test
-    @WithUserContext(user = "jdoe", tenant = "-")
+    @WithAuthContext(user = "jdoe", tenant = "-")
     void tenantlessContextPreservesClientSuppliedTenant() {
         when(publisherService.publishMessage(any())).thenReturn(true);
         AuditEventController controller = new AuditEventController(publisherService);

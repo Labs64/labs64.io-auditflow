@@ -5,7 +5,7 @@ import io.labs64.audit.exception.PublishException;
 import io.labs64.audit.v1.api.AuditEventApi;
 import io.labs64.auditflow.model.AuditEvent;
 import io.labs64.audit.publisher.AuditPublisherService;
-import io.labs64.authcontext.UserContextHolder;
+import io.labs64.authcontext.core.AuthContextHolder;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -61,7 +61,7 @@ public class AuditEventController implements AuditEventApi {
 
         // The gateway-derived tenant is authoritative: a client-supplied tenantId in the
         // payload never overrides the trusted X-Auth-Tenant context.
-        UserContextHolder.get().ifPresent(context -> {
+        AuthContextHolder.get().ifPresent(context -> {
             if (context.tenantId() != null) {
                 event.setTenantId(context.tenantId());
             }
