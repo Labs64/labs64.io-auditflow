@@ -2,14 +2,10 @@ openapi: 3.0.3
 info:
   title: Labs64 AuditFlow API
   version: 1.0.0
-  description: API for publishing audit events to a message broker for asynchronous processing through configurable pipelines.
+  description: Audit logging for microservices — publish once, route anywhere, lose nothing.
   contact:
-    name: Labs64
+    name: Labs64.IO
     url: https://labs64.io
-    email: info@labs64.com
-  license:
-    name: Apache 2.0
-    url: https://www.apache.org/licenses/LICENSE-2.0
 servers:
   - url: /api/v1
     description: Via API Gateway (Traefik strips the module prefix)
@@ -241,6 +237,7 @@ components:
 
     ErrorResponse:
       type: object
+      additionalProperties: false
       description: Standard error response returned by the API.
       required:
         - code
@@ -252,16 +249,14 @@ components:
         message:
           type: string
           description: Human-readable message describing the error.
-          example: "eventType must not be blank"
         timestamp:
           type: string
           format: date-time
-          description: Time when the error occurred, in ISO 8601 format.
-          example: "2025-11-30T10:15:30Z"
+          description: Time when the error occurred.
         traceId:
           type: string
-          description: Correlation ID for tracing this request across services. Matches the X-Correlation-ID request/response header.
-          example: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+          nullable: true
+          description: Optional correlation/trace ID for distributed tracing.
 
   securitySchemes:
     bearerAuth:
