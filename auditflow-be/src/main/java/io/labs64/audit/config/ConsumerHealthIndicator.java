@@ -122,8 +122,6 @@ public class ConsumerHealthIndicator implements HealthIndicator {
     @Override
     public Health health() {
         long lastEvent = lastEventTimestamp.get();
-        long currentTime = System.currentTimeMillis();
-        long timeSinceLastEvent = currentTime - lastEvent;
 
         Health.Builder builder = Health.up();
         builder.withDetail("eventsProcessed", eventsProcessed.get());
@@ -132,11 +130,8 @@ public class ConsumerHealthIndicator implements HealthIndicator {
         builder.withDetail("lastEventTimestamp", lastEvent);
         builder.withDetail("shutdownRequested", shutdownRequested);
 
-        // Consider unhealthy if no events processed in last 5 minutes (when events are expected)
-        if (lastEvent > 0 && timeSinceLastEvent > 300000) {
-            builder.down();
-            builder.withDetail("timeSinceLastEventMs", timeSinceLastEvent);
-        }
+        // Idle time is a normal steady state for an audit consumer — not a health signal.
+        // Consumer lag/throughput is exposed via the gauges above for dashboards/alerting instead.
 
         // During shutdown, report down if events are still in flight
         if (shutdownRequested && eventsInFlight.get() > 0) {
