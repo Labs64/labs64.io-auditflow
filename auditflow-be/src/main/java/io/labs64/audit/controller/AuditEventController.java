@@ -45,7 +45,7 @@ public class AuditEventController implements AuditEventApi {
      * @return Response indicating success or failure
      */
     @Override
-    @Authorize(action = "publishAudit", resourceType = "AuditEvent")
+    @Authorize(action = "publishEvent", resourceType = "AuditEvent")
     public ResponseEntity<String> publishEvent(@Valid AuditEvent event) {
         if (event.getEventId() == null) {
             event.setEventId(UUID.randomUUID());
