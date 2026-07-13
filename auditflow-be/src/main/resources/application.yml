@@ -73,6 +73,14 @@ spring:
 # Fail-closed: non-public paths 401 without valid X-Auth-* headers from the
 # gateway. Disabled in docker-compose (no gateway there); enabled in k8s.
 labs64:
+  auth:
+    # Cedar domain authorization (RFC-05 P4 fan-out). SHADOW evaluates + audits
+    # every decision without blocking; flip to ENFORCE only after the shadow
+    # diff is clean (deploy-time override via LABS64_CEDAR_MODE).
+    cedar:
+      enabled: ${LABS64_CEDAR_ENABLED:true}
+      mode: ${LABS64_CEDAR_MODE:SHADOW}
+      policy-location: classpath:cedar/domain.cedar
   auth-context:
     enabled: true
     public-paths:

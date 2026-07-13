@@ -5,6 +5,7 @@ import io.labs64.audit.exception.PublishException;
 import io.labs64.audit.v1.api.AuditEventApi;
 import io.labs64.auditflow.model.AuditEvent;
 import io.labs64.audit.publisher.AuditPublisherService;
+import io.labs64.authcontext.cedar.Authorize;
 import io.labs64.authcontext.core.AuthContextHolder;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
@@ -44,6 +45,7 @@ public class AuditEventController implements AuditEventApi {
      * @return Response indicating success or failure
      */
     @Override
+    @Authorize(action = "publishAudit", resourceType = "AuditEvent")
     public ResponseEntity<String> publishEvent(@Valid AuditEvent event) {
         if (event.getEventId() == null) {
             event.setEventId(UUID.randomUUID());
