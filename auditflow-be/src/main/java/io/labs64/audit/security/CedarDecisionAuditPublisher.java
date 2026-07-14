@@ -9,7 +9,7 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 
 /**
- * Publishes every Cedar domain decision (RFC-05 F9): structured log line
+ * Publishes every Cedar domain decision: structured log line
  * (via the commons logging listener format) + Prometheus counter
  * {@code labs64_authz_decisions_total{action,decision,mode}}.
  */

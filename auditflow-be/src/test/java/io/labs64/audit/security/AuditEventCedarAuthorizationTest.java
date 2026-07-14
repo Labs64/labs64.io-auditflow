@@ -26,7 +26,7 @@ import io.labs64.authcontext.core.AuthContext;
 import io.labs64.authcontext.core.AuthContextHolder;
 
 /**
- * RFC-05 P4 fan-out: the REAL auditflow domain policy set (generated from
+ *  P4 fan-out: the REAL auditflow domain policy set (generated from
  * OpenAPI x-labs64-auth, {@code classpath:auth-policy-domain.cedar}) + resolver
  * + PEP on publishEvent — service principals and users authorize through the
  * same path (P8).

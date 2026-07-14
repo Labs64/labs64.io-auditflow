@@ -155,7 +155,7 @@ jobs:
       - name: Build Docker image
         run: docker build auditflow-sink --file auditflow-sink/Dockerfile --tag auditflow-sink:ci-${{ github.sha }}
 
-  # RFC-05 one-schema gate: the module's domain Cedar policy set must validate
+  # the module's domain Cedar policy set must validate
   # against the shared commons schema — drift is a build failure, not a review miss.
   cedar:
     runs-on: ubuntu-latest

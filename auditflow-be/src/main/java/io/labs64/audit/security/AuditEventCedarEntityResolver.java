@@ -9,7 +9,7 @@ import io.labs64.authcontext.core.AuthContext;
 
 /**
  * Supplies the Cedar {@code AuditEvent} resource for {@code @Authorize} on
- * {@code publishEvent} (RFC-05 P4). The event under publication is not yet
+ * {@code publishEvent}. The event under publication is not yet
  * persisted and its tenant is authoritative from the trusted context (the
  * controller overrides any client-supplied tenantId with X-Auth-Tenant), so
  * the resource is built from the AuthContext alone — no repository lookup,

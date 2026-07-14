@@ -1,4 +1,4 @@
-FROM eclipse-temurin:25-alpine
+FROM eclipse-temurin:25-jre
 
 LABEL org.opencontainers.image.title="Labs64.IO :: AuditFlow" \
       org.opencontainers.image.description="Scalable audit logging backend for modern microservices" \
@@ -13,8 +13,9 @@ ARG USER_NAME=l64user
 ARG GROUP_NAME=l64group
 
 # Create group and user with the specified IDs
-RUN addgroup -g ${GROUP_ID} ${GROUP_NAME} && \
-    adduser -D -u ${USER_ID} -G ${GROUP_NAME} ${USER_NAME}
+RUN apt-get update && apt-get install -y wget && rm -rf /var/lib/apt/lists/* && \
+    groupadd -g ${GROUP_ID} ${GROUP_NAME} && \
+    useradd -m -u ${USER_ID} -g ${GROUP_NAME} -s /bin/bash ${USER_NAME}
 
 # OpenTelemetry Java Agent — bundled but inert. Deployment config enables it via
 # JAVA_TOOL_OPTIONS=-javaagent:/otel/opentelemetry-javaagent.jar (observability is an
