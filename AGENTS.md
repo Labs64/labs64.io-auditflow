@@ -28,6 +28,7 @@ POST /audit/publish  (direct; via gateway: /auditflow/api/v1/audit/publish — T
         SinkService → POST http://sink:8082/sink/{name}
 ```
 
+- **AuditFlow is a router/pipeline, NOT a system of record — settled decision, do not reopen.** It has **no database of its own**: no Postgres, no event store. Do not propose or add one. AuditFlow ingests → redacts → routes → delivers; the configured **sinks** (OpenSearch, S3/GCS/Azure Blob, Splunk, Snowflake, Database, …) are the systems of record and own persistence/retention/query. Durability = broker buffering + retry/circuit-breaker + DLQ (`/actuator/dlq`, replayable) + the sink. Redis is dedup-only (idempotency TTL), not storage. "Store audit events in AuditFlow" is out of scope by design — point a pipeline at a durable sink instead.
 - Backend is both producer and consumer of the same topic.
 - Pipelines are independent — one failing does not stop others.
 - Consumer uses dead-letter queue (`autoBindDlq: true`).

@@ -238,6 +238,7 @@ Three independently deployable services:
 
 Key design decisions:
 
+- **AuditFlow is a router, not a system of record.** It has **no database of its own** — there is no Postgres or event store, and adding one is an explicit non-goal. AuditFlow ingests, redacts, routes, and delivers; the **sinks** (OpenSearch, S3/GCS/Azure Blob, Splunk, Snowflake, Database, …) *are* the systems of record and own retention, immutability, and query. Durability is provided by the broker (in-flight buffering), the retry + circuit breaker, the dead-letter queue (exhausted events, replayable via `/actuator/dlq`), and the destination sink — not by AuditFlow persisting events itself. Redis is a **deduplication** store (idempotency keys with TTL), not storage. Treat "persist audit events in AuditFlow" as out of scope by design: if you need a queryable record, point a pipeline at a durable sink.
 - The backend is **both producer and consumer** of the same broker topic, providing decoupling and buffering without a separate ingestion service.
 - The broker is reached through **Spring Cloud Stream binders** — RabbitMQ by default, Kafka on the classpath — so the transport can change without touching pipeline logic.
 - **Pipelines are independent** — a failure in one pipeline (e.g., an unreachable sink) is logged and skipped; other pipelines for the same event continue normally.
