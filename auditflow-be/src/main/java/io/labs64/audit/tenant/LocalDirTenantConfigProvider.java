@@ -45,9 +45,26 @@ public class LocalDirTenantConfigProvider implements TenantConfigProvider {
             @Value("${tenants.source.local-dir.path:/config/tenants}") String path,
             TenantConfigParser parser,
             MeterRegistry meterRegistry) {
-        this.dir = Path.of(path);
+        this.dir = resolvePath(path);
         this.parser = parser;
         this.meterRegistry = meterRegistry;
+    }
+
+    /** A {@code classpath:} dir is only file-resolvable when resources are exploded (IDE / mvn run);
+     *  packaged-jar deployments use a mounted dir, so an unresolvable classpath dir means zero
+     *  tenants — logged loudly, never a boot failure. */
+    private static Path resolvePath(String path) {
+        if (!path.startsWith("classpath:")) {
+            return Path.of(path);
+        }
+        try {
+            return new org.springframework.core.io.DefaultResourceLoader()
+                    .getResource(path).getFile().toPath();
+        } catch (IOException e) {
+            logger.error("Tenants dir '{}' is not file-resolvable ({}); treating as empty — "
+                    + "use a mounted directory for packaged deployments", path, e.getMessage());
+            return Path.of("/nonexistent-classpath-tenants");
+        }
     }
 
     @Override

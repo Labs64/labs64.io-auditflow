@@ -111,30 +111,18 @@ services:
       # headers exist — disable the fail-closed auth-context filter here only.
       # In Kubernetes the gateway supplies the headers and this stays enabled.
       LABS64_AUTH_CONTEXT_ENABLED: "false"
+      # Pipelines live in ./tenants/_platform.yaml (mounted below) — the tenant model replaced
+      # the -Dauditflow.pipelines[N].* JAVA_OPTS, which now fail startup by design.
       JAVA_OPTS: >-
         -Dauditflow.idempotency.store=memory
         -Dspring.autoconfigure.exclude=org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration,org.springframework.boot.data.redis.autoconfigure.DataRedisReactiveAutoConfiguration,org.springframework.boot.data.redis.autoconfigure.health.DataRedisHealthContributorAutoConfiguration,org.springframework.boot.data.redis.autoconfigure.health.DataRedisReactiveHealthContributorAutoConfiguration
-        -Dauditflow.pipelines[0].name=e2e-logging
-        -Dauditflow.pipelines[0].enabled=true
-        -Dauditflow.pipelines[0].transformer.name=zero
-        -Dauditflow.pipelines[0].sink.name=logging_sink
-        -Dauditflow.pipelines[0].sink.properties.log-level=DEBUG
-        -Dauditflow.pipelines[0].sink.properties.format=json
-        -Dauditflow.pipelines[1].name=security-alerts
-        -Dauditflow.pipelines[1].enabled=true
-        -Dauditflow.pipelines[1].condition.match=all
-        -Dauditflow.pipelines[1].condition.rules[0].field=eventType
-        -Dauditflow.pipelines[1].condition.rules[0].operator=eq
-        -Dauditflow.pipelines[1].condition.rules[0].value=security.alert
-        -Dauditflow.pipelines[1].transformer.name=zero
-        -Dauditflow.pipelines[1].sink.name=logging_sink
-        -Dauditflow.pipelines[1].sink.properties.log-level=WARN
-        -Dauditflow.pipelines[1].sink.properties.format=json
         -Dauditflow.redaction.enabled=true
         -Dauditflow.redaction.rules[0].field=extra.userId
         -Dauditflow.redaction.rules[0].action=mask
         -Dauditflow.redaction.rules[1].field=extra.sessionId
         -Dauditflow.redaction.rules[1].action=drop
+    volumes:
+      - ./tenants:/config/tenants:ro
     depends_on:
       rabbitmq:
         condition: service_healthy

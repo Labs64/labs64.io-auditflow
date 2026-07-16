@@ -67,6 +67,22 @@ class LocalDirTenantConfigProviderTest {
     }
 
     @Test
+    void resolvesClasspathPrefix() {
+        var p = new LocalDirTenantConfigProvider("classpath:tenants-fixture",
+                new TenantConfigParser(new ObjectMapper()), new SimpleMeterRegistry());
+        var loaded = p.loadAll();
+        assertEquals(1, loaded.size());
+        assertEquals("acme", loaded.iterator().next().tenantId());
+    }
+
+    @Test
+    void unresolvableClasspathDirMeansZeroTenantsNotBootFailure() {
+        var p = new LocalDirTenantConfigProvider("classpath:no-such-dir",
+                new TenantConfigParser(new ObjectMapper()), new SimpleMeterRegistry());
+        assertTrue(p.loadAll().isEmpty());
+    }
+
+    @Test
     void malformedEditRetainsLastGoodConfig(@TempDir Path dir) throws Exception {
         SimpleMeterRegistry reg = new SimpleMeterRegistry();
         var p = provider(dir, reg);

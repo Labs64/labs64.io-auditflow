@@ -1,0 +1,34 @@
+# Compose-local tenant config, mounted read-only into the backend at /config/tenants.
+# Reserved pseudo-tenant for tenantless service-principal (platform) events — carries the
+# pipelines previously configured via -Dauditflow.pipelines[N].* JAVA_OPTS (which now fail startup).
+# Hot-reloaded: edits are picked up by the local-dir poll within ~5s, no restart.
+tenantId: _platform
+enabled: true
+quota:
+  rateLimitPerSec: 200
+  burst: 400
+pipelines:
+  - name: e2e-logging
+    enabled: true
+    transformer:
+      name: zero
+    sink:
+      name: logging_sink
+      properties:
+        log-level: DEBUG
+        format: json
+  - name: security-alerts
+    enabled: true
+    condition:
+      match: all
+      rules:
+        - field: eventType
+          operator: eq
+          value: security.alert
+    transformer:
+      name: zero
+    sink:
+      name: logging_sink
+      properties:
+        log-level: WARN
+        format: json

@@ -162,8 +162,24 @@ sink:
     namespace: default
     port: 8082
 
+# Tenant model (silo isolation). Config SOURCE is a pluggable read-port; Core is read-only.
+# Built-in defaults boot on ANY infrastructure (no K8s API, no Redis). The Helm chart pins the
+# k8s-native modes for cluster installs: gitops-configmap / redis / k8s-secret.
+tenants:
+  source:
+    mode: local-dir          # local-dir (default) | gitops-configmap
+    local-dir:
+      path: /config/tenants  # used only when mode=local-dir; missing dir = zero tenants, not an error
+  ratelimit:
+    backend: in-memory       # in-memory (default, single replica) | redis (multi-replica) | none
+  consumer:
+    max-in-flight-per-tenant: 4
+secretRef:
+  resolver: env              # env (default) | k8s-secret
+
 # Pipeline Configuration
-# Pipelines are empty by default; configure via auditflow.pipelines[N].* or JAVA_OPTS.
+# DEPRECATED: global pipelines no longer participate in routing (tenant model). A non-empty list
+# FAILS startup — move pipelines into a tenant config (tenants/<id>.yaml or a tenant ConfigMap).
 auditflow:
   pipelines: []
   # Idempotency / dedup store + TTLs (ISO-8601 durations)
