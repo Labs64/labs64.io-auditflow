@@ -55,6 +55,21 @@ class LocalDirTenantConfigProviderTest {
     }
 
     @Test
+    void unchangedFilesEmitNothingOnRepeatedReconcile(@TempDir Path dir) throws Exception {
+        var p = provider(dir, new SimpleMeterRegistry());
+        write(dir, "acme.yaml", "tenantId: acme\nenabled: true\npipelines:\n  - name: a\n    sink:\n      name: s\n");
+        p.loadAll();
+        List<TenantChange> changes = new ArrayList<>();
+        p.reconcile(changes::add);
+        p.reconcile(changes::add);
+        assertTrue(changes.isEmpty(), "unchanged files must not re-emit upserts on every poll");
+
+        write(dir, "acme.yaml", "tenantId: acme\nenabled: false\n");
+        p.reconcile(changes::add);
+        assertEquals(1, changes.size(), "a real edit still emits exactly one upsert");
+    }
+
+    @Test
     void malformedFileIsSkippedAndCounted(@TempDir Path dir) throws Exception {
         SimpleMeterRegistry reg = new SimpleMeterRegistry();
         var p = provider(dir, reg);

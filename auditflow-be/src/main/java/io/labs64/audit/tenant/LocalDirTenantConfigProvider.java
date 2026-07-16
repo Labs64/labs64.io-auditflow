@@ -38,7 +38,11 @@ public class LocalDirTenantConfigProvider implements TenantConfigProvider {
     private final Path dir;
     private final TenantConfigParser parser;
     private final MeterRegistry meterRegistry;
-    private final Map<String, TenantConfig> lastByTenant = new HashMap<>();
+    /** Raw file content kept alongside the parsed config: change detection diffs the RAW yaml,
+     *  because the PipelineProperties config beans have no value equality. */
+    private record Loaded(String raw, TenantConfig cfg) {
+    }
+    private final Map<String, Loaded> lastByTenant = new HashMap<>();
     private ScheduledExecutorService poller;
 
     public LocalDirTenantConfigProvider(
@@ -82,7 +86,7 @@ public class LocalDirTenantConfigProvider implements TenantConfigProvider {
         lastByTenant.clear();
         lastByTenant.putAll(scan());
         logger.info("local-dir tenant source loaded {} tenant(s) from {}", lastByTenant.size(), dir);
-        return List.copyOf(lastByTenant.values());
+        return lastByTenant.values().stream().map(Loaded::cfg).toList();
     }
 
     @Override
@@ -104,11 +108,11 @@ public class LocalDirTenantConfigProvider implements TenantConfigProvider {
 
     /** Re-scan and emit the diff against the last snapshot. Malformed files are skipped + counted. */
     synchronized void reconcile(Consumer<TenantChange> onChange) {
-        Map<String, TenantConfig> current = scan();
-        for (Map.Entry<String, TenantConfig> e : current.entrySet()) {
-            TenantConfig prev = lastByTenant.get(e.getKey());
-            if (prev == null || !prev.equals(e.getValue())) {
-                onChange.accept(TenantChange.upsert(e.getValue()));
+        Map<String, Loaded> current = scan();
+        for (Map.Entry<String, Loaded> e : current.entrySet()) {
+            Loaded prev = lastByTenant.get(e.getKey());
+            if (prev == null || !prev.raw().equals(e.getValue().raw())) {
+                onChange.accept(TenantChange.upsert(e.getValue().cfg()));
             }
         }
         Set<String> removed = new HashSet<>(lastByTenant.keySet());
@@ -120,8 +124,8 @@ public class LocalDirTenantConfigProvider implements TenantConfigProvider {
         lastByTenant.putAll(current);
     }
 
-    private Map<String, TenantConfig> scan() {
-        Map<String, TenantConfig> result = new HashMap<>();
+    private Map<String, Loaded> scan() {
+        Map<String, Loaded> result = new HashMap<>();
         if (!Files.isDirectory(dir)) {
             return result;
         }
@@ -131,19 +135,20 @@ public class LocalDirTenantConfigProvider implements TenantConfigProvider {
                 return n.endsWith(".yaml") || n.endsWith(".yml");
             }).forEach(p -> {
                 try {
-                    TenantConfig cfg = parser.parse(Files.readString(p));
+                    String raw = Files.readString(p);
+                    TenantConfig cfg = parser.parse(raw);
                     if (!cfg.tenantId().equals(fileTenantGuess(p))) {
                         logger.warn("Tenant file {} declares tenantId '{}' — convention is <tenantId>.yaml",
                                 p.getFileName(), cfg.tenantId());
                     }
-                    result.put(cfg.tenantId(), cfg);
+                    result.put(cfg.tenantId(), new Loaded(raw, cfg));
                 } catch (IOException | RuntimeException ex) {
                     // Last-good retained: skip this file, do not remove an existing tenant.
                     logger.error("Skipping malformed tenant file {}: {}", p, ex.getMessage());
                     meterRegistry.counter("auditflow.tenant.config.reload.errors").increment();
-                    TenantConfig prev = lastByTenant.get(fileTenantGuess(p));
+                    Loaded prev = lastByTenant.get(fileTenantGuess(p));
                     if (prev != null) {
-                        result.put(prev.tenantId(), prev);
+                        result.put(prev.cfg().tenantId(), prev);
                     }
                 }
             });
