@@ -7,6 +7,9 @@ import io.labs64.audit.config.ConsumerHealthIndicator;
 import io.labs64.audit.config.PipelineRateLimiterRegistry;
 import io.labs64.audit.exception.PoisonDeliveryException;
 import io.labs64.audit.exception.RetryableDeliveryException;
+import io.labs64.audit.tenant.PipelineSet;
+import io.labs64.audit.tenant.TenantIds;
+import io.labs64.audit.tenant.TenantPipelineRegistry;
 import io.micrometer.core.instrument.Counter;
 import io.labs64.audit.telemetry.BusinessTelemetry;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -43,6 +46,10 @@ public class AuditService {
     private final BusinessTelemetry businessTelemetry;
     private final ConsumerHealthIndicator consumerHealthIndicator;
     private final PipelineRateLimiterRegistry pipelineRateLimiterRegistry;
+    private final TenantPipelineRegistry tenantRegistry;
+
+    /** Quarantine reason for events whose tenant is unprovisioned or disabled (no routable set). */
+    public static final String TENANT_UNRESOLVED = "TENANT_UNRESOLVED";
 
     /**
      * Max number of a single event's matching pipelines processed concurrently.
@@ -74,7 +81,8 @@ public class AuditService {
             MeterRegistry meterRegistry,
             ConsumerHealthIndicator consumerHealthIndicator,
             PipelineRateLimiterRegistry pipelineRateLimiterRegistry,
-            BusinessTelemetry businessTelemetry) {
+            BusinessTelemetry businessTelemetry,
+            TenantPipelineRegistry tenantRegistry) {
         this.auditFlowConfiguration = auditFlowConfiguration;
         this.transformationService = transformationService;
         this.sinkService = sinkService;
@@ -87,16 +95,19 @@ public class AuditService {
         this.consumerHealthIndicator = consumerHealthIndicator;
         this.pipelineRateLimiterRegistry = pipelineRateLimiterRegistry;
         this.businessTelemetry = businessTelemetry;
+        this.tenantRegistry = tenantRegistry;
     }
 
     @PostConstruct
     public void validateConfiguration() {
-        if (auditFlowConfiguration.getPipelines() != null) {
-            auditFlowConfiguration.getPipelines().forEach(pipeline -> {
-                if (pipeline.isEnabled()) {
-                    validatePipeline(pipeline);
-                }
-            });
+        // Legacy fail-fast (settled): global pipelines no longer participate in routing, and an
+        // upgrade must never silently stop delivering events.
+        if (auditFlowConfiguration.getPipelines() != null && !auditFlowConfiguration.getPipelines().isEmpty()) {
+            throw new IllegalStateException("""
+                    Global 'auditflow.pipelines' no longer participates in routing (tenant model). \
+                    Move these pipelines into a tenant config — typically tenants/_platform.yaml (local-dir mode) \
+                    or the auditflow-tenant-platform ConfigMap (gitops-configmap mode) — and remove \
+                    'auditflow.pipelines' from the application configuration.""");
         }
     }
 
@@ -166,9 +177,27 @@ public class AuditService {
     }
 
     private void dispatchToPipelines(JsonNode eventJson, String eventId) {
-        List<AuditFlowConfiguration.PipelineProperties> pipelines = auditFlowConfiguration.getPipelines();
-        if (pipelines == null || pipelines.isEmpty()) {
-            logger.warn("No audit pipelines configured, skipping event processing.");
+        // Authoritative tenantId (stamped at ingest from X-Auth-Tenant; trusted here).
+        String tenantId = TenantIds.resolve(eventJson.path("tenantId").asText(null));
+
+        var pipelineSet = tenantRegistry.pipelinesFor(tenantId);
+        if (pipelineSet.isEmpty()) {
+            // ABSENT or Disabled -> quarantine, NEVER another tenant's sink. Stop.
+            logger.warn("No routable pipeline set for tenant '{}' (state={}); quarantining eventId={}",
+                    tenantId, tenantRegistry.stateFor(tenantId), eventId);
+            try {
+                quarantineService.quarantine(objectMapper.writeValueAsString(eventJson),
+                        TENANT_UNRESOLVED + ": tenant '" + tenantId + "' state="
+                                + tenantRegistry.stateFor(tenantId));
+            } catch (Exception e) {
+                quarantineService.quarantine(eventJson.toString(), TENANT_UNRESOLVED);
+            }
+            return;
+        }
+
+        List<AuditFlowConfiguration.PipelineProperties> pipelines = pipelineSet.map(PipelineSet::pipelines).get();
+        if (pipelines.isEmpty()) {
+            logger.warn("Tenant '{}' has an empty pipeline set; nothing to route for eventId={}", tenantId, eventId);
             return;
         }
 
@@ -318,23 +347,4 @@ public class AuditService {
         });
     }
 
-    /**
-     * Validate pipeline configuration at startup.
-     */
-    private void validatePipeline(AuditFlowConfiguration.PipelineProperties pipeline) {
-        if (!StringUtils.hasText(pipeline.getName())) {
-            throw new IllegalStateException("Pipeline name cannot be empty");
-        }
-
-        if (pipeline.getSink() == null) {
-            throw new IllegalStateException("Sink must be configured for pipeline: " + pipeline.getName());
-        }
-
-        if (!StringUtils.hasText(pipeline.getSink().getName())) {
-            throw new IllegalStateException("Sink name must be specified for pipeline: " + pipeline.getName());
-        }
-
-        logger.info("Pipeline '{}' validated successfully (sink: {})",
-                pipeline.getName(), pipeline.getSink().getName());
-    }
 }
