@@ -54,6 +54,18 @@
 
     <dependencyManagement>
         <dependencies>
+            <!-- Align ALL fabric8 modules at one version. MUST be imported BEFORE
+                 spring-cloud-dependencies: among imported BOMs the first wins, and the
+                 spring-cloud BOM manages the transitive fabric8 artifacts to an older
+                 release — mixed fabric8 versions fail the client at instantiation. -->
+            <dependency>
+                <groupId>io.fabric8</groupId>
+                <artifactId>kubernetes-client-bom</artifactId>
+                <version>${kubernetes-client.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
             <dependency>
                 <groupId>org.springframework.cloud</groupId>
                 <artifactId>spring-cloud-dependencies</artifactId>
@@ -61,7 +73,7 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
-            
+
             <!-- 
                 Transitive dependency overrides:
                 BouncyCastle and Vert.x dependencies are explicitly pinned here 
@@ -201,6 +213,19 @@
         <dependency>
             <groupId>io.fabric8</groupId>
             <artifactId>kubernetes-client</artifactId>
+            <version>${kubernetes-client.version}</version>
+            <exclusions>
+                <!-- fabric8's default Vert.x transport is incompatible with the Vert.x 5 pins
+                     above (setMaxPoolSize removed) — use the dependency-free JDK HttpClient. -->
+                <exclusion>
+                    <groupId>io.fabric8</groupId>
+                    <artifactId>kubernetes-httpclient-vertx</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>io.fabric8</groupId>
+            <artifactId>kubernetes-httpclient-jdk</artifactId>
             <version>${kubernetes-client.version}</version>
         </dependency>
 
