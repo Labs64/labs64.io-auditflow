@@ -13,4 +13,9 @@ public interface BusinessTelemetry {
 
     /** A pipeline reached a terminal outcome (SUCCESS, SKIPPED, POISON, RETRYABLE_FAILURE). */
     void pipelineCompleted(String pipelineName, String outcome);
+
+    /** A tenant-dimensioned lifecycle signal. {@code outcome} is one of: routed, delivered,
+     *  rejected:not_provisioned, rejected:disabled, rejected:rate_limited, quarantined, dlq.
+     *  {@code provider} is the config-source provenance for the tenant. */
+    void tenantEvent(String tenantId, String provider, String outcome);
 }

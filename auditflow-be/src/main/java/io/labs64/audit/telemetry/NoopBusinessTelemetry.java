@@ -12,4 +12,9 @@ public class NoopBusinessTelemetry implements BusinessTelemetry {
     public void pipelineCompleted(String pipelineName, String outcome) {
         // intentionally empty
     }
+
+    @Override
+    public void tenantEvent(String tenantId, String provider, String outcome) {
+        // intentionally empty
+    }
 }

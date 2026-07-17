@@ -15,6 +15,9 @@ public class OtelBusinessTelemetry implements BusinessTelemetry {
     private static final AttributeKey<String> EVENT_TYPE = AttributeKey.stringKey("auditflow.event.type");
     private static final AttributeKey<String> PIPELINE = AttributeKey.stringKey("auditflow.pipeline");
     private static final AttributeKey<String> OUTCOME = AttributeKey.stringKey("auditflow.pipeline.outcome");
+    private static final AttributeKey<String> TENANT = AttributeKey.stringKey("auditflow.tenant");
+    private static final AttributeKey<String> PROVIDER = AttributeKey.stringKey("auditflow.tenant.provider");
+    private static final AttributeKey<String> TENANT_OUTCOME = AttributeKey.stringKey("auditflow.tenant.outcome");
 
     @Override
     public void auditEventReceived(String eventId, String eventType) {
@@ -28,5 +31,13 @@ public class OtelBusinessTelemetry implements BusinessTelemetry {
         Span.current().addEvent("auditflow.pipeline.completed", Attributes.of(
                 PIPELINE, String.valueOf(pipelineName),
                 OUTCOME, String.valueOf(outcome)));
+    }
+
+    @Override
+    public void tenantEvent(String tenantId, String provider, String outcome) {
+        Span.current().addEvent("auditflow.tenant.event", Attributes.of(
+                TENANT, String.valueOf(tenantId),
+                PROVIDER, String.valueOf(provider),
+                TENANT_OUTCOME, String.valueOf(outcome)));
     }
 }

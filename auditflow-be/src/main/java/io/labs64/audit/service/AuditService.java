@@ -193,6 +193,7 @@ public class AuditService {
             // ABSENT or Disabled -> quarantine, NEVER another tenant's sink. Stop.
             logger.warn("No routable pipeline set for tenant '{}' (state={}); quarantining eventId={}",
                     tenantId, tenantRegistry.stateFor(tenantId), eventId);
+            tenantEvent(tenantId, "quarantined");
             try {
                 quarantineService.quarantine(objectMapper.writeValueAsString(eventJson),
                         TENANT_UNRESOLVED + ": tenant '" + tenantId + "' state="
@@ -234,6 +235,7 @@ public class AuditService {
                         + " pipeline(s) failed with a retryable error; redelivering event"
                         + (StringUtils.hasText(eventId) ? " eventId=" + eventId : ""));
             }
+            tenantEvent(tenantId, "routed");
         } finally {
             tenantConcurrencyLimiter.release(tenantId);
         }
@@ -289,6 +291,9 @@ public class AuditService {
                 .map(outcome -> {
                     meterRegistry.timer("auditflow.pipeline.duration", "pipeline", name, "outcome", outcome.name())
                             .record(System.nanoTime() - startNanos, TimeUnit.NANOSECONDS);
+                    if (outcome == PipelineOutcome.SUCCESS) {
+                        tenantEvent(tenantId, "delivered");
+                    }
                     return recordOutcome(name, outcome);
                 });
     }
@@ -302,6 +307,14 @@ public class AuditService {
         // RetryableDeliveryException and anything unclassified — fail safe toward redelivery.
         logger.error("Pipeline '{}' failed with a retryable error: {}", pipelineName, e.getMessage(), e);
         return PipelineOutcome.RETRYABLE_FAILURE;
+    }
+
+    /** Tenant-dimensioned lifecycle signal: span event + the `auditflow.tenant.events` counter. */
+    private void tenantEvent(String tenantId, String outcome) {
+        String provider = String.valueOf(tenantRegistry.providerFor(tenantId));
+        businessTelemetry.tenantEvent(tenantId, provider, outcome);
+        meterRegistry.counter("auditflow.tenant.events",
+                "tenant", tenantId, "provider", provider, "outcome", outcome).increment();
     }
 
     private PipelineOutcome recordOutcome(String pipelineName, PipelineOutcome outcome) {

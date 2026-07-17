@@ -3,6 +3,8 @@ package io.labs64.audit.tenant;
 import io.labs64.audit.exception.TenantDisabledException;
 import io.labs64.audit.exception.TenantNotProvisionedException;
 import io.labs64.audit.exception.TenantRateLimitedException;
+import io.labs64.audit.telemetry.NoopBusinessTelemetry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -16,7 +18,7 @@ class TenantGateTest {
     }
 
     private TenantGate gate(TenantPipelineRegistry reg, TenantRateLimiter limiter) {
-        return new TenantGate(reg, limiter);
+        return new TenantGate(reg, limiter, new NoopBusinessTelemetry(), new SimpleMeterRegistry());
     }
 
     @Test
@@ -49,6 +51,16 @@ class TenantGateTest {
         reg.upsert(enabled("acme"), "t");
         TenantGate gate = gate(reg, (t, r, b) -> true);
         assertDoesNotThrow(() -> gate.check("acme"));
+    }
+
+    @Test
+    void rejectionIncrementsTenantEventsCounter() {
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        TenantGate gate = new TenantGate(new TenantPipelineRegistry(), (t, r, b) -> true,
+                new NoopBusinessTelemetry(), meters);
+        assertThrows(TenantNotProvisionedException.class, () -> gate.check("acme"));
+        assertEquals(1.0, meters.counter("auditflow.tenant.events",
+                "tenant", "acme", "provider", "null", "outcome", "rejected:not_provisioned").count());
     }
 
     @Test
