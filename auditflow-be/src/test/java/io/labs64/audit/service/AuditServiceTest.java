@@ -85,7 +85,10 @@ class AuditServiceTest {
                 ),
                 new NoopBusinessTelemetry(),
                 registry,
-                new io.labs64.audit.tenant.TenantConcurrencyLimiter(4)
+                new io.labs64.audit.tenant.TenantConcurrencyLimiter(4),
+                // Hermetic env resolver: no AUDITFLOW_TENANT_* vars exist, so plain properties
+                // pass through untouched and any ${secretRef:...} fails retryable.
+                new io.labs64.audit.tenant.EnvSecretRefResolver()
         );
     }
 
@@ -188,6 +191,25 @@ class AuditServiceTest {
     void emptyLegacyPipelinesPassStartupGuard() {
         when(auditFlowConfiguration.getPipelines()).thenReturn(Collections.emptyList());
         assertDoesNotThrow(() -> auditService.validateConfiguration());
+    }
+
+    @Test
+    @DisplayName("unresolvable ${secretRef:...} sink property fails delivery as retryable, no sink call")
+    void unresolvableSecretRefFailsDeliveryRetryable() {
+        PipelineProperties p = new PipelineProperties();
+        p.setName("secret-pipe");
+        p.setEnabled(true);
+        SinkProperties s = new SinkProperties();
+        s.setName("secure_sink");
+        s.setProperties(Map.of("password", "${secretRef:absent}"));
+        p.setSink(s);
+        registry.upsert(new TenantConfig("acme", true, TenantConfig.Quota.DEFAULT, List.of(p)), "test");
+        when(idempotencyService.claim(anyString())).thenReturn(true);
+        when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
+
+        assertThrows(RetryableDeliveryException.class,
+                () -> auditService.processAuditEvent(ACME_EVENT));
+        verifyNoInteractions(sinkService);
     }
 
     // -------------------------------------------------------------------------

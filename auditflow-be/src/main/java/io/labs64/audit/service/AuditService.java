@@ -8,6 +8,7 @@ import io.labs64.audit.config.PipelineRateLimiterRegistry;
 import io.labs64.audit.exception.PoisonDeliveryException;
 import io.labs64.audit.exception.RetryableDeliveryException;
 import io.labs64.audit.tenant.PipelineSet;
+import io.labs64.audit.tenant.SecretRefResolver;
 import io.labs64.audit.tenant.TenantConcurrencyLimiter;
 import io.labs64.audit.tenant.TenantIds;
 import io.labs64.audit.tenant.TenantPipelineRegistry;
@@ -49,6 +50,7 @@ public class AuditService {
     private final PipelineRateLimiterRegistry pipelineRateLimiterRegistry;
     private final TenantPipelineRegistry tenantRegistry;
     private final TenantConcurrencyLimiter tenantConcurrencyLimiter;
+    private final SecretRefResolver secretRefResolver;
 
     /** Quarantine reason for events whose tenant is unprovisioned or disabled (no routable set). */
     public static final String TENANT_UNRESOLVED = "TENANT_UNRESOLVED";
@@ -85,7 +87,8 @@ public class AuditService {
             PipelineRateLimiterRegistry pipelineRateLimiterRegistry,
             BusinessTelemetry businessTelemetry,
             TenantPipelineRegistry tenantRegistry,
-            TenantConcurrencyLimiter tenantConcurrencyLimiter) {
+            TenantConcurrencyLimiter tenantConcurrencyLimiter,
+            SecretRefResolver secretRefResolver) {
         this.auditFlowConfiguration = auditFlowConfiguration;
         this.transformationService = transformationService;
         this.sinkService = sinkService;
@@ -100,6 +103,7 @@ public class AuditService {
         this.businessTelemetry = businessTelemetry;
         this.tenantRegistry = tenantRegistry;
         this.tenantConcurrencyLimiter = tenantConcurrencyLimiter;
+        this.secretRefResolver = secretRefResolver;
     }
 
     @PostConstruct
@@ -216,7 +220,7 @@ public class AuditService {
             // The Spring Cloud Stream Consumer contract is blocking, so we subscribe once here;
             // the transform/sink legs in between are fully non-blocking.
             List<PipelineOutcome> outcomes = Flux.fromIterable(pipelines)
-                    .flatMap(pipeline -> runPipeline(pipeline, eventJson, eventId), PIPELINE_CONCURRENCY)
+                    .flatMap(pipeline -> runPipeline(pipeline, eventJson, eventId, tenantId), PIPELINE_CONCURRENCY)
                     .collectList()
                     .block();
 
@@ -242,7 +246,7 @@ public class AuditService {
      * POISON (never retryable) or RETRYABLE_FAILURE and never escape this method.
      */
     private Mono<PipelineOutcome> runPipeline(
-            AuditFlowConfiguration.PipelineProperties pipeline, JsonNode eventJson, String eventId) {
+            AuditFlowConfiguration.PipelineProperties pipeline, JsonNode eventJson, String eventId, String tenantId) {
         String name = pipeline.getName();
 
         if (!pipeline.isEnabled()) {
@@ -273,7 +277,7 @@ public class AuditService {
         long startNanos = System.nanoTime();
         // Mono.defer ensures a synchronous throw during chain assembly (e.g. transformer/sink
         // argument validation) surfaces as an onError signal for THIS pipeline only.
-        return Mono.defer(() -> processPipeline(pipeline, eventJson))
+        return Mono.defer(() -> processPipeline(pipeline, eventJson, tenantId))
                 .doOnNext(result -> logger.debug("Pipeline '{}' completed successfully.", name))
                 .then(Mono.fromSupplier(() -> {
                     if (StringUtils.hasText(eventId)) {
@@ -311,9 +315,10 @@ public class AuditService {
      * Process a single pipeline: apply the transformer stage(s) in order, then deliver to the
      * sink (falling back to the configured fallback sink on a retryable primary-sink failure).
      */
-    private Mono<String> processPipeline(AuditFlowConfiguration.PipelineProperties pipeline, JsonNode eventJson) {
+    private Mono<String> processPipeline(
+            AuditFlowConfiguration.PipelineProperties pipeline, JsonNode eventJson, String tenantId) {
         return applyTransformers(pipeline, eventJson)
-                .flatMap(transformed -> sendWithFallback(pipeline.getSink(), pipeline.getName(), transformed));
+                .flatMap(transformed -> sendWithFallback(pipeline.getSink(), pipeline.getName(), tenantId, transformed));
     }
 
     /**
@@ -347,8 +352,13 @@ public class AuditService {
      * Deliver to the primary sink; on a <em>retryable</em> failure, attempt the configured
      * fallback sink before giving up. A poison failure is not retried on the fallback.
      */
-    private Mono<String> sendWithFallback(AuditFlowConfiguration.SinkProperties sink, String pipelineName, JsonNode event) {
-        Mono<String> primary = sinkService.sendToSink(event, sink.getName(), sink.getProperties());
+    private Mono<String> sendWithFallback(AuditFlowConfiguration.SinkProperties sink,
+                                          String pipelineName, String tenantId, JsonNode event) {
+        // ${secretRef:...} placeholders resolve from THIS tenant's secret store only — resolution
+        // failure is retryable (→ redelivery → DLQ), never a blank or another tenant's credential.
+        Mono<String> primary = Mono
+                .fromSupplier(() -> secretRefResolver.resolve(tenantId, sink.getProperties()))
+                .flatMap(props -> sinkService.sendToSink(event, sink.getName(), props));
 
         AuditFlowConfiguration.SinkProperties fallback = sink.getFallback();
         if (fallback == null || !StringUtils.hasText(fallback.getName())) {
@@ -357,7 +367,8 @@ public class AuditService {
         return primary.onErrorResume(RetryableDeliveryException.class, e -> {
             logger.warn("Pipeline '{}' primary sink '{}' failed ({}); attempting fallback sink '{}'",
                     pipelineName, sink.getName(), e.getMessage(), fallback.getName());
-            return sinkService.sendToSink(event, fallback.getName(), fallback.getProperties());
+            return Mono.fromSupplier(() -> secretRefResolver.resolve(tenantId, fallback.getProperties()))
+                    .flatMap(props -> sinkService.sendToSink(event, fallback.getName(), props));
         });
     }
 
