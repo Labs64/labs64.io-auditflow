@@ -36,6 +36,7 @@ node_modules/
 .vscode/
 .DS_Store
 .claude/
+.agents/superpowers/
 .kiro/
 
 # --- Logs ---
