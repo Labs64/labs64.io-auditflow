@@ -84,7 +84,8 @@ class AuditServiceTest {
                         meterRegistry
                 ),
                 new NoopBusinessTelemetry(),
-                registry
+                registry,
+                new io.labs64.audit.tenant.TenantConcurrencyLimiter(4)
         );
     }
 

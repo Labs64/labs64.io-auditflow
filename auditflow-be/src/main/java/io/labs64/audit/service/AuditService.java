@@ -8,6 +8,7 @@ import io.labs64.audit.config.PipelineRateLimiterRegistry;
 import io.labs64.audit.exception.PoisonDeliveryException;
 import io.labs64.audit.exception.RetryableDeliveryException;
 import io.labs64.audit.tenant.PipelineSet;
+import io.labs64.audit.tenant.TenantConcurrencyLimiter;
 import io.labs64.audit.tenant.TenantIds;
 import io.labs64.audit.tenant.TenantPipelineRegistry;
 import io.micrometer.core.instrument.Counter;
@@ -47,6 +48,7 @@ public class AuditService {
     private final ConsumerHealthIndicator consumerHealthIndicator;
     private final PipelineRateLimiterRegistry pipelineRateLimiterRegistry;
     private final TenantPipelineRegistry tenantRegistry;
+    private final TenantConcurrencyLimiter tenantConcurrencyLimiter;
 
     /** Quarantine reason for events whose tenant is unprovisioned or disabled (no routable set). */
     public static final String TENANT_UNRESOLVED = "TENANT_UNRESOLVED";
@@ -82,7 +84,8 @@ public class AuditService {
             ConsumerHealthIndicator consumerHealthIndicator,
             PipelineRateLimiterRegistry pipelineRateLimiterRegistry,
             BusinessTelemetry businessTelemetry,
-            TenantPipelineRegistry tenantRegistry) {
+            TenantPipelineRegistry tenantRegistry,
+            TenantConcurrencyLimiter tenantConcurrencyLimiter) {
         this.auditFlowConfiguration = auditFlowConfiguration;
         this.transformationService = transformationService;
         this.sinkService = sinkService;
@@ -96,6 +99,7 @@ public class AuditService {
         this.pipelineRateLimiterRegistry = pipelineRateLimiterRegistry;
         this.businessTelemetry = businessTelemetry;
         this.tenantRegistry = tenantRegistry;
+        this.tenantConcurrencyLimiter = tenantConcurrencyLimiter;
     }
 
     @PostConstruct
@@ -201,23 +205,33 @@ public class AuditService {
             return;
         }
 
-        // Fan a single event out across its matching pipelines concurrently via Reactor.
-        // The Spring Cloud Stream Consumer contract is blocking, so we subscribe once here;
-        // the transform/sink legs in between are fully non-blocking.
-        List<PipelineOutcome> outcomes = Flux.fromIterable(pipelines)
-                .flatMap(pipeline -> runPipeline(pipeline, eventJson, eventId), PIPELINE_CONCURRENCY)
-                .collectList()
-                .block();
+        // Layer-2 fairness: cap this tenant's in-flight events so one flooding tenant cannot
+        // monopolize the shared consumer even within its ingest rate budget.
+        if (!tenantConcurrencyLimiter.tryAcquire(tenantId)) {
+            throw new RetryableDeliveryException(
+                    "Tenant '" + tenantId + "' concurrency cap reached; redelivering eventId=" + eventId);
+        }
+        try {
+            // Fan a single event out across its matching pipelines concurrently via Reactor.
+            // The Spring Cloud Stream Consumer contract is blocking, so we subscribe once here;
+            // the transform/sink legs in between are fully non-blocking.
+            List<PipelineOutcome> outcomes = Flux.fromIterable(pipelines)
+                    .flatMap(pipeline -> runPipeline(pipeline, eventJson, eventId), PIPELINE_CONCURRENCY)
+                    .collectList()
+                    .block();
 
-        // If any pipeline ended in a retryable failure, fail the whole event so the broker
-        // redelivers and ultimately dead-letters it. Poison failures are logged/counted only —
-        // retrying or dead-lettering them would loop forever without ever succeeding.
-        long retryable = outcomes == null ? 0
-                : outcomes.stream().filter(o -> o == PipelineOutcome.RETRYABLE_FAILURE).count();
-        if (retryable > 0) {
-            throw new RetryableDeliveryException(retryable + " of " + outcomes.size()
-                    + " pipeline(s) failed with a retryable error; redelivering event"
-                    + (StringUtils.hasText(eventId) ? " eventId=" + eventId : ""));
+            // If any pipeline ended in a retryable failure, fail the whole event so the broker
+            // redelivers and ultimately dead-letters it. Poison failures are logged/counted only —
+            // retrying or dead-lettering them would loop forever without ever succeeding.
+            long retryable = outcomes == null ? 0
+                    : outcomes.stream().filter(o -> o == PipelineOutcome.RETRYABLE_FAILURE).count();
+            if (retryable > 0) {
+                throw new RetryableDeliveryException(retryable + " of " + outcomes.size()
+                        + " pipeline(s) failed with a retryable error; redelivering event"
+                        + (StringUtils.hasText(eventId) ? " eventId=" + eventId : ""));
+            }
+        } finally {
+            tenantConcurrencyLimiter.release(tenantId);
         }
     }
 
