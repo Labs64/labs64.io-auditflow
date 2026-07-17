@@ -5,6 +5,7 @@ import io.labs64.audit.exception.PublishException;
 import io.labs64.audit.v1.api.AuditEventApi;
 import io.labs64.auditflow.model.AuditEvent;
 import io.labs64.audit.publisher.AuditPublisherService;
+import io.labs64.audit.tenant.TenantGate;
 import io.labs64.authcontext.cedar.Authorize;
 import io.labs64.authcontext.core.AuthContextHolder;
 import jakarta.validation.Valid;
@@ -33,9 +34,11 @@ public class AuditEventController implements AuditEventApi {
     private static final Logger logger = LoggerFactory.getLogger(AuditEventController.class);
 
     private final AuditPublisherService publisherService;
+    private final TenantGate tenantGate;
 
-    public AuditEventController(AuditPublisherService publisherService) {
+    public AuditEventController(AuditPublisherService publisherService, TenantGate tenantGate) {
         this.publisherService = publisherService;
+        this.tenantGate = tenantGate;
     }
 
     /**
@@ -68,6 +71,9 @@ public class AuditEventController implements AuditEventApi {
                 event.setTenantId(context.tenantId());
             }
         });
+
+        // Ingest gate: provisioning + per-tenant quota, BEFORE the event reaches the broker.
+        tenantGate.check(event.getTenantId());
 
         logger.debug("Received request to publish audit event; eventId={}", eventId);
 
