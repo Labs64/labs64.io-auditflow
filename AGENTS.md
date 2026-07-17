@@ -33,10 +33,23 @@ POST /audit/publish  (direct; via gateway: /auditflow/api/v1/audit/publish — T
 - Pipelines are independent — one failing does not stop others.
 - Consumer uses dead-letter queue (`autoBindDlq: true`).
 
+## Tenant model (silo isolation)
+
+Multi-tenant by construction: every pipeline belongs to exactly one tenant, and events route only through the pipeline set owned by the event's tenant (`TenantPipelineRegistry` — no global list, no fall-through). Tenantless events belong to the reserved `_platform` pseudo-tenant.
+
+- **Tenant config source** (`tenants.source.mode`): `local-dir` (built-in default — `<tenantId>.yaml` files in a mounted dir, `tenants.source.local-dir.path`, 5s poll; compose mounts `./tenants`) or `gitops-configmap` (explicit; ConfigMaps labelled `auditflow.io/tenant`, fabric8 watch — set by the Helm chart).
+- **Onboarding** = add `tenants/<tenantId>.yaml` (local) or a labelled ConfigMap (k8s): `tenantId`, `enabled`, `quota` (rateLimitPerSec/burst), `pipelines` (same shape as before). Picked up live, no restart. Offboarding = remove it; in-flight events then quarantine (`TENANT_UNRESOLVED`).
+- **Ingest gate** (`TenantGate`, at `POST /audit/publish`): unprovisioned → `403 TENANT_NOT_PROVISIONED`, disabled → `403 TENANT_DISABLED`, over per-tenant quota → `429 TENANT_RATE_LIMITED` + `Retry-After`. Rate-limit backend: `tenants.ratelimit.backend` = `in-memory` (default, single replica) or `redis` (multi-replica, Lua token bucket; Helm sets it).
+- **Legacy `auditflow.pipelines` fails startup** by design — move pipelines into `tenants/_platform.yaml`.
+- **Sink credentials**: `${secretRef:<key>}` in sink properties, resolved at delivery from the tenant's own store — `secretRef.resolver` = `env` (default, `AUDITFLOW_TENANT_<ID>_<KEY>`) or `k8s-secret` (Secret `auditflow-tenant-<id>-creds`). Missing key ⇒ retryable failure → DLQ, never a blank or another tenant's credential.
+- **Tenant-scoped DLQ**: `/actuator/dlq/<tenantId>` (inspect) and POST to replay — only that tenant's messages are touched; there is no un-scoped DLQ operation.
+- **Telemetry**: `auditflow.tenant.events{tenant,provider,outcome}` counter (outcomes: routed/delivered/quarantined/rejected:*) + Grafana `tenant` variable in the overview dashboard.
+- Core stays a router: it is read-only on tenant config in every profile and still has no database (see the settled decision above).
+
 ## Backend details
 
 - **OpenAPI-first**: canonical spec at `auditflow-api/src/main/resources/openapi/openapi-audit-v1.yaml`. Never edit generated Java under `target/`.
-- **Pipelines are configuration**, not code: `auditflow.pipelines` in `application.yml`. Each = name, enabled, condition, transformer.name, sink.name, sink.properties.
+- **Pipelines are configuration**, not code — per tenant (see "Tenant model" above). Each = name, enabled, condition, transformer.name, sink.name, sink.properties.
 - **Conditions**: `ConditionEvaluator` with operators `eq, neq, contains, startsWith, endsWith, in, notIn, exists, notExists, regex, gt, gte, lt, lte, eqIgnoreCase`. Field paths support dot notation.
 - **Service discovery**: pluggable via `*.discovery.mode` (`local` | `kubernetes`).
 - **HTTP to Python**: reactive `WebClient` (5s connect / 10s response), cached per base URL.
@@ -95,7 +108,8 @@ Local URLs: Swagger `:8080/swagger-ui.html`, transformer/sink `:8081/docs` / `:8
 |------|-------|
 | API contract | `auditflow-api/src/main/resources/openapi/openapi-audit-v1.yaml` |
 | Java client | `auditflow-api/src/main/java/io/labs64/auditflow/client/` |
-| Pipeline config | `auditflow.pipelines` in `application.yml` or `JAVA_OPTS` in docker-compose |
+| Pipeline config | per-tenant `tenants/<tenantId>.yaml` (local-dir; compose mounts `./tenants`) or labelled ConfigMap (k8s) — legacy global `auditflow.pipelines` fails startup |
+| Tenant model (registry/gate/providers) | `auditflow-be/src/main/java/io/labs64/audit/tenant/` |
 | Condition operator | `auditflow-be/.../service/ConditionEvaluator.java` |
 | Add transformer | `auditflow-transformer/transformers/<name>.py` |
 | Add sink | `auditflow-sink/sinks/<name>.py` |

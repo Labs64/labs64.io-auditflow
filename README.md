@@ -111,14 +111,14 @@ Use a conditional pipeline with `eventType eq security.alert` (or a `regex` on y
 
 ### Multi-tenant SaaS audit logs
 
-Your SaaS platform serves multiple tenants. Each tenant may have different audit data residency or delivery requirements — one wants logs in their own S3 bucket, another in their Splunk instance. AuditFlow lets you define a pipeline per tenant, each with its own condition (`tenantId eq ACME`), sink, and properties (bucket name, API key). Adding a new tenant means adding a YAML stanza — no code change, no deploy.
+Your SaaS platform serves multiple tenants. Each tenant may have different audit data residency or delivery requirements — one wants logs in their own S3 bucket, another in their Splunk instance. AuditFlow is multi-tenant by construction (silo model): every tenant owns its own config — pipelines, quota, and credentials — and events route **only** through the pipeline set owned by the event's tenant. There is no global pipeline list and no cross-tenant fall-through; an event for an unknown or disabled tenant is rejected at ingest (`403 TENANT_NOT_PROVISIONED` / `TENANT_DISABLED`) or quarantined, never delivered to another tenant's sink. Onboarding a tenant means adding one YAML document (a `tenants/<tenantId>.yaml` file locally, or a labelled ConfigMap on Kubernetes) — no code change, no restart; the config is picked up live.
 
-Combined with per-pipeline rate limiting, noisy tenants can be throttled without affecting others.
+Per-tenant ingest rate limits (token bucket, `429` + `Retry-After`) and a per-tenant in-flight cap keep noisy tenants from affecting others. Sink credentials use `${secretRef:<key>}` indirection resolved from the tenant's own secret store at delivery time.
 
 **What to try in a POC:**
-- Create two pipelines differentiated by `tenantId`
-- Point each at a different `webhook_sink` URL to simulate distinct tenant endpoints
-- Confirm events for tenant A never appear in tenant B's stream
+- Drop two tenant files into `tenants/` (see `tenants/_platform.yaml` for the shape), each pointing at a different `webhook_sink` URL
+- Publish events with each `tenantId` and confirm events for tenant A never appear in tenant B's stream
+- Publish with an unknown `tenantId` and watch it get `403 TENANT_NOT_PROVISIONED` at ingest
 
 ---
 
@@ -367,32 +367,41 @@ The cloud sinks (`aws_s3_sink`, `aws_cloudwatch_sink`, `gcs_sink`, `azure_blob_s
 
 ## Configuring Pipelines
 
-Pipelines live in `application.yml` under `auditflow.pipelines`, or are passed as `JAVA_OPTS` system properties in Docker/Kubernetes environments.
+Pipelines are owned per tenant. Each tenant is one YAML document — a `tenants/<tenantId>.yaml`
+file (local/compose, hot-reloaded) or a labelled ConfigMap (Kubernetes) — and events route only
+through their own tenant's pipelines. Tenantless events use the reserved `_platform` tenant
+(see `tenants/_platform.yaml`).
 
 ```yaml
-auditflow:
-  pipelines:
-    - name: security-alerts
-      enabled: true
-      condition:
-        match: all           # "all" (AND) or "any" (OR)
-        rules:
-          - field: eventType
-            operator: eq
-            value: "security.alert"
-          - field: extra.severity
-            operator: in
-            value: "HIGH,CRITICAL"
-      transformer:
-        name: audit_loki     # optional — omit to pass through unchanged
-      sink:
-        name: loki_sink
+# tenants/acme.yaml
+tenantId: acme
+enabled: true
+quota:                       # optional per-tenant ingest rate limit (429 + Retry-After over budget)
+  rateLimitPerSec: 200
+  burst: 400
+pipelines:
+  - name: security-alerts
+    enabled: true
+    condition:
+      match: all             # "all" (AND) or "any" (OR)
+      rules:
+        - field: eventType
+          operator: eq
+          value: "security.alert"
+        - field: extra.severity
+          operator: in
+          value: "HIGH,CRITICAL"
+    transformer:
+      name: audit_loki       # optional — omit to pass through unchanged
+    sink:
+      name: loki_sink
+      properties:
+        url: "http://loki:3100"
+        api-key: "${secretRef:lokiApiKey}"  # resolved from THIS tenant's secret store at delivery
+      fallback:              # optional — used when primary sink fails with a retryable error
+        name: webhook_sink
         properties:
-          url: "http://loki:3100"
-        fallback:            # optional — used when primary sink fails with a retryable error
-          name: webhook_sink
-          properties:
-            url: "https://hooks.example.com/auditflow"
+          url: "https://hooks.example.com/auditflow"
 ```
 
 **Available condition operators:** `eq`, `neq`, `eqIgnoreCase`, `contains`, `startsWith`, `endsWith`, `in`, `notIn`, `exists`, `notExists`, `regex`, `gt`, `gte`, `lt`, `lte`
