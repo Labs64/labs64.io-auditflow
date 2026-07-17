@@ -50,3 +50,4 @@ graphify-out/cost.json
 
 # --- Docs / notebooks ---
 examples/.ipynb_checkpoints
+/graphify-out/
