@@ -108,9 +108,12 @@ services:
       TRANSFORMER_LOCAL_URL: http://transformer:8081
       SINK_LOCAL_URL: http://sink:8082
       # Local compose runs without the Traefik gateway, so no trusted X-Auth-*
-      # headers exist — disable the fail-closed auth-context filter here only.
-      # In Kubernetes the gateway supplies the headers and this stays enabled.
-      LABS64_AUTH_CONTEXT_ENABLED: "false"
+      # headers exist — disable the fail-closed auth-context filter AND Cedar
+      # enforcement here only (without also disabling Cedar, the @Authorize
+      # interceptor still denies with 401/no-auth-context as defense in depth).
+      # In Kubernetes the gateway supplies the headers and both stay enabled.
+      LABS64_AUTHCONTEXT_ENABLED: "false"
+      LABS64_CEDAR_ENABLED: "false"
       # Pipelines live in ./tenants/_platform.yaml (mounted below) — the tenant model replaced
       # the -Dauditflow.pipelines[N].* JAVA_OPTS, which now fail startup by design.
       JAVA_OPTS: >-
