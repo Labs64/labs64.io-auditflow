@@ -53,7 +53,7 @@ public class TransformationService {
     public Mono<String> transform(JsonNode message, String transformerName) {
         // Argument/configuration validation is fail-fast: it throws synchronously at assembly time.
         // When called from a reactive chain (AuditService), Reactor converts the throw into an onError signal.
-        if (transformerName == null || !transformerName.matches("[a-zA-Z0-9_]+")) {
+        if (transformerName == null || !transformerName.matches("^[a-zA-Z0-9_]+$")) {
             throw new IllegalArgumentException("Invalid transformer name: '" + transformerName
                     + "'. Only alphanumeric characters and underscores are allowed.");
         }

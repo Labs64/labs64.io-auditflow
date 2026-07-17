@@ -70,7 +70,7 @@ public class SinkService {
     public Mono<String> sendToSink(JsonNode message, String sinkName, Map<String, String> properties) {
         // Argument/configuration validation is fail-fast: it throws synchronously at assembly time.
         // When called from a reactive chain (AuditService), Reactor converts the throw into an onError signal.
-        if (sinkName == null || !sinkName.matches("[a-zA-Z0-9_]+")) {
+        if (sinkName == null || !sinkName.matches("^[a-zA-Z0-9_]+$")) {
             throw new IllegalArgumentException("Invalid sink name: '" + sinkName
                     + "'. Only alphanumeric characters and underscores are allowed.");
         }

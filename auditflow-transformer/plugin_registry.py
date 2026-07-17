@@ -21,7 +21,7 @@ import re
 logger = logging.getLogger(__name__)
 
 # Single source of truth for the id format — must stay identical to the backend Java validation.
-VALID_ID = re.compile(r'[a-zA-Z0-9_]+')
+VALID_ID = re.compile(r'^[a-zA-Z0-9_]+$')
 
 
 class PluginNotFoundError(Exception):
