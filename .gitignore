@@ -6,49 +6,32 @@
 hs_err_pid*
 replay_pid*
 target/
-!**/src/main/**/target/
-!**/src/test/**/target/
 
 # --- Python ---
 __pycache__/
-*.py[cod]
-*.pyo
-*.pyd
-.Python
-*.egg-info/
-dist/
-build/
+*.py[codz]
+*$py.class
 .venv/
 venv/
-env/
-.env
-!/.env.example
-.check-updates-env/
-
-# --- pytest ---
 .pytest_cache/
+*.egg-info/
+.coverage
+htmlcov/
 
-# --- Node (notebooks / frontend if any) ---
-node_modules/
+# --- Environment ---
+.env
 
 # --- IDE / OS ---
 .idea/
 .vscode/
+*.iml
 .DS_Store
-.claude/
-.agents/superpowers/
-.kiro/
+*.swp
+*~
 
 # --- Logs ---
 *.log
-
-# --- Docker ---
-docker-compose.override.yml
-
-# --- AI tooling ---
-graphify-out/cache
-graphify-out/cost.json
-
-# --- Docs / notebooks ---
-examples/.ipynb_checkpoints
-/graphify-out/
+# --- AI Tooling & Extras ---
+.agents/
+graphify-out/
+examples/.ipynb_checkpoints/
