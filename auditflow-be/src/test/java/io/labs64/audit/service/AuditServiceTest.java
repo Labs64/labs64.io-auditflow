@@ -11,6 +11,9 @@ import io.labs64.audit.config.ConsumerHealthIndicator;
 import io.labs64.audit.config.PipelineRateLimiterRegistry;
 import io.labs64.audit.exception.RetryableDeliveryException;
 import io.labs64.audit.telemetry.NoopBusinessTelemetry;
+import io.labs64.audit.tenant.TenantConfig;
+import io.labs64.audit.tenant.TenantIds;
+import io.labs64.audit.tenant.TenantPipelineRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import reactor.core.publisher.Mono;
 import org.junit.jupiter.api.BeforeEach;
@@ -53,12 +56,18 @@ class AuditServiceTest {
 
     private AuditService auditService;
 
+    private TenantPipelineRegistry registry;
+
     private static final String VALID_MESSAGE =
             "{\"eventId\":\"11111111-1111-1111-1111-111111111111\",\"eventType\":\"api.call\",\"sourceSystem\":\"test\"}";
+
+    private static final String ACME_EVENT =
+            "{\"eventId\":\"22222222-2222-2222-2222-222222222222\",\"eventType\":\"security.login\",\"sourceSystem\":\"t\",\"tenantId\":\"acme\"}";
 
     @BeforeEach
     void setUp() {
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        registry = new TenantPipelineRegistry();
         auditService = new AuditService(
                 auditFlowConfiguration,
                 transformationService,
@@ -74,8 +83,30 @@ class AuditServiceTest {
                         io.github.resilience4j.ratelimiter.RateLimiterRegistry.ofDefaults(),
                         meterRegistry
                 ),
-                new NoopBusinessTelemetry()
+                new NoopBusinessTelemetry(),
+                registry,
+                new io.labs64.audit.tenant.TenantConcurrencyLimiter(4),
+                // Hermetic env resolver: no AUDITFLOW_TENANT_* vars exist, so plain properties
+                // pass through untouched and any ${secretRef:...} fails retryable.
+                new io.labs64.audit.tenant.EnvSecretRefResolver()
         );
+    }
+
+    /** Seed the registry so the tenantless VALID_MESSAGE routes via the _platform tenant. */
+    private void providePlatformPipelines(PipelineProperties... pipelines) {
+        registry.upsert(new TenantConfig(TenantIds.PLATFORM, true, TenantConfig.Quota.DEFAULT,
+                List.of(pipelines)), "test");
+    }
+
+    private static TenantConfig tenant(String id, String sinkName) {
+        PipelineProperties p = new PipelineProperties();
+        p.setName(id + "-pipe");
+        p.setEnabled(true);
+        SinkProperties s = new SinkProperties();
+        s.setName(sinkName);
+        s.setProperties(Map.of());
+        p.setSink(s);
+        return new TenantConfig(id, true, TenantConfig.Quota.DEFAULT, List.of(p));
     }
 
     // -------------------------------------------------------------------------
@@ -104,25 +135,81 @@ class AuditServiceTest {
     }
 
     // -------------------------------------------------------------------------
-    // No pipelines configured
+    // Structural tenant isolation (spec §5)
     // -------------------------------------------------------------------------
 
     @Test
-    @DisplayName("processAuditEvent with null pipelines logs warning and does not throw")
-    void shouldSkipWhenPipelinesNull() {
+    @DisplayName("event for tenant A only runs tenant A's pipeline, never tenant B's sink")
+    void routesOnlyToOwningTenantPipelines() {
+        registry.upsert(tenant("acme", "acme_sink"), "test");
+        registry.upsert(tenant("globex", "globex_sink"), "test");
         when(idempotencyService.claim(anyString())).thenReturn(true);
-        when(auditFlowConfiguration.getPipelines()).thenReturn(null);
-        assertDoesNotThrow(() -> auditService.processAuditEvent(VALID_MESSAGE));
-        verifyNoInteractions(transformationService, sinkService, conditionEvaluator);
+        when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
+        when(sinkService.sendToSink(any(JsonNode.class), anyString(), any())).thenReturn(Mono.just("ok"));
+
+        auditService.processAuditEvent(ACME_EVENT);
+
+        ArgumentCaptor<String> sinkNames = ArgumentCaptor.forClass(String.class);
+        verify(sinkService).sendToSink(any(JsonNode.class), sinkNames.capture(), any());
+        org.junit.jupiter.api.Assertions.assertEquals("acme_sink", sinkNames.getValue());
     }
 
     @Test
-    @DisplayName("processAuditEvent with empty pipelines list logs warning and does not throw")
-    void shouldSkipWhenPipelinesEmpty() {
+    @DisplayName("event for an unprovisioned tenant is quarantined, no sink call")
+    void unprovisionedTenantIsQuarantined() {
         when(idempotencyService.claim(anyString())).thenReturn(true);
-        when(auditFlowConfiguration.getPipelines()).thenReturn(Collections.emptyList());
+
+        auditService.processAuditEvent(ACME_EVENT); // registry empty -> unprovisioned
+
+        verify(quarantineService).quarantine(eq(ACME_EVENT), contains("TENANT_UNRESOLVED"));
+        verifyNoInteractions(sinkService, transformationService);
+    }
+
+    @Test
+    @DisplayName("provisioned tenant with an empty pipeline set does nothing (no quarantine)")
+    void emptyPipelineSetIsNoOp() {
+        registry.upsert(new TenantConfig(TenantIds.PLATFORM, true, TenantConfig.Quota.DEFAULT,
+                Collections.emptyList()), "test");
+        when(idempotencyService.claim(anyString())).thenReturn(true);
+
         assertDoesNotThrow(() -> auditService.processAuditEvent(VALID_MESSAGE));
-        verifyNoInteractions(transformationService, sinkService, conditionEvaluator);
+        verifyNoInteractions(transformationService, sinkService, conditionEvaluator, quarantineService);
+    }
+
+    @Test
+    @DisplayName("non-empty legacy auditflow.pipelines fails startup with a migration error")
+    void legacyGlobalPipelinesFailStartup() {
+        when(auditFlowConfiguration.getPipelines())
+                .thenReturn(List.of(buildPipeline("legacy", true, "t", "s")));
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> auditService.validateConfiguration());
+        org.junit.jupiter.api.Assertions.assertTrue(ex.getMessage().contains("_platform"));
+    }
+
+    @Test
+    @DisplayName("empty legacy auditflow.pipelines passes the startup guard")
+    void emptyLegacyPipelinesPassStartupGuard() {
+        when(auditFlowConfiguration.getPipelines()).thenReturn(Collections.emptyList());
+        assertDoesNotThrow(() -> auditService.validateConfiguration());
+    }
+
+    @Test
+    @DisplayName("unresolvable ${secretRef:...} sink property fails delivery as retryable, no sink call")
+    void unresolvableSecretRefFailsDeliveryRetryable() {
+        PipelineProperties p = new PipelineProperties();
+        p.setName("secret-pipe");
+        p.setEnabled(true);
+        SinkProperties s = new SinkProperties();
+        s.setName("secure_sink");
+        s.setProperties(Map.of("password", "${secretRef:absent}"));
+        p.setSink(s);
+        registry.upsert(new TenantConfig("acme", true, TenantConfig.Quota.DEFAULT, List.of(p)), "test");
+        when(idempotencyService.claim(anyString())).thenReturn(true);
+        when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
+
+        assertThrows(RetryableDeliveryException.class,
+                () -> auditService.processAuditEvent(ACME_EVENT));
+        verifyNoInteractions(sinkService);
     }
 
     // -------------------------------------------------------------------------
@@ -133,7 +220,7 @@ class AuditServiceTest {
     @DisplayName("Enabled pipeline with matching condition invokes transformer and sink")
     void shouldInvokeTransformerAndSinkWhenConditionMatches() {
         PipelineProperties pipeline = buildPipeline("test-pipeline", true, "my_transformer", "my_sink");
-        when(auditFlowConfiguration.getPipelines()).thenReturn(List.of(pipeline));
+        providePlatformPipelines(pipeline);
         when(idempotencyService.claim(anyString())).thenReturn(true);
         when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
         when(transformationService.transform(any(JsonNode.class), eq("my_transformer"))).thenReturn(Mono.just("{\"transformed\":true}"));
@@ -153,7 +240,7 @@ class AuditServiceTest {
     @DisplayName("Enabled pipeline with non-matching condition skips transformer and sink")
     void shouldSkipTransformerAndSinkWhenConditionDoesNotMatch() {
         PipelineProperties pipeline = buildPipeline("test-pipeline", true, "my_transformer", "my_sink");
-        when(auditFlowConfiguration.getPipelines()).thenReturn(List.of(pipeline));
+        providePlatformPipelines(pipeline);
         when(idempotencyService.claim(anyString())).thenReturn(true);
         when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(false);
 
@@ -170,7 +257,7 @@ class AuditServiceTest {
     @DisplayName("Disabled pipeline is skipped entirely")
     void shouldSkipDisabledPipeline() {
         PipelineProperties pipeline = buildPipeline("disabled-pipeline", false, "my_transformer", "my_sink");
-        when(auditFlowConfiguration.getPipelines()).thenReturn(List.of(pipeline));
+        providePlatformPipelines(pipeline);
         when(idempotencyService.claim(anyString())).thenReturn(true);
 
         auditService.processAuditEvent(VALID_MESSAGE);
@@ -188,7 +275,7 @@ class AuditServiceTest {
         PipelineProperties failingPipeline = buildPipeline("failing-pipeline", true, "bad_transformer", "my_sink");
         PipelineProperties goodPipeline = buildPipeline("good-pipeline", true, "good_transformer", "my_sink");
 
-        when(auditFlowConfiguration.getPipelines()).thenReturn(List.of(failingPipeline, goodPipeline));
+        providePlatformPipelines(failingPipeline, goodPipeline);
         when(idempotencyService.claim(anyString())).thenReturn(true);
         when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
         when(transformationService.transform(any(JsonNode.class), eq("bad_transformer")))
@@ -211,7 +298,7 @@ class AuditServiceTest {
     @DisplayName("Poison failure (malformed transform output) does not fail the event")
     void shouldNotFailEventOnPoison() {
         PipelineProperties pipeline = buildPipeline("test-pipeline", true, "my_transformer", "my_sink");
-        when(auditFlowConfiguration.getPipelines()).thenReturn(List.of(pipeline));
+        providePlatformPipelines(pipeline);
         when(idempotencyService.claim(anyString())).thenReturn(true);
         when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
         when(transformationService.transform(any(JsonNode.class), eq("my_transformer")))
@@ -229,7 +316,7 @@ class AuditServiceTest {
     @DisplayName("Pipeline already delivered on a prior attempt is skipped (no duplicate delivery)")
     void shouldSkipAlreadyDeliveredPipelineOnRedelivery() {
         PipelineProperties pipeline = buildPipeline("test-pipeline", true, "my_transformer", "my_sink");
-        when(auditFlowConfiguration.getPipelines()).thenReturn(List.of(pipeline));
+        providePlatformPipelines(pipeline);
         when(idempotencyService.claim(anyString())).thenReturn(true);
         when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
         when(idempotencyService.isPipelineDone("11111111-1111-1111-1111-111111111111", "test-pipeline"))
@@ -250,7 +337,7 @@ class AuditServiceTest {
     @DisplayName("Pipeline with no transformer sends original message to sink")
     void shouldSendOriginalMessageWhenNoTransformerConfigured() {
         PipelineProperties pipeline = buildPipelineNoTransformer("no-transformer-pipeline", "my_sink");
-        when(auditFlowConfiguration.getPipelines()).thenReturn(List.of(pipeline));
+        providePlatformPipelines(pipeline);
         when(idempotencyService.claim(anyString())).thenReturn(true);
         when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
         when(sinkService.sendToSink(any(JsonNode.class), eq("my_sink"), any())).thenReturn(Mono.just("ok"));
@@ -306,7 +393,7 @@ class AuditServiceTest {
         sink.setProperties(Map.of());
         pipeline.setSink(sink);
 
-        when(auditFlowConfiguration.getPipelines()).thenReturn(List.of(pipeline));
+        providePlatformPipelines(pipeline);
         when(idempotencyService.claim(anyString())).thenReturn(true);
         when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
         when(transformationService.transform(any(JsonNode.class), eq("t1"))).thenReturn(Mono.just("{\"stage\":1}"));
@@ -334,7 +421,7 @@ class AuditServiceTest {
         fallback.setProperties(Map.of());
         pipeline.getSink().setFallback(fallback);
 
-        when(auditFlowConfiguration.getPipelines()).thenReturn(List.of(pipeline));
+        providePlatformPipelines(pipeline);
         when(idempotencyService.claim(anyString())).thenReturn(true);
         when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
         when(transformationService.transform(any(JsonNode.class), eq("my_transformer"))).thenReturn(Mono.just("{\"x\":1}"));

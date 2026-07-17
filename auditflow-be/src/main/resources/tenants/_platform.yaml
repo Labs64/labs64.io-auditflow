@@ -1,0 +1,17 @@
+# Reserved pseudo-tenant for tenantless service-principal (platform) events.
+# Happy-path pipeline for local development: zero transformer -> logging_sink.
+tenantId: _platform
+enabled: true
+quota:
+  rateLimitPerSec: 200
+  burst: 400
+pipelines:
+  - name: local-logging
+    enabled: true
+    transformer:
+      name: zero
+    sink:
+      name: logging_sink
+      properties:
+        log-level: INFO
+        format: json

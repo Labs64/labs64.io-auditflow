@@ -132,6 +132,32 @@ public class GlobalExceptionHandler {
     }
 
     // -------------------------------------------------------------------------
+    // Tenant ingest gate (provisioning / quota)
+    // -------------------------------------------------------------------------
+
+    @ExceptionHandler(TenantNotProvisionedException.class)
+    public ResponseEntity<ErrorResponse> handleTenantNotProvisioned(TenantNotProvisionedException ex) {
+        logger.warn("Tenant not provisioned: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(buildError(ErrorCode.TENANT_NOT_PROVISIONED, ex.getMessage()));
+    }
+
+    @ExceptionHandler(TenantDisabledException.class)
+    public ResponseEntity<ErrorResponse> handleTenantDisabled(TenantDisabledException ex) {
+        logger.warn("Tenant disabled: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(buildError(ErrorCode.TENANT_DISABLED, ex.getMessage()));
+    }
+
+    @ExceptionHandler(TenantRateLimitedException.class)
+    public ResponseEntity<ErrorResponse> handleTenantRateLimited(TenantRateLimitedException ex) {
+        logger.warn("Tenant rate limited: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", String.valueOf(ex.getRetryAfterSeconds()))
+                .body(buildError(ErrorCode.TENANT_RATE_LIMITED, ex.getMessage()));
+    }
+
+    // -------------------------------------------------------------------------
     // Request routing (wrong method / unsupported media type)
     // -------------------------------------------------------------------------
 

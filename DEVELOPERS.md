@@ -113,7 +113,7 @@ labs64.io-auditflow/
 │   ├── src/main/java/       # Service code
 │   ├── src/test/java/       # JUnit tests
 │   └── src/main/resources/
-│       └── application.yml  # Main configuration (pipelines, broker, OTel endpoints)
+│       └── application.yml  # Main configuration (tenant source, broker, OTel endpoints)
 ├── auditflow-transformer/   # Python transformer service
 │   ├── transformer.py       # FastAPI app
 │   ├── transformers/        # Built-in transformers (zero, audit_loki, audit_opensearch)
@@ -256,18 +256,19 @@ def process(event_data: dict, properties: dict) -> dict:
 
 2. If it needs new Python packages, add them to `auditflow-sink/requirements.txt`.
 
-3. Reference it from a pipeline:
+3. Reference it from a tenant's pipeline (see [Configuring Pipelines](#configuring-pipelines)):
 
 ```yaml
-# application.yml
-auditflow:
-  pipelines:
-    - name: my-pipeline
-      enabled: true
-      sink:
-        name: my_sink
-        properties:
-          api-key: "${MY_API_KEY}"
+# tenants/_platform.yaml (or tenants/<tenantId>.yaml)
+tenantId: _platform
+enabled: true
+pipelines:
+  - name: my-pipeline
+    enabled: true
+    sink:
+      name: my_sink
+      properties:
+        api-key: "${secretRef:apiKey}"   # resolved from the tenant's own secret store
 ```
 
 No backend code changes needed — the name is resolved dynamically at runtime.
@@ -293,17 +294,19 @@ def transform(input_data: dict) -> dict:
 
 2. If it needs new Python packages, add them to `auditflow-transformer/requirements.txt`.
 
-3. Reference it from a pipeline:
+3. Reference it from a tenant's pipeline:
 
 ```yaml
-auditflow:
-  pipelines:
-    - name: my-pipeline
-      enabled: true
-      transformer:
-        name: my_transformer
-      sink:
-        name: logging_sink
+# tenants/<tenantId>.yaml
+tenantId: acme
+enabled: true
+pipelines:
+  - name: my-pipeline
+    enabled: true
+    transformer:
+      name: my_transformer
+    sink:
+      name: logging_sink
 ```
 
 ### Available transformers (3)
@@ -315,48 +318,68 @@ auditflow:
 Pipelines support chaining multiple transformers in sequence:
 
 ```yaml
-auditflow:
-  pipelines:
-    - name: enriched-pipeline
-      enabled: true
-      transformers:
-        - name: audit_loki
-        - name: zero
-      sink:
-        name: loki_sink
+pipelines:
+  - name: enriched-pipeline
+    enabled: true
+    transformers:
+      - name: audit_loki
+      - name: zero
+    sink:
+      name: loki_sink
 ```
 
 ---
 
 ## Configuring Pipelines
 
-Pipelines are defined under `auditflow.pipelines` in `application.yml` or via `JAVA_OPTS` environment variables.
+Pipelines are configuration owned **per tenant** (silo model): every event routes only through the
+pipeline set of its own tenant, and tenantless events belong to the reserved `_platform`
+pseudo-tenant. The legacy global `auditflow.pipelines` list **fails startup by design** — move any
+remaining global pipelines into `tenants/_platform.yaml`.
 
-### Pipeline structure
+Tenant configs come from a pluggable source (`tenants.source.mode`):
+
+| Mode | When | How |
+|------|------|-----|
+| `local-dir` (default) | Local/compose/bare-metal | `<tenantId>.yaml` files in `tenants.source.local-dir.path` (default `/config/tenants`; compose mounts `./tenants`), polled every 5s — drop a file to onboard live |
+| `gitops-configmap` | Kubernetes (set by the Helm chart) | ConfigMaps labelled `auditflow.io/tenant`, watched via the Kubernetes API |
+
+### Tenant file structure
 
 ```yaml
-auditflow:
-  pipelines:
-    - name: my-pipeline           # required, unique
-      enabled: true               # enable/disable at runtime
-      condition:                  # optional — omit to match every event
-        match: all                # "all" (AND) or "any" (OR)
-        rules:
-          - field: eventType      # dot notation supported: extra.userId
-            operator: eq          # eq, neq, contains, startsWith, endsWith, in, notIn,
+# tenants/<tenantId>.yaml — one file per tenant
+tenantId: acme                    # required; ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$
+enabled: true                     # false = tenant disabled, ingest returns 403 TENANT_DISABLED
+quota:                            # optional — per-tenant ingest rate limit (token bucket)
+  rateLimitPerSec: 200            # over budget = 429 TENANT_RATE_LIMITED + Retry-After
+  burst: 400
+pipelines:
+  - name: my-pipeline             # required, unique within the tenant
+    enabled: true                 # enable/disable at runtime
+    condition:                    # optional — omit to match every event
+      match: all                  # "all" (AND) or "any" (OR)
+      rules:
+        - field: eventType        # dot notation supported: extra.userId
+          operator: eq            # eq, neq, contains, startsWith, endsWith, in, notIn,
                                   # exists, notExists, regex, gt, gte, lt, lte, eqIgnoreCase
-            value: "api.call"
-      transformer:
-        name: zero                # optional — omit to pass through unchanged
-      sink:
-        name: logging_sink        # required
-        properties:               # optional, passed to the sink's process() function
-          log-level: INFO
-        fallback:                 # optional — used when primary sink fails with retryable error
-          name: webhook_sink
-          properties:
-            url: "https://hooks.example.com"
+          value: "api.call"
+    transformer:
+      name: zero                  # optional — omit to pass through unchanged
+    sink:
+      name: logging_sink          # required
+      properties:                 # optional, passed to the sink's process() function
+        log-level: INFO
+        api-key: "${secretRef:apiKey}"  # resolved from THIS tenant's secret store at delivery
+      fallback:                   # optional — used when primary sink fails with retryable error
+        name: webhook_sink
+        properties:
+          url: "https://hooks.example.com"
 ```
+
+Sink credentials use `${secretRef:<key>}` indirection (`secretRef.resolver`): `env` (default) reads
+`AUDITFLOW_TENANT_<TENANTID>_<KEY>`; `k8s-secret` (Helm) reads the tenant's own Secret
+`auditflow-tenant-<tenantId>-creds`. A missing key fails that delivery as retryable (→ DLQ) —
+never a blank, never another tenant's credential.
 
 ### Condition operators
 
@@ -373,17 +396,11 @@ auditflow:
 
 Field paths support dot notation (`extra.userId`) and array indices (`items[0].name`).
 
-### Configuring via JAVA_OPTS
+### Local compose
 
-In `docker-compose.yml`, pipelines are passed as JVM system properties:
-
-```yaml
-environment:
-  JAVA_OPTS: >-
-    -Dauditflow.pipelines[0].name=logs
-    -Dauditflow.pipelines[0].enabled=true
-    -Dauditflow.pipelines[0].sink.name=logging_sink
-```
+`docker-compose.yml` mounts the repo's `tenants/` directory read-only at `/config/tenants`;
+`tenants/_platform.yaml` carries the local platform pipelines. Edit or add tenant files while the
+stack is running — the local-dir poller applies changes within ~5 seconds, no restart.
 
 ---
 
@@ -399,7 +416,8 @@ environment:
 | `GET /actuator/metrics/auditflow.consumer.events.inflight` | Events currently in-flight |
 | `GET /actuator/metrics/auditflow.pipeline.outcomes` | Per-pipeline SUCCESS/POISON/RETRYABLE counts |
 | `GET /actuator/metrics/auditflow.pipeline.duration` | Per-pipeline processing duration |
-| `GET /actuator/dlq` | Dead Letter Queue info (GET) and retry (POST) |
+| `GET /actuator/dlq/{tenantId}` | Tenant-scoped DLQ inspect (GET) and replay (POST) — only that tenant's messages; use `_platform` for tenantless events |
+| `GET /actuator/metrics/auditflow.tenant.events` | Per-tenant lifecycle outcomes (routed/delivered/quarantined/rejected:*) |
 | `GET /actuator/prometheus` | Prometheus scrape endpoint |
 
 ### Python Service Endpoints

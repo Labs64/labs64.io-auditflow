@@ -1395,6 +1395,136 @@
         "wrapLogMessage": true,
         "sortOrder": "Descending"
       }
+    },
+    {
+      "id": 610,
+      "title": "Tenants",
+      "type": "row",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 59
+      }
+    },
+    {
+      "id": 611,
+      "title": "Tenant event flow",
+      "description": "Per-tenant lifecycle outcomes from auditflow_tenant_events_total: routed = pipeline set ran to completion, delivered = a pipeline delivered to its sink, quarantined = no routable set (unprovisioned/disabled in-flight).",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 60
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (tenant, outcome) (rate(auditflow_tenant_events_total{job=\"auditflow-backend\", tenant=~\"$tenant\", outcome=~\"routed|delivered|quarantined\"}[$__rate_interval]))",
+          "legendFormat": "{{tenant}} \u2014 {{outcome}}"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "lastNotNull",
+            "max"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 612,
+      "title": "Tenant rejections by reason",
+      "description": "Ingest-gate rejections (HTTP 403/429) per tenant: not_provisioned, disabled, rate_limited. Any sustained non-zero series means a producer is misconfigured or a tenant is over quota.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 60
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (tenant, outcome) (rate(auditflow_tenant_events_total{job=\"auditflow-backend\", tenant=~\"$tenant\", outcome=~\"rejected:.*\"}[$__rate_interval]))",
+          "legendFormat": "{{tenant}} \u2014 {{outcome}}"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "lastNotNull",
+            "max"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 25
+          }
+        },
+        "overrides": []
+      }
     }
-  ]
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "tenant",
+        "type": "query",
+        "label": "Tenant",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(auditflow_tenant_events_total, tenant)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  }
 }

@@ -16,16 +16,11 @@ sink:
   local:
     url: "http://localhost:8082"
 
-# Happy-path pipeline for local development: zero transformer → logging_sink
-# No 3rd-party dependencies required.
-auditflow:
-  pipelines:
-    - name: local-logging
-      enabled: true
-      transformer:
-        name: zero
-      sink:
-        name: logging_sink
-        properties:
-          log-level: INFO
-          format: json
+# Local dev exercises the tenant model without a cluster. Source/limiter/secret modes are already
+# the safe built-in defaults (local-dir / in-memory / env) — only the path needs overriding.
+# The previous inline auditflow.pipelines lives on as tenant "_platform" (tenants/_platform.yaml);
+# a leftover non-empty auditflow.pipelines fails startup by design.
+tenants:
+  source:
+    local-dir:
+      path: classpath:tenants

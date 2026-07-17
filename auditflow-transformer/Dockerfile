@@ -34,7 +34,8 @@ RUN pip install --no-cache-dir -r requirements-otel.txt
 # Copy application files (after deps so layer is cached on code-only changes)
 COPY --chown=${USER_NAME}:${GROUP_NAME} transformer.py .
 COPY --chown=${USER_NAME}:${GROUP_NAME} telemetry.py .
-COPY --chown=${USER_NAME}:${GROUP_NAME} --chmod=755 entrypoint.sh .
+COPY --chown=${USER_NAME}:${GROUP_NAME} entrypoint.sh .
+RUN chmod 755 entrypoint.sh
 COPY --chown=${USER_NAME}:${GROUP_NAME} plugin_registry.py .
 COPY --chown=${USER_NAME}:${GROUP_NAME} auditflow_sdk.py .
 COPY --chown=${USER_NAME}:${GROUP_NAME} health.py .

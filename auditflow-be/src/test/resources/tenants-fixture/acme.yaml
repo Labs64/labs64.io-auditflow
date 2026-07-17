@@ -1,0 +1,7 @@
+tenantId: acme
+enabled: true
+pipelines:
+  - name: acme-pipe
+    enabled: true
+    sink:
+      name: logging_sink

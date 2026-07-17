@@ -7,6 +7,11 @@ import io.labs64.audit.config.ConsumerHealthIndicator;
 import io.labs64.audit.config.PipelineRateLimiterRegistry;
 import io.labs64.audit.exception.PoisonDeliveryException;
 import io.labs64.audit.exception.RetryableDeliveryException;
+import io.labs64.audit.tenant.PipelineSet;
+import io.labs64.audit.tenant.SecretRefResolver;
+import io.labs64.audit.tenant.TenantConcurrencyLimiter;
+import io.labs64.audit.tenant.TenantIds;
+import io.labs64.audit.tenant.TenantPipelineRegistry;
 import io.micrometer.core.instrument.Counter;
 import io.labs64.audit.telemetry.BusinessTelemetry;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -43,6 +48,12 @@ public class AuditService {
     private final BusinessTelemetry businessTelemetry;
     private final ConsumerHealthIndicator consumerHealthIndicator;
     private final PipelineRateLimiterRegistry pipelineRateLimiterRegistry;
+    private final TenantPipelineRegistry tenantRegistry;
+    private final TenantConcurrencyLimiter tenantConcurrencyLimiter;
+    private final SecretRefResolver secretRefResolver;
+
+    /** Quarantine reason for events whose tenant is unprovisioned or disabled (no routable set). */
+    public static final String TENANT_UNRESOLVED = "TENANT_UNRESOLVED";
 
     /**
      * Max number of a single event's matching pipelines processed concurrently.
@@ -74,7 +85,10 @@ public class AuditService {
             MeterRegistry meterRegistry,
             ConsumerHealthIndicator consumerHealthIndicator,
             PipelineRateLimiterRegistry pipelineRateLimiterRegistry,
-            BusinessTelemetry businessTelemetry) {
+            BusinessTelemetry businessTelemetry,
+            TenantPipelineRegistry tenantRegistry,
+            TenantConcurrencyLimiter tenantConcurrencyLimiter,
+            SecretRefResolver secretRefResolver) {
         this.auditFlowConfiguration = auditFlowConfiguration;
         this.transformationService = transformationService;
         this.sinkService = sinkService;
@@ -87,16 +101,21 @@ public class AuditService {
         this.consumerHealthIndicator = consumerHealthIndicator;
         this.pipelineRateLimiterRegistry = pipelineRateLimiterRegistry;
         this.businessTelemetry = businessTelemetry;
+        this.tenantRegistry = tenantRegistry;
+        this.tenantConcurrencyLimiter = tenantConcurrencyLimiter;
+        this.secretRefResolver = secretRefResolver;
     }
 
     @PostConstruct
     public void validateConfiguration() {
-        if (auditFlowConfiguration.getPipelines() != null) {
-            auditFlowConfiguration.getPipelines().forEach(pipeline -> {
-                if (pipeline.isEnabled()) {
-                    validatePipeline(pipeline);
-                }
-            });
+        // Legacy fail-fast (settled): global pipelines no longer participate in routing, and an
+        // upgrade must never silently stop delivering events.
+        if (auditFlowConfiguration.getPipelines() != null && !auditFlowConfiguration.getPipelines().isEmpty()) {
+            throw new IllegalStateException("""
+                    Global 'auditflow.pipelines' no longer participates in routing (tenant model). \
+                    Move these pipelines into a tenant config — typically tenants/_platform.yaml (local-dir mode) \
+                    or the auditflow-tenant-platform ConfigMap (gitops-configmap mode) — and remove \
+                    'auditflow.pipelines' from the application configuration.""");
         }
     }
 
@@ -166,29 +185,59 @@ public class AuditService {
     }
 
     private void dispatchToPipelines(JsonNode eventJson, String eventId) {
-        List<AuditFlowConfiguration.PipelineProperties> pipelines = auditFlowConfiguration.getPipelines();
-        if (pipelines == null || pipelines.isEmpty()) {
-            logger.warn("No audit pipelines configured, skipping event processing.");
+        // Authoritative tenantId (stamped at ingest from X-Auth-Tenant; trusted here).
+        String tenantId = TenantIds.resolve(eventJson.path("tenantId").asText(null));
+
+        var pipelineSet = tenantRegistry.pipelinesFor(tenantId);
+        if (pipelineSet.isEmpty()) {
+            // ABSENT or Disabled -> quarantine, NEVER another tenant's sink. Stop.
+            logger.warn("No routable pipeline set for tenant '{}' (state={}); quarantining eventId={}",
+                    tenantId, tenantRegistry.stateFor(tenantId), eventId);
+            tenantEvent(tenantId, "quarantined");
+            try {
+                quarantineService.quarantine(objectMapper.writeValueAsString(eventJson),
+                        TENANT_UNRESOLVED + ": tenant '" + tenantId + "' state="
+                                + tenantRegistry.stateFor(tenantId));
+            } catch (Exception e) {
+                quarantineService.quarantine(eventJson.toString(), TENANT_UNRESOLVED);
+            }
             return;
         }
 
-        // Fan a single event out across its matching pipelines concurrently via Reactor.
-        // The Spring Cloud Stream Consumer contract is blocking, so we subscribe once here;
-        // the transform/sink legs in between are fully non-blocking.
-        List<PipelineOutcome> outcomes = Flux.fromIterable(pipelines)
-                .flatMap(pipeline -> runPipeline(pipeline, eventJson, eventId), PIPELINE_CONCURRENCY)
-                .collectList()
-                .block();
+        List<AuditFlowConfiguration.PipelineProperties> pipelines = pipelineSet.map(PipelineSet::pipelines).get();
+        if (pipelines.isEmpty()) {
+            logger.warn("Tenant '{}' has an empty pipeline set; nothing to route for eventId={}", tenantId, eventId);
+            return;
+        }
 
-        // If any pipeline ended in a retryable failure, fail the whole event so the broker
-        // redelivers and ultimately dead-letters it. Poison failures are logged/counted only —
-        // retrying or dead-lettering them would loop forever without ever succeeding.
-        long retryable = outcomes == null ? 0
-                : outcomes.stream().filter(o -> o == PipelineOutcome.RETRYABLE_FAILURE).count();
-        if (retryable > 0) {
-            throw new RetryableDeliveryException(retryable + " of " + outcomes.size()
-                    + " pipeline(s) failed with a retryable error; redelivering event"
-                    + (StringUtils.hasText(eventId) ? " eventId=" + eventId : ""));
+        // Layer-2 fairness: cap this tenant's in-flight events so one flooding tenant cannot
+        // monopolize the shared consumer even within its ingest rate budget.
+        if (!tenantConcurrencyLimiter.tryAcquire(tenantId)) {
+            throw new RetryableDeliveryException(
+                    "Tenant '" + tenantId + "' concurrency cap reached; redelivering eventId=" + eventId);
+        }
+        try {
+            // Fan a single event out across its matching pipelines concurrently via Reactor.
+            // The Spring Cloud Stream Consumer contract is blocking, so we subscribe once here;
+            // the transform/sink legs in between are fully non-blocking.
+            List<PipelineOutcome> outcomes = Flux.fromIterable(pipelines)
+                    .flatMap(pipeline -> runPipeline(pipeline, eventJson, eventId, tenantId), PIPELINE_CONCURRENCY)
+                    .collectList()
+                    .block();
+
+            // If any pipeline ended in a retryable failure, fail the whole event so the broker
+            // redelivers and ultimately dead-letters it. Poison failures are logged/counted only —
+            // retrying or dead-lettering them would loop forever without ever succeeding.
+            long retryable = outcomes == null ? 0
+                    : outcomes.stream().filter(o -> o == PipelineOutcome.RETRYABLE_FAILURE).count();
+            if (retryable > 0) {
+                throw new RetryableDeliveryException(retryable + " of " + outcomes.size()
+                        + " pipeline(s) failed with a retryable error; redelivering event"
+                        + (StringUtils.hasText(eventId) ? " eventId=" + eventId : ""));
+            }
+            tenantEvent(tenantId, "routed");
+        } finally {
+            tenantConcurrencyLimiter.release(tenantId);
         }
     }
 
@@ -199,7 +248,7 @@ public class AuditService {
      * POISON (never retryable) or RETRYABLE_FAILURE and never escape this method.
      */
     private Mono<PipelineOutcome> runPipeline(
-            AuditFlowConfiguration.PipelineProperties pipeline, JsonNode eventJson, String eventId) {
+            AuditFlowConfiguration.PipelineProperties pipeline, JsonNode eventJson, String eventId, String tenantId) {
         String name = pipeline.getName();
 
         if (!pipeline.isEnabled()) {
@@ -230,7 +279,7 @@ public class AuditService {
         long startNanos = System.nanoTime();
         // Mono.defer ensures a synchronous throw during chain assembly (e.g. transformer/sink
         // argument validation) surfaces as an onError signal for THIS pipeline only.
-        return Mono.defer(() -> processPipeline(pipeline, eventJson))
+        return Mono.defer(() -> processPipeline(pipeline, eventJson, tenantId))
                 .doOnNext(result -> logger.debug("Pipeline '{}' completed successfully.", name))
                 .then(Mono.fromSupplier(() -> {
                     if (StringUtils.hasText(eventId)) {
@@ -242,6 +291,9 @@ public class AuditService {
                 .map(outcome -> {
                     meterRegistry.timer("auditflow.pipeline.duration", "pipeline", name, "outcome", outcome.name())
                             .record(System.nanoTime() - startNanos, TimeUnit.NANOSECONDS);
+                    if (outcome == PipelineOutcome.SUCCESS) {
+                        tenantEvent(tenantId, "delivered");
+                    }
                     return recordOutcome(name, outcome);
                 });
     }
@@ -257,6 +309,14 @@ public class AuditService {
         return PipelineOutcome.RETRYABLE_FAILURE;
     }
 
+    /** Tenant-dimensioned lifecycle signal: span event + the `auditflow.tenant.events` counter. */
+    private void tenantEvent(String tenantId, String outcome) {
+        String provider = String.valueOf(tenantRegistry.providerFor(tenantId));
+        businessTelemetry.tenantEvent(tenantId, provider, outcome);
+        meterRegistry.counter("auditflow.tenant.events",
+                "tenant", tenantId, "provider", provider, "outcome", outcome).increment();
+    }
+
     private PipelineOutcome recordOutcome(String pipelineName, PipelineOutcome outcome) {
         businessTelemetry.pipelineCompleted(pipelineName, outcome.name());
         meterRegistry.counter("auditflow.pipeline.outcomes", "pipeline", pipelineName, "outcome", outcome.name())
@@ -268,9 +328,10 @@ public class AuditService {
      * Process a single pipeline: apply the transformer stage(s) in order, then deliver to the
      * sink (falling back to the configured fallback sink on a retryable primary-sink failure).
      */
-    private Mono<String> processPipeline(AuditFlowConfiguration.PipelineProperties pipeline, JsonNode eventJson) {
+    private Mono<String> processPipeline(
+            AuditFlowConfiguration.PipelineProperties pipeline, JsonNode eventJson, String tenantId) {
         return applyTransformers(pipeline, eventJson)
-                .flatMap(transformed -> sendWithFallback(pipeline.getSink(), pipeline.getName(), transformed));
+                .flatMap(transformed -> sendWithFallback(pipeline.getSink(), pipeline.getName(), tenantId, transformed));
     }
 
     /**
@@ -304,8 +365,13 @@ public class AuditService {
      * Deliver to the primary sink; on a <em>retryable</em> failure, attempt the configured
      * fallback sink before giving up. A poison failure is not retried on the fallback.
      */
-    private Mono<String> sendWithFallback(AuditFlowConfiguration.SinkProperties sink, String pipelineName, JsonNode event) {
-        Mono<String> primary = sinkService.sendToSink(event, sink.getName(), sink.getProperties());
+    private Mono<String> sendWithFallback(AuditFlowConfiguration.SinkProperties sink,
+                                          String pipelineName, String tenantId, JsonNode event) {
+        // ${secretRef:...} placeholders resolve from THIS tenant's secret store only — resolution
+        // failure is retryable (→ redelivery → DLQ), never a blank or another tenant's credential.
+        Mono<String> primary = Mono
+                .fromSupplier(() -> secretRefResolver.resolve(tenantId, sink.getProperties()))
+                .flatMap(props -> sinkService.sendToSink(event, sink.getName(), props));
 
         AuditFlowConfiguration.SinkProperties fallback = sink.getFallback();
         if (fallback == null || !StringUtils.hasText(fallback.getName())) {
@@ -314,27 +380,9 @@ public class AuditService {
         return primary.onErrorResume(RetryableDeliveryException.class, e -> {
             logger.warn("Pipeline '{}' primary sink '{}' failed ({}); attempting fallback sink '{}'",
                     pipelineName, sink.getName(), e.getMessage(), fallback.getName());
-            return sinkService.sendToSink(event, fallback.getName(), fallback.getProperties());
+            return Mono.fromSupplier(() -> secretRefResolver.resolve(tenantId, fallback.getProperties()))
+                    .flatMap(props -> sinkService.sendToSink(event, fallback.getName(), props));
         });
     }
 
-    /**
-     * Validate pipeline configuration at startup.
-     */
-    private void validatePipeline(AuditFlowConfiguration.PipelineProperties pipeline) {
-        if (!StringUtils.hasText(pipeline.getName())) {
-            throw new IllegalStateException("Pipeline name cannot be empty");
-        }
-
-        if (pipeline.getSink() == null) {
-            throw new IllegalStateException("Sink must be configured for pipeline: " + pipeline.getName());
-        }
-
-        if (!StringUtils.hasText(pipeline.getSink().getName())) {
-            throw new IllegalStateException("Sink name must be specified for pipeline: " + pipeline.getName());
-        }
-
-        logger.info("Pipeline '{}' validated successfully (sink: {})",
-                pipeline.getName(), pipeline.getSink().getName());
-    }
 }
