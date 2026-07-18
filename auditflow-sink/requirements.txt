@@ -12,3 +12,6 @@ google-cloud-storage==3.12.0
 
 # Azure sinks
 azure-storage-blob==12.30.0
+
+# Database sinks
+psycopg[binary]==3.3.4

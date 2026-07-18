@@ -347,7 +347,7 @@ volumes:
       name: my-sink-plugins
 ```
 
-> Helm charts and production Kubernetes manifests are on the roadmap. Contributions are welcome — see [Contributing](#contributing).
+> Production-ready Helm charts are available in `labs64.io-helm-charts/charts/auditflow`.
 
 ### Cloud-managed infrastructure
 
@@ -509,10 +509,7 @@ Community input shapes where AuditFlow goes next. Contributions of all sizes are
 
 **Good first areas to contribute:**
 
-- New sinks (many destinations are still missing from the catalogue)
 - New condition operators or transformer utilities
-- Helm chart / Kubernetes manifests
-- Python service test coverage
 - Documentation improvements and usage examples
 
 **To get started:**
