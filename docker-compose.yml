@@ -91,6 +91,29 @@ services:
       start_period: 10s
 
   # ─────────────────────────────────────────────────────────────────────────────
+  # Cerbos PDP (RFC-07) — central authorization decision point. Policies are
+  # generated at build time into auditflow-be/target/cerbos/policies by the
+  # exec-plugin (--cerbos-output); mounted here read-only.
+  # ─────────────────────────────────────────────────────────────────────────────
+  cerbos:
+    image: ghcr.io/cerbos/cerbos:0.51.0
+    container_name: auditflow-cerbos
+    command: ["server"]
+    hostname: cerbos
+    volumes:
+      - ./auditflow-be/target/cerbos/policies:/policies:ro
+    ports:
+      - "3592:3592"
+      - "3593:3593"
+    healthcheck:
+      test: ["CMD", "/cerbos", "healthcheck", "--kind=grpc"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    networks:
+      - auditflow-net
+
+  # ─────────────────────────────────────────────────────────────────────────────
   # Backend (Spring Boot)
   # ─────────────────────────────────────────────────────────────────────────────
   backend:
@@ -115,6 +138,7 @@ services:
       # with the central Cerbos PDP at cerbos.<ns>.svc.cluster.local:3593.
       LABS64_AUTHCONTEXT_ENABLED: "false"
       LABS64_AUTH_AUTHZ_ENABLED: "false"
+      LABS64_AUTH_AUTHZ_PDPADDRESS: cerbos:3593
       # Pipelines live in ./tenants/_platform.yaml (mounted below) — the tenant model replaced
       # the -Dauditflow.pipelines[N].* JAVA_OPTS, which now fail startup by design.
       JAVA_OPTS: >-
@@ -133,6 +157,8 @@ services:
       transformer:
         condition: service_healthy
       sink:
+        condition: service_healthy
+      cerbos:
         condition: service_healthy
     networks:
       - auditflow-net
