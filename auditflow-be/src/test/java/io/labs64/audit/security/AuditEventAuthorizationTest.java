@@ -26,7 +26,7 @@ import io.labs64.authcontext.core.AuthContext;
 import io.labs64.authcontext.core.AuthContextHolder;
 
 /**
- * RFC-07 rename migration: the real {@link AuditEventResourceResolver} + the
+ * rename migration: the real {@link AuditEventResourceResolver} + the
  * {@code @Authorize} PEP on {@code publishEvent}, exercised against a stub
  * {@link AuthorizationService} that mirrors the generated Cerbos domain policy
  * (audit-event:write scope + cross-tenant guard). Service principals and users
