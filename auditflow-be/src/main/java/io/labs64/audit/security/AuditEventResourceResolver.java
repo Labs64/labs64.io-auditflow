@@ -3,12 +3,12 @@ package io.labs64.audit.security;
 import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Component;
 
-import io.labs64.authcontext.cedar.CedarEntity;
-import io.labs64.authcontext.cedar.CedarEntityResolver;
+import io.labs64.authcontext.authorization.ResourceEntity;
+import io.labs64.authcontext.authorization.ResourceResolver;
 import io.labs64.authcontext.core.AuthContext;
 
 /**
- * Supplies the Cedar {@code AuditEvent} resource for {@code @Authorize} on
+ * Supplies the {@code AuditEvent} resource for {@code @Authorize} on
  * {@code publishEvent}. The event under publication is not yet
  * persisted and its tenant is authoritative from the trusted context (the
  * controller overrides any client-supplied tenantId with X-Auth-Tenant), so
@@ -16,7 +16,7 @@ import io.labs64.authcontext.core.AuthContext;
  * no resource reference.
  */
 @Component
-public class AuditEventCedarEntityResolver implements CedarEntityResolver {
+public class AuditEventResourceResolver implements ResourceResolver {
 
     @Override
     public boolean supports(final String resourceType) {
@@ -24,12 +24,11 @@ public class AuditEventCedarEntityResolver implements CedarEntityResolver {
     }
 
     @Override
-    public CedarEntity resolve(final String resourceType, @Nullable final Object resourceRef,
+    public ResourceEntity resolve(final String resourceType, @Nullable final Object resourceRef,
             final AuthContext context) {
-        final CedarEntity.Builder event = CedarEntity.builder("AuditEvent", "publish-request");
+        final ResourceEntity.Builder event = ResourceEntity.builder("AuditEvent", "publish-request");
         if (context.tenantId() != null) {
-            final CedarEntity tenant = CedarEntity.ref("Tenant", context.tenantId());
-            event.attribute("tenant", tenant).parent(tenant);
+            event.attribute("tenant", context.tenantId());
         }
         return event.build();
     }

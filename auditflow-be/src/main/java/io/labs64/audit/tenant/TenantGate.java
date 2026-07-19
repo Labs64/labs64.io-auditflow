@@ -8,7 +8,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.stereotype.Component;
 
 /**
- * Ordered ingest gate at {@code publishEvent}: (1) Cedar authz runs earlier via {@code @Authorize};
+ * Ordered ingest gate at {@code publishEvent}: (1) authz runs earlier via {@code @Authorize};
  * (2) provisioning — tenant must be PROVISIONED; (3) quota — per-tenant token bucket. Uses the same
  * registry as routing so the ingest gate and the delivery boundary can never disagree.
  */
