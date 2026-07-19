@@ -91,6 +91,29 @@ services:
       start_period: 10s
 
   # ─────────────────────────────────────────────────────────────────────────────
+  # Cerbos PDP (RFC-07) — central authorization decision point. Policies are
+  # generated at build time into auditflow-be/target/cerbos/policies by the
+  # exec-plugin (--cerbos-output); mounted here read-only.
+  # ─────────────────────────────────────────────────────────────────────────────
+  cerbos:
+    image: ghcr.io/cerbos/cerbos:0.51.0
+    container_name: auditflow-cerbos
+    command: ["server"]
+    hostname: cerbos
+    volumes:
+      - ./auditflow-be/target/cerbos/policies:/policies:ro
+    ports:
+      - "3592:3592"
+      - "3593:3593"
+    healthcheck:
+      test: ["CMD", "/cerbos", "healthcheck", "--kind=grpc"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    networks:
+      - auditflow-net
+
+  # ─────────────────────────────────────────────────────────────────────────────
   # Backend (Spring Boot)
   # ─────────────────────────────────────────────────────────────────────────────
   backend:
@@ -108,12 +131,14 @@ services:
       TRANSFORMER_LOCAL_URL: http://transformer:8081
       SINK_LOCAL_URL: http://sink:8082
       # Local compose runs without the Traefik gateway, so no trusted X-Auth-*
-      # headers exist — disable the fail-closed auth-context filter AND Cedar
-      # enforcement here only (without also disabling Cedar, the @Authorize
+      # headers exist — disable the fail-closed auth-context filter AND authz
+      # enforcement here only (without also disabling authz, the @Authorize
       # interceptor still denies with 401/no-auth-context as defense in depth).
-      # In Kubernetes the gateway supplies the headers and both stay enabled.
+      # In Kubernetes the gateway supplies the headers and both stay enabled,
+      # with the central Cerbos PDP at cerbos.<ns>.svc.cluster.local:3593.
       LABS64_AUTHCONTEXT_ENABLED: "false"
-      LABS64_CEDAR_ENABLED: "false"
+      LABS64_AUTH_AUTHZ_ENABLED: "false"
+      LABS64_AUTH_AUTHZ_PDPADDRESS: cerbos:3593
       # Pipelines live in ./tenants/_platform.yaml (mounted below) — the tenant model replaced
       # the -Dauditflow.pipelines[N].* JAVA_OPTS, which now fail startup by design.
       JAVA_OPTS: >-
@@ -132,6 +157,8 @@ services:
       transformer:
         condition: service_healthy
       sink:
+        condition: service_healthy
+      cerbos:
         condition: service_healthy
     networks:
       - auditflow-net

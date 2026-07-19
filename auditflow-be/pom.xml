@@ -42,11 +42,12 @@
         <!-- OpenAPI auth preprocessor paths -->
         <openapi.source>${project.basedir}/../auditflow-api/src/main/resources/openapi/openapi-audit-${audit.version}.yaml</openapi.source>
         <openapi.generated>${project.build.directory}/generated-openapi/openapi-audit-${audit.version}.yaml</openapi.generated>
-        <!-- Cedar policies generated from x-labs64-auth. auth-policy.module must
-             equal the module's gateway prefix (= bundle-sources.yaml name).
-             edge → traefik; domain → @Authorize PEP. -->
-        <auth-policy-cedar.generated>${project.build.directory}/generated-resources/auth-policy.cedar</auth-policy-cedar.generated>
-        <auth-policy-cedar-domain.generated>${project.build.directory}/generated-resources/auth-policy-domain.cedar</auth-policy-cedar-domain.generated>
+        <!-- Cerbos policies + routes manifest generated from x-labs64-auth.
+             auth-policy.module must equal the module's gateway prefix
+             (= policy-sources.yaml name); it is baked into the Cerbos resource
+             kind (auditflow -> auditflow_api). Generated output is a build
+             artifact only — the central Cerbos PDP owns the live policy set. -->
+        <auth-policy-cerbos.output>${project.build.directory}/cerbos</auth-policy-cerbos.output>
         <auth-policy.module>auditflow</auth-policy.module>
     </properties>
 
@@ -124,15 +125,7 @@
         <dependency>
             <groupId>io.labs64</groupId>
             <artifactId>auth-context-spring-boot-starter</artifactId>
-            <version>0.3.2</version>
-        </dependency>
-        <!-- Cedar domain PDP: optional in the starter - the
-             adopting module supplies the engine (uber = bundled natives). -->
-        <dependency>
-            <groupId>com.cedarpolicy</groupId>
-            <artifactId>cedar-java</artifactId>
-            <version>4.10.0</version>
-            <classifier>uber</classifier>
+            <version>0.4.0</version>
         </dependency>
 
         <dependency>
@@ -333,10 +326,8 @@
                                 <argument>${openapi.source}</argument>
                                 <argument>--openapi-output</argument>
                                 <argument>${openapi.generated}</argument>
-                                <argument>--cedar-output</argument>
-                                <argument>${auth-policy-cedar.generated}</argument>
-                                <argument>--cedar-domain-output</argument>
-                                <argument>${auth-policy-cedar-domain.generated}</argument>
+                                <argument>--cerbos-output</argument>
+                                <argument>${auth-policy-cerbos.output}</argument>
                                 <argument>--module</argument>
                                 <argument>${auth-policy.module}</argument>
                             </arguments>

@@ -5,7 +5,20 @@ import java.time.OffsetDateTime;
 import java.util.UUID;
 
 /** Outcome of a successful publish: the resolved event id and server receipt time. */
-public record PublishResult(UUID eventId, OffsetDateTime receivedAt, int httpStatus) {
+public final class PublishResult {
+    private final UUID eventId;
+    private final OffsetDateTime receivedAt;
+    private final int httpStatus;
+
+    public PublishResult(UUID eventId, OffsetDateTime receivedAt, int httpStatus) {
+        this.eventId = eventId;
+        this.receivedAt = receivedAt;
+        this.httpStatus = httpStatus;
+    }
+
+    public UUID eventId() { return eventId; }
+    public OffsetDateTime receivedAt() { return receivedAt; }
+    public int httpStatus() { return httpStatus; }
 
     private static final String HEADER_EVENT_ID = "X-Audit-Event-Id";
     private static final String HEADER_RECEIVED_AT = "X-Audit-Received-At";

@@ -16,7 +16,21 @@ import java.util.concurrent.atomic.AtomicInteger;
 /** In-process HTTP stub for AuditFlow publish tests. Not thread-safe; one test at a time. */
 public final class StubAuditServer implements AutoCloseable {
 
-    public record CannedResponse(int status, Map<String, String> headers, String body) {
+    public static final class CannedResponse {
+        private final int status;
+        private final Map<String, String> headers;
+        private final String body;
+
+        public CannedResponse(int status, Map<String, String> headers, String body) {
+            this.status = status;
+            this.headers = headers;
+            this.body = body;
+        }
+
+        public int status() { return status; }
+        public Map<String, String> headers() { return headers; }
+        public String body() { return body; }
+
         public static CannedResponse ok(Map<String, String> headers) {
             return new CannedResponse(200, headers, "Audit event published successfully");
         }
@@ -25,7 +39,23 @@ public final class StubAuditServer implements AutoCloseable {
         }
     }
 
-    public record CapturedRequest(String method, String path, Map<String, List<String>> headers, String body) {
+    public static final class CapturedRequest {
+        private final String method;
+        private final String path;
+        private final Map<String, List<String>> headers;
+        private final String body;
+
+        public CapturedRequest(String method, String path, Map<String, List<String>> headers, String body) {
+            this.method = method;
+            this.path = path;
+            this.headers = headers;
+            this.body = body;
+        }
+
+        public String method() { return method; }
+        public String path() { return path; }
+        public Map<String, List<String>> headers() { return headers; }
+        public String body() { return body; }
     }
 
     private final HttpServer server;

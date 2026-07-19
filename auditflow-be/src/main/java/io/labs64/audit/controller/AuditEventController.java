@@ -6,7 +6,7 @@ import io.labs64.audit.v1.api.AuditEventApi;
 import io.labs64.auditflow.model.AuditEvent;
 import io.labs64.audit.publisher.AuditPublisherService;
 import io.labs64.audit.tenant.TenantGate;
-import io.labs64.authcontext.cedar.Authorize;
+import io.labs64.authcontext.authorization.Authorize;
 import io.labs64.authcontext.core.AuthContextHolder;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
