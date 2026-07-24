@@ -98,8 +98,8 @@ build-be: build-api
 # Testing
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Run all tests across all three services
-test: test-api test-be test-transformer test-sink
+# Run all tests across all three services plus e2e
+test: test-api test-be test-transformer test-sink test-e2e
 
 # Run Java backend unit tests
 test-api:
@@ -118,6 +118,10 @@ test-transformer:
 test-sink:
     python3 -m pip install -r auditflow-sink/requirements-dev.txt -q --break-system-packages 2>/dev/null || python3 -m pip install -r auditflow-sink/requirements-dev.txt -q
     cd auditflow-sink && python3 -m pytest -v --tb=short
+
+# Run E2E tests for this module via labs64.io-tests
+test-e2e:
+    @just -f ../labs64.io-tests/justfile test-module auditflow
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Example notebooks
