@@ -523,12 +523,6 @@ If you're unsure whether something is a good fit, open an issue first — it sav
 
 ---
 
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=Labs64/labs64.io-auditflow&type=Date)](https://www.star-history.com/#Labs64/labs64.io-auditflow&Date)
-
----
-
 ## License
 
-AuditFlow is licensed under the [GNU Lesser General Public License v3.0](LICENSE).
+The core of the *Labs64.IO Ecosystem* is entirely open source and free forever. Community modules are licensed under [Apache License 2.0](LICENSE).
