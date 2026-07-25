@@ -4,7 +4,7 @@ LABEL org.opencontainers.image.title="Labs64.IO :: AuditFlow" \
       org.opencontainers.image.description="Scalable audit logging backend for modern microservices" \
       org.opencontainers.image.url="https://labs64.io" \
       org.opencontainers.image.source="https://github.com/Labs64/labs64.io-auditflow" \
-      org.opencontainers.image.licenses="LGPL-3.0"
+      org.opencontainers.image.licenses="Apache-2.0"
 
 # Define build arguments
 ARG USER_ID=1064
