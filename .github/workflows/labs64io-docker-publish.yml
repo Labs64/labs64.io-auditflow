@@ -91,6 +91,8 @@ jobs:
           context: ./auditflow-be
           push: true
           platforms: linux/amd64,linux/arm64/v8
+          build-args: |
+            GIT_REVISION=${{ github.sha }}
           tags: |
             labs64/auditflow:latest
             labs64/auditflow:${{ steps.get_release_tag.outputs.RELEASE_TAG }}
@@ -103,6 +105,8 @@ jobs:
           context: ./auditflow-transformer
           push: true
           platforms: linux/amd64,linux/arm64/v8
+          build-args: |
+            GIT_REVISION=${{ github.sha }}
           tags: |
             labs64/auditflow-transformer:latest
             labs64/auditflow-transformer:${{ steps.get_release_tag.outputs.RELEASE_TAG }}
@@ -115,8 +119,21 @@ jobs:
           context: ./auditflow-sink
           push: true
           platforms: linux/amd64,linux/arm64/v8
+          build-args: |
+            GIT_REVISION=${{ github.sha }}
           tags: |
             labs64/auditflow-sink:latest
             labs64/auditflow-sink:${{ steps.get_release_tag.outputs.RELEASE_TAG }}
           cache-from: type=gha,scope=${{ github.workflow }}-sink
           cache-to: type=gha,mode=max,scope=${{ github.workflow }}-sink
+
+      - name: Verify required OCI labels
+        run: |
+          for img in labs64/auditflow labs64/auditflow-transformer labs64/auditflow-sink; do
+            docker pull "$img:latest"
+            LABELS="$(docker inspect --format '{{json .Config.Labels}}' "$img:latest")"
+            for key in org.opencontainers.image.licenses org.opencontainers.image.revision org.opencontainers.image.source io.labs64.edition; do
+              echo "$LABELS" | jq -e --arg k "$key" 'has($k) and (.[$k] | length > 0)' >/dev/null \
+                || { echo "::error::missing or empty OCI label '$key' on $img:latest"; exit 1; }
+            done
+          done
