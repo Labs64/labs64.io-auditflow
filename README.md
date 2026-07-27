@@ -206,6 +206,23 @@ Switch between `local` (a configured base URL) and `kubernetes` (fabric8 `Kubern
 ### OpenAPI-first contract
 The public API contract lives in a single YAML spec. Java models and the controller interface are generated at build time — generated sources are never committed and never hand-edited. Changing the API means editing the YAML. The Swagger UI ships with the backend for interactive exploration at `/swagger-ui.html`.
 
+### v1 compatibility promise
+
+`auditflow-api/src/main/resources/openapi/openapi-audit-v1.yaml` is **frozen**: within v1, changes are additive-only. You can build against it once and upgrade AuditFlow without your integration breaking.
+
+**What "additive-only" means in practice** — always allowed:
+- New paths, operations, response status codes, schemas, properties, parameters, enum values.
+- A previously-required property or parameter becoming optional.
+- Documentation-only changes (descriptions, examples).
+
+**Never allowed within v1** — any of these require a v2 spec instead:
+- Removing a path, operation, response code, schema, or property.
+- A previously-optional property or parameter becoming required.
+- Changing a property's or parameter's declared type.
+- Removing an enum value.
+
+A breaking change to v1 is a bug, not a release. **CI enforces this mechanically**: every pull request diffs `openapi-audit-v1.yaml` against its version on the base branch and fails the build if anything above was removed or narrowed (`scripts/check_openapi_breaking_changes.py`, wired into `labs64io-ci.yml`'s `api-contract-freeze` job). A genuine breaking change needs a new spec file (`openapi-audit-v2.yaml`) and a new major version — never an edit to the frozen file.
+
 ---
 
 ## Architecture
@@ -249,7 +266,11 @@ Key design decisions:
 
 ## Quick Start
 
-Three commands and you have the full stack — backend, broker, transformer, and sink — publishing and delivering events on your machine. You'll need Docker, Docker Compose v2, and [`just`](https://github.com/casey/just).
+Three commands and you have the full stack — backend, broker, transformer, and sink — publishing and delivering events on your machine.
+
+You'll need Docker, Docker Compose v2, [`just`](https://github.com/casey/just), and — because `just up` builds the backend jar on your machine before starting the containers — **JDK 25** and **Maven 3.6.3+**.
+
+Measured at **61 seconds** from `just up` to a delivered event on a warm developer machine; see the [timed quickstart](https://github.com/Labs64/labs64.io-docs/blob/master/auditflow/quickstart.md) for the full breakdown and what was cold.
 
 ```bash
 # Clone

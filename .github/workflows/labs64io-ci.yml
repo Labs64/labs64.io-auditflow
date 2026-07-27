@@ -1,9 +1,5 @@
 name: Labs64.IO - AuditFlow - CI
 
-permissions:
-  contents: write
-  security-events: write
-
 on:
   push:
     branches: [ "master" ]
@@ -15,144 +11,108 @@ concurrency:
   group: auditflow-ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
-  # ─────────────────────────────────────────────────────────────────────────────
-  # Java API client library
-  # ─────────────────────────────────────────────────────────────────────────────
+  # Item 8: the v1 API contract is frozen — additive-only, breaking changes need
+  # a v2 spec. Diffs openapi-audit-v1.yaml against its version on the PR base
+  # branch and fails the build if anything was removed or narrowed. Only
+  # meaningful on pull_request (a push to master has nothing to diff against).
+  api-contract-freeze:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install checker dependencies
+        run: pip install pyyaml pytest
+
+      - name: Test the breaking-change checker
+        # A gate nobody tests reports "no breaking changes" forever.
+        run: pytest scripts/test_check_openapi_breaking_changes.py -q
+
+      - name: No breaking changes to the frozen v1 contract
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          python scripts/check_openapi_breaking_changes.py \
+            auditflow-api/src/main/resources/openapi/openapi-audit-v1.yaml \
+            --base-ref "origin/$BASE_REF"
+
+  # Item 16: SAST as a named release input. Distinct from the API-edge contract
+  # tests above — this is static analysis, not behavioral testing. Every run
+  # writes a sast-manifest artifact naming the scanner + exact version, so a
+  # release can state which scanners ran against that build.
+  sast:
+    permissions:
+      contents: read
+      security-events: write
+    uses: Labs64/labs64.io-workspace/.github/workflows/sast.yml@master
+    with:
+      manifest-name: auditflow-sast-manifest
+
+  # Java API client library — no live deps, no dependency-graph submission needed
+  # (auditflow-be's submission already covers the module's own reactor).
   build-api:
-    name: Build & Test (Java API client)
-    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    uses: Labs64/labs64.io-workspace/.github/workflows/java-ci.yml@master
+    with:
+      working-directory: auditflow-api
+      java-version: "17"
+      maven-goals: verify
+      artifact-name: api-test-results
 
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v5
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-          cache: maven
-
-      - name: Build and test with Maven
-        run: mvn -B verify --file auditflow-api/pom.xml
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: api-test-results
-          path: auditflow-api/target/surefire-reports/
-          retention-days: 7
-
-  # ─────────────────────────────────────────────────────────────────────────────
-  # Java backend
-  # ─────────────────────────────────────────────────────────────────────────────
+  # Java backend — no live deps (tests mock/embed what they need); Docker build
+  # sanity check + Dependabot dependency-graph submission on top of test+verify.
   build-backend:
-    name: Build & Test (Java backend)
-    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    uses: Labs64/labs64.io-workspace/.github/workflows/java-ci.yml@master
+    with:
+      working-directory: auditflow-be
+      java-version: "25"
+      maven-goals: verify
+      artifact-name: backend-test-results
+      docker-build-context: auditflow-be
+      docker-build-tag: auditflow:ci-${{ github.sha }}
+      submit-dependency-graph: true
 
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Set up JDK 25
-        uses: actions/setup-java@v5
-        with:
-          java-version: '25'
-          distribution: 'temurin'
-          cache: maven
-
-      - name: Build and test with Maven
-        run: mvn -B verify --file auditflow-be/pom.xml
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: backend-test-results
-          path: auditflow-be/target/surefire-reports/
-          retention-days: 7
-
-      - name: Build Docker image
-        run: docker build auditflow-be --file auditflow-be/Dockerfile --tag auditflow:ci-${{ github.sha }}
-
-      # Submit dependency graph to GitHub for Dependabot alerts
-      - name: Update dependency graph
-        uses: advanced-security/maven-dependency-submission-action@571e99aab1055c2e71a1e2309b9691de18d6b7d6
-        with:
-          directory: auditflow-be
-
-  # ─────────────────────────────────────────────────────────────────────────────
   # Python transformer service
-  # ─────────────────────────────────────────────────────────────────────────────
   build-transformer:
-    name: Build & Test (transformer)
-    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    uses: Labs64/labs64.io-workspace/.github/workflows/python-ci.yml@master
+    with:
+      working-directory: auditflow-transformer
+      install-command: pip install -r requirements-dev.txt
+      test-command: pytest -v --tb=short --junit-xml=test-results.xml
+      cache-dependency-path: |
+        auditflow-transformer/requirements.txt
+        auditflow-transformer/requirements-dev.txt
+      docker-context: auditflow-transformer
+      artifact-name: transformer-test-results
+      test-results-path: test-results.xml
 
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.13'
-          cache: 'pip'
-          cache-dependency-path: |
-            auditflow-transformer/requirements.txt
-            auditflow-transformer/requirements-dev.txt
-
-      - name: Install dependencies
-        run: pip install -r auditflow-transformer/requirements-dev.txt
-
-      - name: Run tests
-        working-directory: auditflow-transformer
-        run: pytest -v --tb=short --junit-xml=test-results.xml
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: transformer-test-results
-          path: auditflow-transformer/test-results.xml
-          retention-days: 7
-
-      - name: Build Docker image
-        run: docker build auditflow-transformer --file auditflow-transformer/Dockerfile --tag auditflow-transformer:ci-${{ github.sha }}
-
-  # ─────────────────────────────────────────────────────────────────────────────
   # Python sink service
-  # ─────────────────────────────────────────────────────────────────────────────
   build-sink:
-    name: Build & Test (sink)
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.13'
-          cache: 'pip'
-          cache-dependency-path: |
-            auditflow-sink/requirements.txt
-            auditflow-sink/requirements-dev.txt
-
-      - name: Install dependencies
-        run: pip install -r auditflow-sink/requirements-dev.txt
-
-      - name: Run tests
-        working-directory: auditflow-sink
-        run: pytest -v --tb=short --junit-xml=test-results.xml
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: sink-test-results
-          path: auditflow-sink/test-results.xml
-          retention-days: 7
-
-      - name: Build Docker image
-        run: docker build auditflow-sink --file auditflow-sink/Dockerfile --tag auditflow-sink:ci-${{ github.sha }}
-
-
+    permissions:
+      contents: read
+    uses: Labs64/labs64.io-workspace/.github/workflows/python-ci.yml@master
+    with:
+      working-directory: auditflow-sink
+      install-command: pip install -r requirements-dev.txt
+      test-command: pytest -v --tb=short --junit-xml=test-results.xml
+      cache-dependency-path: |
+        auditflow-sink/requirements.txt
+        auditflow-sink/requirements-dev.txt
+      docker-context: auditflow-sink
+      artifact-name: sink-test-results
+      test-results-path: test-results.xml

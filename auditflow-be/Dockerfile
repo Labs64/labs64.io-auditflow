@@ -28,6 +28,18 @@ ARG OTEL_JAVAAGENT_VERSION=2.29.0
 ADD https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${OTEL_JAVAAGENT_VERSION}/opentelemetry-javaagent.jar /otel/opentelemetry-javaagent.jar
 RUN chmod 444 /otel/opentelemetry-javaagent.jar
 
+# Extension directory. The jar is built with the ZIP layout, so it launches through
+# PropertiesLauncher and anything on `loader.path` joins the application classpath at
+# startup — jars dropped in here contribute beans, auto-configuration, property
+# defaults and spring.factories entries without rebuilding the image.
+#
+# It ships EMPTY and INERT: with nothing in it, `loader.path` is not set at all and
+# startup is exactly the previous fat-jar behaviour. This is the Java counterpart of
+# the transformer/sink services' *_bootstrap/ directories, available to any plugin
+# author — it knows nothing about who might use it.
+ENV LABS64_EXT_DIR=/opt/labs64/ext
+RUN mkdir -p ${LABS64_EXT_DIR} && chown ${USER_NAME}:${GROUP_NAME} ${LABS64_EXT_DIR}
+
 # Set working directory
 WORKDIR /home/${USER_NAME}
 
@@ -40,5 +52,14 @@ USER ${USER_NAME}
 HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=5 \
     CMD wget -qO- http://127.0.0.1:8080/actuator/health || exit 1
 
-# Default command — path uses the literal value of USER_NAME (l64user)
-ENTRYPOINT ["/bin/sh", "-c", "java $JAVA_OPTS -jar /home/l64user/app.jar"]
+# Default command — path uses the literal value of USER_NAME (l64user).
+#
+# `loader.path` is expanded from the extension directory at startup rather than being
+# set to the directory itself: PropertiesLauncher treats a directory entry as a
+# classpath *root* and does not scan it for jars (verified against Boot 4.1), and it
+# does not glob, so `/opt/labs64/ext` and `/opt/labs64/ext/*.jar` both silently load
+# nothing. Listing the jars explicitly is what actually works.
+#
+# With an empty directory the `${EXT:+...}` expansion contributes no flag at all, so
+# CE startup is unchanged. `exec` keeps java as PID 1 so it receives signals directly.
+ENTRYPOINT ["/bin/sh", "-c", "EXT=$(ls -1 ${LABS64_EXT_DIR}/*.jar 2>/dev/null | tr '\\n' ',' | sed 's/,$//'); exec java $JAVA_OPTS ${EXT:+-Dloader.path=\"$EXT\"} -jar /home/l64user/app.jar"]

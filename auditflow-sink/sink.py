@@ -4,12 +4,21 @@ import sys
 import os
 import logging
 
+from contextlib import asynccontextmanager
 from plugin_registry import PluginRegistry, PluginNotFoundError, VALID_ID
 from health import set_ready, health, readiness, liveness, service_info, suppress_health_access_logs
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 app_logger = logging.getLogger(__name__)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Set service as ready after startup completes."""
+    suppress_health_access_logs()
+    set_ready(True)
+    app_logger.info("Sink service started and ready")
+    yield
 
 app = FastAPI(
     title="Labs64.IO :: AuditFlow - Event Sink Service",
@@ -24,7 +33,8 @@ app = FastAPI(
         "name": "LGPL v3.0",
         "url": "https://raw.githubusercontent.com/Labs64/labs64.io-auditflow/refs/heads/master/LICENSE",
     },
-    swagger_ui_parameters={"displayRequestDuration": True}
+    swagger_ui_parameters={"displayRequestDuration": True},
+    lifespan=lifespan
 )
 
 # Health check endpoints
@@ -35,13 +45,6 @@ app.get('/info')(service_info)
 
 from telemetry import get_business_telemetry
 business_telemetry = get_business_telemetry()
-
-@app.on_event("startup")
-async def startup_event():
-    """Set service as ready after startup completes."""
-    suppress_health_access_logs()
-    set_ready(True)
-    app_logger.info("Sink service started and ready")
 
 # Define base directory
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -61,10 +64,13 @@ else:
 
 # Discover and validate sinks once at startup into an allow-list.
 # Only allow-listed ids are resolvable; unknown ids are rejected before any import.
+# Sources, lowest precedence first: shipped 'sinks/', pip-installed wheels advertising the
+# 'auditflow.sinks' entry-point group, then anything mounted in 'sinks_bootstrap/'.
 registry = PluginRegistry(
     base_dir=current_dir,
     dir_specs=[("sinks", "internal"), ("sinks_bootstrap", "external")],
     entry_point="process",
+    entry_point_group="auditflow.sinks",
 ).discover()
 
 

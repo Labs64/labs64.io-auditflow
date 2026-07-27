@@ -1,0 +1,6 @@
+# Registers the banner-location default. Boot 4.1 discovers EnvironmentPostProcessor
+# through spring.factories (not a .imports file), and SpringFactoriesLoader reads EVERY
+# spring.factories on the classpath — which is what lets a jar in /opt/labs64/ext
+# contribute its own post-processors alongside these.
+org.springframework.boot.EnvironmentPostProcessor=\
+io.labs64.audit.config.BannerLocationEnvironmentPostProcessor

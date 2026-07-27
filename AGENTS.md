@@ -93,6 +93,35 @@ cd auditflow-sink        && just run-local   # uvicorn :8082
 
 Local URLs: Swagger `:8080/swagger-ui.html`, transformer/sink `:8081/docs` / `:8082/docs`, RabbitMQ `:15673` (guest/guest), Grafana `:3000` (admin/admin).
 
+## Gateway-edge regression suite (`tests/e2e/`)
+
+Black-box, Robot Framework, gateway-edge only — see `labs64.io-tests/AGENTS.md` for the full
+convention (tags, mock-oidc, the `local-k8s-only` kubectl exception). Runs against the local k3d
+dev cluster (`labs64.io-helm-charts`'s `just up`), not the plain `docker-compose.yml` stack — that
+stack has no gateway in front of it.
+
+| File | Covers |
+|---|---|
+| `smoke.robot` | Happy path + 400 validation |
+| `authz.robot` | Auth/authz scope matrix |
+| `tenant_isolation.robot` | Gateway-derived tenant is authoritative; unprovisioned tenants rejected |
+| `pipeline_routing.robot` | Non-matching events produce no delivery attempt; fan-out dead-letters exactly once |
+| `condition_operators.robot` | Every `ConditionEvaluator` operator branch + match:all/any |
+| `redaction.robot` | PII masking before publish (baseline + local-k8s content corroboration) |
+| `dlq_replay.robot` | DLQ inspect is non-destructive; replay drains and is tenant-scoped |
+| `quota_enforcement.robot` | Per-tenant token bucket: 429 + Retry-After, recovery |
+| `secret_ref_resolution.robot` | Resolvable vs. missing `${secretRef:...}` — fail-closed, never blank |
+
+The last six use a dedicated `t_regression`/`t_regression_quota` tenant pair (mock-oidc personas
+`auditflow-regression`/`auditflow-regression-quota`, provisioned in
+`overrides/auditflow/values.local.yaml` in `labs64.io-helm-charts`) — deliberately aggressive
+fixtures (tiny quotas, pipelines that always fail via an unresolvable secretRef) that must never
+touch `t_mock`, which every other suite shares. A DLQ entry is per **event**, not per failing
+pipeline (`AuditService.dispatchToPipelines` fans one event out to all matching pipelines but
+dead-letters the whole event once on redelivery exhaustion) — every conditional probe pipeline is
+therefore ANDed with a unique `extra.op` discriminator so at most one probe can ever match a given
+test event.
+
 ## Conventions
 
 - **Java 25, Maven 3.6.3+** enforced by maven-enforcer-plugin.

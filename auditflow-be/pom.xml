@@ -306,6 +306,17 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <!-- ZIP layout launches through PropertiesLauncher instead of JarLauncher,
+                         which is what makes `loader.path` (LOADER_PATH=/opt/labs64/ext in the
+                         image) able to contribute jars to the application classpath at runtime.
+                         A JarLauncher fat jar cannot be extended after it is built.
+
+                         This is a plain capability of the CE image: the extension directory
+                         ships empty and inert, and community plugin authors get exactly the
+                         same seam the Python services already offer via *_bootstrap/. -->
+                    <layout>ZIP</layout>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>

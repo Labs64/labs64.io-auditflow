@@ -100,6 +100,26 @@ paths:
                 code: "TENANT_NOT_PROVISIONED"
                 message: "Tenant 'acme' is not provisioned"
                 timestamp: "2025-11-30T10:15:30Z"
+        '405':
+          description: HTTP method not allowed on this path (only POST is accepted).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "VALIDATION_ERROR"
+                message: "Request method 'GET' is not supported"
+                timestamp: "2025-11-30T10:15:30Z"
+        '415':
+          description: Unsupported Content-Type — this operation accepts application/json only.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "VALIDATION_ERROR"
+                message: "Content-Type 'text/plain' is not supported"
+                timestamp: "2025-11-30T10:15:30Z"
         '429':
           description: Per-tenant ingest rate limit exceeded.
           headers:
