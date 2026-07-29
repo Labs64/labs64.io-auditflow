@@ -384,6 +384,39 @@ Swap any self-hosted component for a managed cloud service — pipeline behaviou
 
 The cloud sinks (`aws_s3_sink`, `aws_cloudwatch_sink`, `gcs_sink`, `azure_blob_sink`) read connection details from `sink.properties`, resolved from environment variables — no credentials in configuration files.
 
+### Running without Redis
+
+Redis is only used for idempotency/dedup and multi-replica rate-limiting. A single-replica
+deployment that doesn't need either can skip running Redis at all — this is exactly what the
+bundled `docker-compose.yml` dev stack does (`just up` runs with Redis fully excluded). To do the
+same via the Helm chart, set:
+
+```yaml
+applicationYaml:
+  auditflow:
+    idempotency:
+      store: memory
+  tenants:
+    ratelimit:
+      backend: in-memory
+  spring:
+    autoconfigure:
+      exclude:
+        - org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration
+        - org.springframework.boot.data.redis.autoconfigure.DataRedisReactiveAutoConfiguration
+        - org.springframework.boot.data.redis.autoconfigure.health.DataRedisHealthContributorAutoConfiguration
+        - org.springframework.boot.data.redis.autoconfigure.health.DataRedisReactiveHealthContributorAutoConfiguration
+```
+
+All four exclude entries are required together — Spring Boot still instantiates a Redis
+connection factory (and its health indicator, which will report `DOWN` against an unreachable
+Redis) if only `idempotency.store`/`ratelimit.backend` are switched without also excluding the
+auto-configuration classes.
+
+Running more than one replica without Redis is not supported: rate-limiting falls back to
+per-process in-memory counters, so each replica enforces its own independent quota instead of a
+shared one.
+
 ---
 
 ## Configuring Pipelines
