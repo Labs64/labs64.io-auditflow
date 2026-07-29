@@ -35,3 +35,4 @@ htmlcov/
 .agents/
 graphify-out/
 examples/.ipynb_checkpoints/
+.worktrees/
