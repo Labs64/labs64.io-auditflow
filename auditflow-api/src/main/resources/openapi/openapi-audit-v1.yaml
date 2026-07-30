@@ -20,13 +20,13 @@ paths:
       tags:
         - AuditEvent
       description: Publishes an audit event to a message broker for asynchronous processing through configured pipelines.
-      x-labs64-auth:
-        tenant: true
-        scopes:
-          - audit-event:write
-        resource: AuditEvent
       security:
-        - bearerAuth: []
+        - oauth:
+            - audit-event:write
+      x-labs64:
+        auth:
+          tenant: true
+          resource: AuditEvent
       requestBody:
         description: Audit event payload to be published.
         required: true
@@ -309,8 +309,11 @@ components:
           description: Optional correlation/trace ID for distributed tracing.
 
   securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-      description: JWT authentication token
+    oauth:
+      type: oauth2
+      description: OAuth 2.0 client credentials via the local mock OIDC provider; endpoint may change.
+      flows:
+        clientCredentials:
+          tokenUrl: http://mock-oidc.localhost/labs64io/token
+          scopes:
+            audit-event:write: Publish audit events

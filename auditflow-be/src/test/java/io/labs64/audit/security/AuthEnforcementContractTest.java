@@ -15,8 +15,9 @@ import io.labs64.authcontext.test.ModulePepHarness;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 
 /**
- * Item 2 (roadmap): every operation that declares {@code x-labs64-auth} in the
- * canonical spec is called without credentials and must be refused.
+ * Item 2 (roadmap): every operation protected by effective OpenAPI
+ * {@code security} or {@code x-labs64.auth} in the canonical spec is called
+ * without credentials and must be refused.
  *
  * <p>Cases come from {@code auditflow-api/.../openapi-audit-v1.yaml} — the same
  * source the Cerbos policies, the gateway routes and the generated public-path
