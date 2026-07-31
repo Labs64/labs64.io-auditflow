@@ -20,12 +20,11 @@ paths:
       tags:
         - AuditEvent
       description: Publishes an audit event to a message broker for asynchronous processing through configured pipelines.
-      security:
-        - oauth:
-            - audit-event:write
       x-labs64:
         auth:
           tenant: true
+          scopes:
+            - audit-event:write
           resource: AuditEvent
       requestBody:
         description: Audit event payload to be published.
@@ -307,13 +306,3 @@ components:
           type: string
           nullable: true
           description: Optional correlation/trace ID for distributed tracing.
-
-  securitySchemes:
-    oauth:
-      type: oauth2
-      description: OAuth 2.0 client credentials via the local mock OIDC provider; endpoint may change.
-      flows:
-        clientCredentials:
-          tokenUrl: http://mock-oidc.localhost/labs64io/token
-          scopes:
-            audit-event:write: Publish audit events

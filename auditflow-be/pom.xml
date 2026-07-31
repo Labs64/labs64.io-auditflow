@@ -42,8 +42,7 @@
         <!-- OpenAPI auth preprocessor paths -->
         <openapi.source>${project.basedir}/../auditflow-api/src/main/resources/openapi/openapi-audit-${audit.version}.yaml</openapi.source>
         <openapi.generated>${project.build.directory}/generated-openapi/openapi-audit-${audit.version}.yaml</openapi.generated>
-        <!-- Cerbos policies + routes manifest generated from OpenAPI security
-             and x-labs64.auth.
+        <!-- Cerbos policies + routes manifest generated from x-labs64.auth.
              auth-policy.module must equal the module's gateway prefix
              (= policy-sources.yaml name); it is baked into the Cerbos resource
              kind (auditflow -> auditflow_api). Generated output is a build
