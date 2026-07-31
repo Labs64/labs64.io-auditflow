@@ -52,8 +52,6 @@
         <auth-policy.module>auditflow</auth-policy.module>
     </properties>
 
-
-
     <dependencyManagement>
         <dependencies>
             <!-- Align ALL fabric8 modules at one version. MUST be imported BEFORE
