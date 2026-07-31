@@ -2,7 +2,7 @@
 Documentation    DLQ inspect and replay (item 12), via the tenant-scoped `/actuator/dlq/<tenantId>`
 ...              endpoints against the dedicated t_regression tenant.
 ...
-...              `secretref_missing` (see secret_ref_resolution.robot) is used purely as a
+...              `test_secretref_missing_intentional_fail` (see secret_ref_resolution.robot) is used purely as a
 ...              deterministic, fast way to get a message into the DLQ — this suite's actual
 ...              subject is the inspect/replay mechanics themselves, not secretRef.
 Resource         ../../../labs64.io-tests/resources/auditflow.resource
@@ -27,7 +27,7 @@ Replay drains and reports the tenant's own messages
     [Tags]    auditflow    regression    dlq    critical
     ${correlation_id}=    Generate Correlation ID
     ${before}=    Get DLQ Message Count    ${AUDITFLOW_REGRESSION_SESSION}    t_regression
-    ${event}=    Build Probe Audit Event    ${correlation_id}    secretref_missing
+    ${event}=    Build Probe Audit Event    ${correlation_id}    test_secretref_missing_intentional_fail
     ${response}=    Publish Audit Event    ${event}    alias=${AUDITFLOW_REGRESSION_SESSION}
     Response Status Should Be    ${response}    200
     ${expected}=    Evaluate    ${before} + 1

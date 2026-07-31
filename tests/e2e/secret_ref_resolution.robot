@@ -8,7 +8,7 @@ Documentation    secretRef resolution (item 12), asserted via observable DLQ gro
 ...                variable (AUDITFLOW_TENANT_T_REGRESSION_TESTKEY, set in
 ...                overrides/auditflow/values.secrets.local.yaml) — resolution succeeds, delivery
 ...                proceeds normally.
-...              - ``secretref_missing`` references a key that is never provisioned anywhere —
+...              - ``test_secretref_missing_intentional_fail`` references a key that is never provisioned anywhere —
 ...                EnvSecretRefResolver throws a RetryableDeliveryException, which is exactly the
 ...                documented contract: a missing secretRef key is a retryable failure, never a
 ...                blank value and never another tenant's credential (see
@@ -41,7 +41,7 @@ Missing secretRef key fails delivery, never a blank value
     [Tags]    auditflow    regression    secret-ref    critical
     ${correlation_id}=    Generate Correlation ID
     ${before}=    Get DLQ Message Count    ${AUDITFLOW_REGRESSION_SESSION}    t_regression
-    ${event}=    Build Probe Audit Event    ${correlation_id}    secretref_missing
+    ${event}=    Build Probe Audit Event    ${correlation_id}    test_secretref_missing_intentional_fail
     ${response}=    Publish Audit Event    ${event}    alias=${AUDITFLOW_REGRESSION_SESSION}
     Response Status Should Be    ${response}    200
     ${expected}=    Evaluate    ${before} + 1
