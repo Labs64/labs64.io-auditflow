@@ -28,6 +28,13 @@ htmlcov/
 .DS_Store
 *.swp
 *~
+# Eclipse / Eclipse JDT Language Server (backs the VS Code Java extension).
+# `bin/` is its default output folder — the Maven build uses target/ and never
+# reads bin/, so everything there is regenerable IDE state.
+.project
+.classpath
+.settings/
+bin/
 
 # --- Logs ---
 *.log
