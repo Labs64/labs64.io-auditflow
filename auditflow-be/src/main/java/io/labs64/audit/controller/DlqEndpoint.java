@@ -6,6 +6,7 @@ import io.labs64.audit.tenant.TenantIds;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.boot.actuate.endpoint.annotation.DeleteOperation;
 import org.springframework.boot.actuate.endpoint.annotation.Endpoint;
 import org.springframework.boot.actuate.endpoint.annotation.ReadOperation;
 import org.springframework.boot.actuate.endpoint.annotation.Selector;
@@ -21,13 +22,14 @@ import java.util.Map;
 /**
  * Tenant-scoped DLQ actuator. Every operation REQUIRES a tenantId and only ever touches messages
  * whose authoritative body {@code tenantId} matches — an operator replaying tenant A's poison
- * messages can never list, replay, or expose tenant B's. Replayed messages re-enter the normal
+ * messages can never list, replay, purge, or expose tenant B's. Replayed messages re-enter the normal
  * consumer flow and are re-subjected to routing isolation (so replay after offboarding re-quarantines).
  *
  * <p>Safety: everything runs on one channel with manual acks. Inspect fetches with
  * {@code basicGet(autoAck=false)} and nacks everything back (unacked messages are invisible to the
  * same-channel loop, so this terminates); replay acks a message only AFTER it was published to the
- * main queue. A crash mid-operation loses nothing — unacked messages return to the DLQ.</p>
+ * main queue. A crash mid-operation loses nothing — unacked messages return to the DLQ. Purge is the
+ * one destructive operation: an acked message is discarded, not forwarded anywhere.</p>
  */
 @Endpoint(id = "dlq")
 @Component
@@ -108,6 +110,53 @@ public class DlqEndpoint {
                     wanted, counts[0], counts[1]);
         } catch (Exception e) {
             logger.error("Failed to replay DLQ for tenant '{}'", wanted, e);
+            result.put("status", "error");
+            result.put("error", e.getMessage());
+        }
+        return result;
+    }
+
+    /**
+     * Discard this tenant's DLQ messages without replaying them. Unlike {@link #retry(String)},
+     * purged messages are gone for good — this is for poison messages that will never succeed
+     * (an operator has accepted the loss) and for resetting a tenant whose DLQ has accumulated
+     * a backlog that replay can only churn, never drain.
+     *
+     * <p>Same isolation and safety guarantees as the other operations: only messages whose body
+     * {@code tenantId} matches are acked (discarded); everything else is nacked back untouched,
+     * and a crash mid-purge loses nothing beyond what was already acked.</p>
+     */
+    @DeleteOperation
+    public Map<String, Object> purge(@Selector String tenantId) {
+        String wanted = TenantIds.resolve(tenantId);
+        logger.warn("DLQ purge requested for tenant '{}' — matching messages will be discarded", wanted);
+        Map<String, Object> result = new HashMap<>();
+        try {
+            long[] counts = rabbitTemplate.execute(channel -> {
+                long purged = 0;
+                List<Long> keep = new ArrayList<>();
+                GetResponse resp;
+                while ((resp = channel.basicGet(DLQ_QUEUE_NAME, false)) != null) {
+                    if (wanted.equals(tenantOf(resp.getBody()))) {
+                        channel.basicAck(resp.getEnvelope().getDeliveryTag(), false); // discard
+                        purged++;
+                    } else {
+                        keep.add(resp.getEnvelope().getDeliveryTag()); // untouched, nacked back below
+                    }
+                }
+                for (long tag : keep) {
+                    channel.basicNack(tag, false, true);
+                }
+                return new long[] { purged, keep.size() };
+            });
+            result.put("status", "success");
+            result.put("tenantId", wanted);
+            result.put("purgedCount", (int) counts[0]);
+            result.put("requeuedCount", (int) counts[1]);
+            logger.info("DLQ purge for tenant '{}' completed — purged: {}, requeued: {}",
+                    wanted, counts[0], counts[1]);
+        } catch (Exception e) {
+            logger.error("Failed to purge DLQ for tenant '{}'", wanted, e);
             result.put("status", "error");
             result.put("error", e.getMessage());
         }

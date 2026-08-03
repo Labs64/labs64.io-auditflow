@@ -75,6 +75,24 @@ class DlqEndpointTest {
     }
 
     @Test
+    void purgeDiscardsOnlyTheRequestingTenantAndNeverForwardsAnything() throws Exception {
+        Channel channel = mock(Channel.class);
+        when(channel.basicGet(eq(DLQ), eq(false)))
+                .thenReturn(msg("acme", 1), msg("globex", 2), null);
+        DlqEndpoint endpoint = new DlqEndpoint(templateOver(channel), new ObjectMapper());
+
+        var result = endpoint.purge("acme");
+
+        assertEquals(1, result.get("purgedCount"));
+        assertEquals(1, result.get("requeuedCount"));
+        verify(channel).basicAck(1, false);          // acme -> discarded
+        verify(channel).basicNack(2, false, true);   // globex -> back on the DLQ, untouched
+        verify(channel, never()).basicAck(2, false);
+        // purge must never republish: a purged message is gone, not retried
+        verify(channel, never()).basicPublish(anyString(), anyString(), any(), any(byte[].class));
+    }
+
+    @Test
     void tenantlessDlqMessagesBelongToThePlatformBucket() throws Exception {
         Channel channel = mock(Channel.class);
         GetResponse tenantless = new GetResponse(new Envelope(7, false, "", DLQ),
