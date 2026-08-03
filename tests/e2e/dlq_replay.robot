@@ -6,14 +6,21 @@ Documentation    DLQ inspect and replay (item 12), via the tenant-scoped `/actua
 ...              deterministic, fast way to get a message into the DLQ — this suite's actual
 ...              subject is the inspect/replay mechanics themselves, not secretRef.
 Resource         ../../../labs64.io-tests/resources/auditflow.resource
-Suite Setup      Create Regression Session
+Suite Setup      Create Regression Session With Empty DLQ
 Suite Teardown   Delete All Sessions
 
 *** Test Cases ***
 Inspection is non-destructive
     [Documentation]    GET /actuator/dlq/<tenantId> must not consume messages — two consecutive
     ...                GETs (with nothing replayed in between) must report the same count.
+    ...                Seeds a message first: the suite starts from a purged DLQ, and comparing
+    ...                0 to 0 would pass even if inspection ate every message.
     [Tags]    auditflow    regression    dlq
+    ${correlation_id}=    Generate Correlation ID
+    ${event}=    Build Probe Audit Event    ${correlation_id}    test_secretref_missing_intentional_fail
+    ${response}=    Publish Audit Event    ${event}    alias=${AUDITFLOW_REGRESSION_SESSION}
+    Response Status Should Be    ${response}    200
+    Wait Until DLQ Count At Least    ${AUDITFLOW_REGRESSION_SESSION}    t_regression    1
     ${first}=    Get DLQ Message Count    ${AUDITFLOW_REGRESSION_SESSION}    t_regression
     ${second}=    Get DLQ Message Count    ${AUDITFLOW_REGRESSION_SESSION}    t_regression
     Should Be Equal As Integers    ${first}    ${second}
@@ -47,6 +54,10 @@ Replay drains and reports the tenant's own messages
     # full round-trip here so t_regression's DLQ is settled before the next suite (which shares
     # this tenant) takes its own before/after snapshot — otherwise this replay's re-arrivals
     # land mid-flight in someone else's window.
+    #
+    # This window is fixed, so it only holds because the suite starts from a purged DLQ (see
+    # `Create Regression Session With Empty DLQ`) and replays a handful of messages rather than
+    # an unbounded backlog — the round-trip scales with retriedCount, this timeout does not.
     Wait Until DLQ Count At Least    ${AUDITFLOW_REGRESSION_SESSION}    t_regression
     ...    ${replay_result}[retriedCount]    timeout=45s
 

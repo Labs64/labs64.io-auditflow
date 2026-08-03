@@ -18,7 +18,7 @@ Documentation    Pipeline condition-operator correctness (item 12), asserted ent
 ...              the same branch, e.g. eq/equals, are not re-tested) plus both match modes
 ...              (all/any).
 Resource         ../../../labs64.io-tests/resources/auditflow.resource
-Suite Setup      Create Regression Session
+Suite Setup      Create Regression Session With Empty DLQ
 Suite Teardown   Delete All Sessions
 
 *** Keywords ***

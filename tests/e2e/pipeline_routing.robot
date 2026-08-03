@@ -10,7 +10,7 @@ Documentation    Pipeline routing/dispatch mechanics (item 12) — distinct from
 ...              pipeline set, no fall-through) is covered by tenant_isolation.robot; not
 ...              repeated here.
 Resource         ../../../labs64.io-tests/resources/auditflow.resource
-Suite Setup      Create Regression Session
+Suite Setup      Create Regression Session With Empty DLQ
 Suite Teardown   Delete All Sessions
 
 *** Test Cases ***

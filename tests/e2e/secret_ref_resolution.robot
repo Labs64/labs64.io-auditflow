@@ -18,7 +18,7 @@ Documentation    secretRef resolution (item 12), asserted via observable DLQ gro
 ...              resolvability differs — is what proves resolution is actually happening, not
 ...              merely that delivery succeeds regardless of secretRef.
 Resource         ../../../labs64.io-tests/resources/auditflow.resource
-Suite Setup      Create Regression Session
+Suite Setup      Create Regression Session With Empty DLQ
 Suite Teardown   Delete All Sessions
 
 *** Test Cases ***
