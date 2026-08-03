@@ -28,7 +28,7 @@ POST /audit/publish  (direct; via gateway: /auditflow/api/v1/audit/publish — T
         SinkService → POST http://sink:8082/sink/{name}
 ```
 
-- **AuditFlow is a router/pipeline, NOT a system of record — settled decision, do not reopen.** It has **no database of its own**: no Postgres, no event store. Do not propose or add one. AuditFlow ingests → redacts → routes → delivers; the configured **sinks** (OpenSearch, S3/GCS/Azure Blob, Splunk, Snowflake, Database, …) are the systems of record and own persistence/retention/query. Durability = broker buffering + retry/circuit-breaker + DLQ (`/actuator/dlq`, replayable) + the sink. Redis is dedup-only (idempotency TTL), not storage. "Store audit events in AuditFlow" is out of scope by design — point a pipeline at a durable sink instead.
+- **AuditFlow is a router/pipeline, NOT a system of record — settled decision, do not reopen.** It has **no database of its own**: no Postgres, no event store. Do not propose or add one. AuditFlow ingests → redacts → routes → delivers; the configured **sinks** (OpenSearch, S3/GCS/Azure Blob, Splunk, Snowflake, Database, …) are the systems of record and own persistence/retention/query. Durability = broker buffering + retry/circuit-breaker + DLQ (`/actuator/dlq/<tenantId>`, replayable or purgeable) + the sink. Redis is dedup-only (idempotency TTL), not storage. "Store audit events in AuditFlow" is out of scope by design — point a pipeline at a durable sink instead.
 - Backend is both producer and consumer of the same topic.
 - Pipelines are independent — one failing does not stop others.
 - Consumer uses dead-letter queue (`autoBindDlq: true`).
@@ -42,7 +42,7 @@ Multi-tenant by construction: every pipeline belongs to exactly one tenant, and 
 - **Ingest gate** (`TenantGate`, at `POST /audit/publish`): unprovisioned → `403 TENANT_NOT_PROVISIONED`, disabled → `403 TENANT_DISABLED`, over per-tenant quota → `429 TENANT_RATE_LIMITED` + `Retry-After`. Rate-limit backend: `tenants.ratelimit.backend` = `in-memory` (default, single replica) or `redis` (multi-replica, Lua token bucket; Helm sets it).
 - **Legacy `auditflow.pipelines` fails startup** by design — move pipelines into `tenants/_platform.yaml`.
 - **Sink credentials**: `${secretRef:<key>}` in sink properties, resolved at delivery from the tenant's own store — `secretRef.resolver` = `env` (default, `AUDITFLOW_TENANT_<ID>_<KEY>`) or `k8s-secret` (Secret `auditflow-tenant-<id>-creds`). Missing key ⇒ retryable failure → DLQ, never a blank or another tenant's credential.
-- **Tenant-scoped DLQ**: `/actuator/dlq/<tenantId>` (inspect) and POST to replay — only that tenant's messages are touched; there is no un-scoped DLQ operation.
+- **Tenant-scoped DLQ**: `/actuator/dlq/<tenantId>` — GET to inspect, POST to replay, **DELETE to purge (irreversible — discards matching messages instead of replaying them)**; only that tenant's messages are touched, and there is no un-scoped DLQ operation.
 - **Telemetry**: `auditflow.tenant.events{tenant,provider,outcome}` counter (outcomes: routed/delivered/quarantined/rejected:*) + Grafana `tenant` variable in the overview dashboard.
 - Core stays a router: it is read-only on tenant config in every profile and still has no database (see the settled decision above).
 

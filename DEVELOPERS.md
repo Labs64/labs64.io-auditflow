@@ -416,7 +416,9 @@ stack is running — the local-dir poller applies changes within ~5 seconds, no 
 | `GET /actuator/metrics/auditflow.consumer.events.inflight` | Events currently in-flight |
 | `GET /actuator/metrics/auditflow.pipeline.outcomes` | Per-pipeline SUCCESS/POISON/RETRYABLE counts |
 | `GET /actuator/metrics/auditflow.pipeline.duration` | Per-pipeline processing duration |
-| `GET /actuator/dlq/{tenantId}` | Tenant-scoped DLQ inspect (GET) and replay (POST) — only that tenant's messages; use `_platform` for tenantless events |
+| `GET /actuator/dlq/{tenantId}` | Tenant-scoped DLQ inspect (returns a message count only) |
+| `POST /actuator/dlq/{tenantId}` | Tenant-scoped DLQ replay — re-queues matching messages onto the main queue |
+| `DELETE /actuator/dlq/{tenantId}` | Tenant-scoped DLQ purge — **irreversible**; discards matching messages instead of replaying them (all three ops: only that tenant's messages; use `_platform` for tenantless events) |
 | `GET /actuator/metrics/auditflow.tenant.events` | Per-tenant lifecycle outcomes (routed/delivered/quarantined/rejected:*) |
 | `GET /actuator/prometheus` | Prometheus scrape endpoint |
 
@@ -633,15 +635,22 @@ Same approach — check `just log transformer` for the full traceback.
 
 ### Dead Letter Queue filling up
 
-Events land in the DLQ when they exhaust all retries. Check the DLQ:
+Events land in the DLQ when they exhaust all retries. The DLQ is tenant-scoped — every
+operation requires a `{tenantId}` selector (use `_platform` for tenantless events); there is
+no un-scoped `/actuator/dlq` path. Check the DLQ for a tenant:
 
 ```bash
-curl -s http://localhost:8080/actuator/dlq | python3 -m json.tool
+curl -s http://localhost:8080/actuator/dlq/<tenantId> | python3 -m json.tool
 ```
 
-Retry all DLQ messages:
+Retry all of that tenant's DLQ messages:
 ```bash
-curl -X POST http://localhost:8080/actuator/dlq | python3 -m json.tool
+curl -X POST http://localhost:8080/actuator/dlq/<tenantId> | python3 -m json.tool
+```
+
+Purge (discard, don't replay) all of that tenant's DLQ messages — **irreversible**:
+```bash
+curl -X DELETE http://localhost:8080/actuator/dlq/<tenantId> | python3 -m json.tool
 ```
 
 ### Container healthcheck failing
