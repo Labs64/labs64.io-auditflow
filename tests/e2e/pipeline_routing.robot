@@ -31,8 +31,8 @@ Event matching no pipeline condition produces no delivery attempt
     ...    msg=DLQ count grew from ${before} to ${after} for an event matching no pipeline condition.
 
 Event matching two pipelines fans out and dead-letters exactly once
-    [Documentation]    Sets extra.op/extra.value to satisfy probe_eq's condition AND
-    ...                extra.op_any to independently satisfy probe_any_mode's condition — one
+    [Documentation]    Sets extra.op/extra.value to satisfy probe_eq_intentional_fail's condition AND
+    ...                extra.op_any to independently satisfy probe_any_mode_intentional_fail's condition — one
     ...                event, two matching (and each independently failing) pipelines. AuditFlow
     ...                fans a single event out to every matching pipeline concurrently but
     ...                dead-letters the whole event once on redelivery exhaustion, not once per

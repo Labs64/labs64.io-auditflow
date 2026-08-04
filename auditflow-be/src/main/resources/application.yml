@@ -140,6 +140,11 @@ logging:
     io.labs64: DEBUG
     org.springframework.cloud.stream: INFO
     org.springframework.amqp: WARN
+    # Suppress verbose stack traces from the framework when intentional DLQ redelivery is exhausted.
+    # AuditService already logs the root cause cleanly.
+    org.springframework.integration.handler.advice.ErrorMessageSendingRecoverer: OFF
+    org.springframework.amqp.rabbit.listener: OFF
+    org.springframework.integration.handler.LoggingHandler: OFF
 
 # Transformer Discovery Configuration
 transformer:

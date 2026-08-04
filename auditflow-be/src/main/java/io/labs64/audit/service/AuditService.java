@@ -178,6 +178,11 @@ public class AuditService {
             if (StringUtils.hasText(eventId)) {
                 idempotencyService.release(eventId);
             }
+            if (e instanceof RetryableDeliveryException) {
+                logger.warn("Event processing failed with a retryable error (will retry/DLQ): {}", e.getMessage());
+            } else {
+                logger.error("Event processing failed with an unexpected error (will retry/DLQ): {}", e.getMessage(), e);
+            }
             throw e;
         } finally {
             MDC.remove("eventId");
@@ -304,8 +309,13 @@ public class AuditService {
             logger.error("Pipeline '{}' produced a poison event (not retryable): {}", pipelineName, e.getMessage());
             return PipelineOutcome.POISON;
         }
-        // RetryableDeliveryException and anything unclassified — fail safe toward redelivery.
-        logger.error("Pipeline '{}' failed with a retryable error: {}", pipelineName, e.getMessage(), e);
+        if (e instanceof RetryableDeliveryException) {
+            logger.warn("Pipeline '{}' failed with a retryable error: {}", pipelineName, e.getMessage());
+            logger.debug("Retryable error stack trace", e);
+            return PipelineOutcome.RETRYABLE_FAILURE;
+        }
+        // Anything unclassified — fail safe toward redelivery.
+        logger.error("Pipeline '{}' failed with an unexpected retryable error: {}", pipelineName, e.getMessage(), e);
         return PipelineOutcome.RETRYABLE_FAILURE;
     }
 
