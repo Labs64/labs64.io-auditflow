@@ -5,7 +5,7 @@ Documentation    secretRef resolution (item 12), asserted via observable DLQ gro
 ...              t_regression carries two otherwise-identical pipelines that both use a sink
 ...              property of the form ``${secretRef:<key>}``:
 ...              - ``secretref_present`` references a key that IS provisioned as an environment
-...                variable (AUDITFLOW_TENANT_T_REGRESSION_TESTKEY, set in
+...                variable (AUDITFLOW_TENANT_T_REGRESSION_REGRESSIONTESTKEY, set in
 ...                overrides/auditflow/values.secrets.local.yaml) — resolution succeeds, delivery
 ...                proceeds normally.
 ...              - ``test_secretref_missing_intentional_fail`` references a key that is never provisioned anywhere —
