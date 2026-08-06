@@ -25,7 +25,7 @@ paths:
           tenant: true
           scopes:
             - audit-event:write
-          resource: AuditEvent
+          resourceType: AuditEvent
       requestBody:
         description: Audit event payload to be published.
         required: true
