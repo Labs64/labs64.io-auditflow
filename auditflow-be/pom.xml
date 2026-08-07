@@ -36,7 +36,15 @@
         <lombok.version>1.18.46</lombok.version>
         <opentelemetry-api.version>1.64.0</opentelemetry-api.version>
         <netty.version>4.2.17.Final</netty.version>
-        <jackson-databind.version>3.2.1</jackson-databind.version>
+        <!-- Jackson is NOT pinned here on purpose. Spring Boot's BOM manages the Jackson 3
+             line (jackson-bom) and the Jackson 2 annotations line (jackson-2-bom) as a
+             coordinated pair. Overriding tools.jackson.core:jackson-databind alone to 3.2.1
+             left com.fasterxml.jackson.core:jackson-annotations at Boot's 2.21.4, and
+             databind 3.2.x calls JacksonAnnotationIntrospector.findApplyView(), which needs
+             @JsonApplyView — added only in annotations 2.22. Here it surfaced as a request-time
+             NoClassDefFoundError that failed the liveness probe and crash-looped the pod. To
+             move ahead of Boot's Jackson, import tools.jackson:jackson-bom (which bumps both)
+             rather than pinning a single artifact. -->
         <auth-context.version>0.1.0-SNAPSHOT</auth-context.version>
         <!-- PLUGINS -->
         <maven-enforcer-plugin.version>3.6.3</maven-enforcer-plugin.version>
@@ -107,11 +115,6 @@
                 <groupId>io.vertx</groupId>
                 <artifactId>vertx-auth-common</artifactId>
                 <version>${vertx.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>tools.jackson.core</groupId>
-                <artifactId>jackson-databind</artifactId>
-                <version>${jackson-databind.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
