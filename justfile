@@ -43,19 +43,20 @@ _stop-all:
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Build JAR, images, start stack.
-# Enable observability with: otel, yes, true, or 1
-up otel="": build-be
+# Args (any order, space-separated):
+#   obs | otel | yes | true | 1  → add the observability overlay (docker-compose-observability.yml)
+#   full                          → enable the "full" compose profile (redis, clickhouse, ...)
+up *args: build-be
     @just _stop-all
     @docker compose \
         -f docker-compose.yml \
-        {{ if otel == "otel" {
+        {{ if args =~ '(^|\s)(obs|otel|yes|true|1)(\s|$)' {
             "-f docker-compose-observability.yml"
-        } else if otel == "yes" {
-            "-f docker-compose-observability.yml"
-        } else if otel == "true" {
-            "-f docker-compose-observability.yml"
-        } else if otel == "1" {
-            "-f docker-compose-observability.yml"
+        } else {
+            ""
+        } }} \
+        {{ if args =~ '(^|\s)full(\s|$)' {
+            "--profile full"
         } else {
             ""
         } }} \
