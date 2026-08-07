@@ -38,7 +38,9 @@ __version__ = "1.0.0"
 PROPERTIES = {}
 
 # Well-known audit-semantics keys promoted out of `extra` into dedicated columns.
-# Keep this set consistent with audit_opensearch, which promotes the same keys.
+# audit_opensearch promotes only the three action_* keys. ClickHouse additionally promotes
+# userId: user_id is a primary GROUP BY dimension for analytics, and a column store benefits
+# from a dedicated column where a document store does not.
 _PROMOTED = {
     "action_name": "action_name",
     "action_status": "action_status",
