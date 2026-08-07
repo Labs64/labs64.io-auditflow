@@ -28,6 +28,7 @@ RUN mkdir -p /home/${USER_NAME}/sinks
 
 # Copy the requirements file and install dependencies in a single layer
 COPY --chown=${USER_NAME}:${GROUP_NAME} requirements.txt .
+ENV PIP_ROOT_USER_ACTION=ignore
 RUN python -m pip install --upgrade pip --no-cache-dir && \
     pip install --no-cache-dir -r requirements.txt
 

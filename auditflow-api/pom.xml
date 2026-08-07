@@ -48,16 +48,21 @@
         <maven.compiler.release>17</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
-        <jackson.version>2.22.0</jackson.version>
-        <junit.version>6.1.0</junit.version>
+        <!-- DEPENDENCIES -->
+        <jackson.version>2.22.1</jackson.version>
+        <jakarta-annotation.version>3.0.0</jakarta-annotation.version>
+        <jakarta-validation.version>4.0.0-M1</jakarta-validation.version>
+        <junit.version>6.1.2</junit.version>
 
         <!-- PLUGINS -->
         <maven-enforcer-plugin.version>3.6.3</maven-enforcer-plugin.version>
-        <openapi-generator-maven-plugin.version>7.23.0</openapi-generator-maven-plugin.version>
+        <maven-resources-plugin.version>3.3.1</maven-resources-plugin.version>
+        <openapi-generator-maven-plugin.version>7.24.0</openapi-generator-maven-plugin.version>
         <build-helper-maven-plugin.version>3.6.1</build-helper-maven-plugin.version>
         <maven-source-plugin.version>3.4.0</maven-source-plugin.version>
         <maven-javadoc-plugin.version>3.12.0</maven-javadoc-plugin.version>
         <maven-gpg-plugin.version>3.2.8</maven-gpg-plugin.version>
+        <maven-compiler-plugin.version>3.13.0</maven-compiler-plugin.version>
 
         <labs64.nexus.releases.url>https://nexus.labs64.com/repository/maven-releases/</labs64.nexus.releases.url>
         <labs64.nexus.snapshots.url>https://nexus.labs64.com/repository/maven-snapshots/</labs64.nexus.snapshots.url>
@@ -78,14 +83,14 @@
         <dependency>
             <groupId>jakarta.annotation</groupId>
             <artifactId>jakarta.annotation-api</artifactId>
-            <version>3.0.0</version>
+            <version>${jakarta-annotation.version}</version>
             <scope>provided</scope>
         </dependency>
 
         <dependency>
             <groupId>jakarta.validation</groupId>
             <artifactId>jakarta.validation-api</artifactId>
-            <version>3.1.1</version>
+            <version>${jakarta-validation.version}</version>
             <scope>provided</scope>
         </dependency>
 
@@ -134,10 +139,15 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.13.0</version>
+                <version>${maven-compiler-plugin.version}</version>
                 <configuration>
                     <release>${maven.compiler.release}</release>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <version>${maven-resources-plugin.version}</version>
             </plugin>
             <plugin>
                 <groupId>org.openapitools</groupId>

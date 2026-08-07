@@ -27,7 +27,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
 
@@ -64,6 +64,9 @@ jobs:
     permissions:
       contents: read
     uses: Labs64/labs64.io-workspace/.github/workflows/java-ci.yml@master
+    secrets:
+      L64_PUB_CI_USERNAME: ${{ secrets.L64_PUB_CI_USERNAME }}
+      L64_PUB_CI_PASSWORD: ${{ secrets.L64_PUB_CI_PASSWORD }}
     with:
       working-directory: auditflow-api
       java-version: "17"
@@ -76,6 +79,9 @@ jobs:
     permissions:
       contents: write
     uses: Labs64/labs64.io-workspace/.github/workflows/java-ci.yml@master
+    secrets:
+      L64_PUB_CI_USERNAME: ${{ secrets.L64_PUB_CI_USERNAME }}
+      L64_PUB_CI_PASSWORD: ${{ secrets.L64_PUB_CI_PASSWORD }}
     with:
       working-directory: auditflow-be
       java-version: "25"

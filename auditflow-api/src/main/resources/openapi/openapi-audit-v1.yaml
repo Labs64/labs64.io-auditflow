@@ -1,6 +1,6 @@
-openapi: 3.0.3
+openapi: 3.1.0
 info:
-  title: Labs64 AuditFlow API
+  title: AuditFlow API
   version: 1.0.0
   description: Audit logging for microservices — publish once, route anywhere, lose nothing.
   contact:
@@ -32,26 +32,9 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AuditEvent'
-            example:
-              eventId: "123e4567-e89b-12d3-a456-426614174000"
-              eventType: "user.login"
-              sourceSystem: "auth-service"
-              tenantId: "V12345678"
-              geolocation:
-                lat: 48.1264019
-                lon: 11.5407647
-                countryCode: "DE"
-                country: "Germany"
-                city: "Munich"
-              extra:
-                userId: "user123"
-                sessionId: "sess456"
-                action_name: "login"
-                action_status: "SUCCESS"
-                action_message: "User logged in successfully"
+              $ref: "#/components/schemas/AuditEvent"
       responses:
-        '200':
+        "200":
           description: Audit event published successfully
           headers:
             X-Audit-Event-Id:
@@ -68,58 +51,60 @@ paths:
             text/plain:
               schema:
                 type: string
-                example: "Audit event published successfully"
-        '400':
+            application/json:
+              schema:
+                type: string
+        "400":
           description: Invalid request payload
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
               example:
                 code: "VALIDATION_ERROR"
                 message: "eventType must not be null"
                 timestamp: "2025-11-30T10:15:30Z"
-        '401':
+        "401":
           description: Unauthorized — missing or invalid bearer token
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
               example:
                 code: "UNAUTHORIZED"
                 message: "Full authentication is required to access this resource"
                 timestamp: "2025-11-30T10:15:30Z"
-        '403':
+        "403":
           description: Tenant is not provisioned or is disabled — event rejected at ingest.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
               example:
                 code: "TENANT_NOT_PROVISIONED"
                 message: "Tenant 'acme' is not provisioned"
                 timestamp: "2025-11-30T10:15:30Z"
-        '405':
+        "405":
           description: HTTP method not allowed on this path (only POST is accepted).
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
               example:
                 code: "VALIDATION_ERROR"
                 message: "Request method 'GET' is not supported"
                 timestamp: "2025-11-30T10:15:30Z"
-        '415':
+        "415":
           description: Unsupported Content-Type — this operation accepts application/json only.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
               example:
                 code: "VALIDATION_ERROR"
                 message: "Content-Type 'text/plain' is not supported"
                 timestamp: "2025-11-30T10:15:30Z"
-        '429':
+        "429":
           description: Per-tenant ingest rate limit exceeded.
           headers:
             Retry-After:
@@ -129,27 +114,27 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
               example:
                 code: "TENANT_RATE_LIMITED"
                 message: "Tenant 'acme' exceeded its ingest rate limit"
                 timestamp: "2025-11-30T10:15:30Z"
-        '503':
+        "503":
           description: Message broker unavailable — event could not be published
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
               example:
                 code: "PUBLISH_FAILED"
                 message: "Failed to publish audit event to message broker"
                 timestamp: "2025-11-30T10:15:30Z"
-        '500':
+        "500":
           description: Internal server error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
               example:
                 code: "INTERNAL_ERROR"
                 message: "An internal error occurred while processing your request"
@@ -211,13 +196,13 @@ components:
         tenantId:
           type: string
           maxLength: 64
-          pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$'
+          pattern: "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
           description: Identifier for the tenant or organization associated with the event.
           example: "V12345678"
         geolocation:
-          $ref: '#/components/schemas/Geolocation'
+          $ref: "#/components/schemas/Geolocation"
         extra:
-          $ref: '#/components/schemas/Extra'
+          $ref: "#/components/schemas/Extra"
     Geolocation:
       type: object
       description: Geographic location associated with the audit event.
@@ -294,7 +279,7 @@ components:
         - timestamp
       properties:
         code:
-          $ref: '#/components/schemas/ErrorCode'
+          $ref: "#/components/schemas/ErrorCode"
         message:
           type: string
           description: Human-readable message describing the error.
