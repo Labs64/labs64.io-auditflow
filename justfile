@@ -43,11 +43,18 @@ _stop-all:
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Build JAR, images, start stack.
-# Args (any order, space-separated):
+# Args (any order, space-separated, case-sensitive):
 #   obs | otel | yes | true | 1  → add the observability overlay (docker-compose-observability.yml)
 #   full                          → enable the "full" compose profile (redis, clickhouse, ...)
+# Unrecognized tokens (e.g. wrong case, typos) are ignored but print a warning to stderr.
 up *args: build-be
     @just _stop-all
+    @for token in {{args}}; do \
+        case "$token" in \
+            obs|otel|yes|true|1|full) ;; \
+            *) echo "WARN: just up: unrecognized argument '$token' (accepted: obs, otel, yes, true, 1, full)" >&2 ;; \
+        esac; \
+    done
     @docker compose \
         -f docker-compose.yml \
         {{ if args =~ '(^|\s)(obs|otel|yes|true|1)(\s|$)' {
