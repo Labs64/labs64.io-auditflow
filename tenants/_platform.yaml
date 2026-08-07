@@ -32,3 +32,18 @@ pipelines:
       properties:
         log-level: WARN
         format: json
+  # ClickHouse analytics sink. Disabled by default: it needs the `full` compose profile
+  # (`just up full`), which starts ClickHouse and applies examples/clickhouse/schema.sql.
+  # Tenant config is hot-reloaded, so flipping `enabled` takes effect within ~5s, no restart.
+  - name: clickhouse-analytics
+    enabled: false
+    transformer:
+      name: audit_clickhouse
+    sink:
+      name: clickhouse_sink
+      properties:
+        service-url: http://clickhouse:8123
+        database: audit
+        table: audit_events
+        username: auditflow
+        password: auditflow

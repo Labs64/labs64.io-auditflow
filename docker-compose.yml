@@ -50,6 +50,33 @@ services:
     profiles:
       - full
 
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.3-alpine
+    container_name: auditflow-clickhouse
+    ports:
+      - "8123:8123"    # HTTP interface
+    environment:
+      CLICKHOUSE_USER: ${CLICKHOUSE_USERNAME:-auditflow}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-auditflow}
+      CLICKHOUSE_DB: audit
+    volumes:
+      # Canonical schema, also parsed by the transformer contract test.
+      - ./examples/clickhouse/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - auditflow-net
+    profiles:
+      - full
+
   # ─────────────────────────────────────────────────────────────────────────────
   # Transformer service
   # ─────────────────────────────────────────────────────────────────────────────

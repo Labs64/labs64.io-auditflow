@@ -43,19 +43,27 @@ _stop-all:
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Build JAR, images, start stack.
-# Enable observability with: otel, yes, true, or 1
-up otel="": build-be
+# Args (any order, space-separated, case-sensitive):
+#   obs | otel | yes | true | 1  → add the observability overlay (docker-compose-observability.yml)
+#   full                          → enable the "full" compose profile (redis, clickhouse, ...)
+# Unrecognized tokens (e.g. wrong case, typos) are ignored but print a warning to stderr.
+up *args: build-be
     @just _stop-all
+    @for token in {{args}}; do \
+        case "$token" in \
+            obs|otel|yes|true|1|full) ;; \
+            *) echo "WARN: just up: unrecognized argument '$token' (accepted: obs, otel, yes, true, 1, full)" >&2 ;; \
+        esac; \
+    done
     @docker compose \
         -f docker-compose.yml \
-        {{ if otel == "otel" {
+        {{ if args =~ '(^|\s)(obs|otel|yes|true|1)(\s|$)' {
             "-f docker-compose-observability.yml"
-        } else if otel == "yes" {
-            "-f docker-compose-observability.yml"
-        } else if otel == "true" {
-            "-f docker-compose-observability.yml"
-        } else if otel == "1" {
-            "-f docker-compose-observability.yml"
+        } else {
+            ""
+        } }} \
+        {{ if args =~ '(^|\s)full(\s|$)' {
+            "--profile full"
         } else {
             ""
         } }} \
