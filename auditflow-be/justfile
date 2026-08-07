@@ -13,7 +13,6 @@ build:
 test:
     mvn clean verify
 
-
 # Build Docker image and push to local registry
 docker: build
     docker build -t {{APP_NAME}}:latest .

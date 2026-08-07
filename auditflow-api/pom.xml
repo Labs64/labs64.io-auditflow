@@ -56,13 +56,13 @@
 
         <!-- PLUGINS -->
         <maven-enforcer-plugin.version>3.6.3</maven-enforcer-plugin.version>
-        <maven-resources-plugin.version>3.3.1</maven-resources-plugin.version>
+        <maven-resources-plugin.version>3.5.0</maven-resources-plugin.version>
         <openapi-generator-maven-plugin.version>7.24.0</openapi-generator-maven-plugin.version>
         <build-helper-maven-plugin.version>3.6.1</build-helper-maven-plugin.version>
         <maven-source-plugin.version>3.4.0</maven-source-plugin.version>
         <maven-javadoc-plugin.version>3.12.0</maven-javadoc-plugin.version>
         <maven-gpg-plugin.version>3.2.8</maven-gpg-plugin.version>
-        <maven-compiler-plugin.version>3.13.0</maven-compiler-plugin.version>
+        <maven-compiler-plugin.version>3.15.0</maven-compiler-plugin.version>
 
         <labs64.nexus.releases.url>https://nexus.labs64.com/repository/labs64.io-releases/</labs64.nexus.releases.url>
         <labs64.nexus.snapshots.url>https://nexus.labs64.com/repository/labs64.io-snapshots/</labs64.nexus.snapshots.url>
