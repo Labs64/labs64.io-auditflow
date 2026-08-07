@@ -38,7 +38,13 @@ def test_query_uses_jsoneachrow_and_async_insert_settings(mock_post):
     assert params["query"] == "INSERT INTO audit.audit_events FORMAT JSONEachRow"
     assert params["async_insert"] == "1"
     assert params["wait_for_async_insert"] == "1"
-    assert params["async_insert_busy_timeout_ms"] == "1000"
+    # ClickHouse aliases this to async_insert_busy_timeout_max_ms; 200 matches the server default.
+    assert params["async_insert_busy_timeout_ms"] == "200"
+    # Adaptive by default, matching ClickHouse: it collapses toward the 50ms min when deliveries
+    # are sparse, so the window never becomes pure latency for un-batchable traffic.
+    assert params["async_insert_use_adaptive_busy_timeout"] == "1"
+    # Only sent when the operator asks for it.
+    assert "async_insert_busy_timeout_min_ms" not in params
     # AuditFlow emits ISO-8601 with a trailing Z; DateTime64 only reads it with best_effort.
     assert params["date_time_input_format"] == "best_effort"
     assert params["input_format_skip_unknown_fields"] == "1"
@@ -75,6 +81,8 @@ def test_async_insert_disabled_omits_the_settings(mock_post):
     assert "async_insert" not in params
     assert "wait_for_async_insert" not in params
     assert "async_insert_busy_timeout_ms" not in params
+    assert "async_insert_use_adaptive_busy_timeout" not in params
+    assert "async_insert_busy_timeout_min_ms" not in params
 
 
 @patch("requests.post")
@@ -95,6 +103,29 @@ def test_custom_busy_timeout_is_forwarded(mock_post):
     clickhouse_sink.process(ROW, {**BASE_PROPERTIES, "async-insert-busy-timeout-ms": "250"})
 
     assert mock_post.call_args.kwargs["params"]["async_insert_busy_timeout_ms"] == "250"
+
+
+@patch("requests.post")
+def test_adaptive_busy_timeout_can_be_pinned_off(mock_post):
+    mock_post.return_value = _ok_response()
+
+    clickhouse_sink.process(
+        ROW, {**BASE_PROPERTIES, "async-insert-use-adaptive-busy-timeout": "false"})
+
+    assert mock_post.call_args.kwargs["params"]["async_insert_use_adaptive_busy_timeout"] == "0"
+
+
+@patch("requests.post")
+def test_busy_timeout_min_is_forwarded_only_when_set(mock_post):
+    mock_post.return_value = _ok_response()
+
+    clickhouse_sink.process(
+        ROW, {**BASE_PROPERTIES, "async-insert-busy-timeout-min-ms": "150"})
+
+    params = mock_post.call_args.kwargs["params"]
+    assert params["async_insert_busy_timeout_min_ms"] == "150"
+    # The alias only ever sets the max, so the pair has to be configurable independently.
+    assert params["async_insert_busy_timeout_ms"] == "200"
 
 
 @patch("requests.post")

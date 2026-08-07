@@ -12,12 +12,40 @@ sink, which would make it stateful and lose events on restart.
 ``wait_for_async_insert=1`` (the default here) means the response only arrives once the part is
 flushed. That costs latency — up to the busy-timeout window per delivery — but keeps the success
 signal honest: a 200 from this sink means the row is durably written, so AuditFlow's
-retry/circuit-breaker/DLQ chain stays meaningful. Tune throughput by lowering
-``async-insert-busy-timeout-ms``, not by disabling the wait.
+retry/circuit-breaker/DLQ chain stays meaningful. Never trade the wait away for throughput.
 
-Note: ``async_insert_busy_timeout_ms`` was superseded in ClickHouse 24.x by the adaptive
-``async_insert_busy_timeout_min_ms``/``_max_ms`` pair. It still works as an alias for the max,
-which is why a single property stays portable across versions.
+What actually sets the batch size
+---------------------------------
+Because every caller blocks until its own flush, the number of rows a flush can collect is bounded
+by the number of *concurrent in-flight deliveries*, not by the length of the flush window. Measured
+against ClickHouse 25.3 (see the property notes below), ``max_rows_per_flush`` equalled the client
+concurrency in every run. Raising ``async-insert-busy-timeout-ms`` therefore does **not** widen
+batches: it just makes every caller wait longer, which lowers throughput, which lowers the arrival
+rate — at 8 concurrent deliveries, going from a 200 ms to a 3000 ms window bought 5.1 → 6.6 rows
+per flush while p50 latency went 210 ms → 2552 ms. Fewer parts come from more concurrent
+deliveries (more sink replicas / more consumer concurrency), not from a longer window.
+
+ClickHouse settings, as verified on 25.3
+----------------------------------------
+``async_insert_busy_timeout_ms`` is a genuine alias — ``system.settings.alias_for`` reports
+``async_insert_busy_timeout_max_ms``, so a single property does stay portable. But it sets only the
+*max*: since 24.2 ``async_insert_use_adaptive_busy_timeout`` is on by default, so the effective
+window floats between ``async_insert_busy_timeout_min_ms`` (50 ms) and that max. Setting the alias
+alone therefore does not pin the window — which is why the min and the adaptive toggle are exposed
+as their own properties rather than left implicit.
+
+The default window is 200 ms, matching ClickHouse's own default rather than the 1000 ms this sink
+used to send. At 32 concurrent deliveries 1000 ms measured worse on every axis (24.7 vs 31.5 rows
+per flush, 24 vs 18 new parts, 1016 ms vs 198 ms p50); at 8 it bought 5.1 → 6.0 rows per flush for
+a 4x p50 penalty. Pinning the window (``async-insert-use-adaptive-busy-timeout: false``) raises
+moderate-concurrency batching further — 5.1 → 7.9 rows per flush, 52 → 35 new parts at equal p50 —
+but costs 3.4x p50 when deliveries are *not* concurrent, so it is opt-in rather than the default.
+
+``async_insert_max_data_size`` and ``async_insert_max_query_number`` are deliberately *not* exposed.
+Both are ceilings that only ever flush a batch **earlier**, so neither can widen one, and measurement
+confirmed they are not the binding constraint here: at ~473 bytes per audit row the 10 MiB data-size
+default is ~22 000 rows, and ``async_insert_max_query_number`` had no effect at all (ClickHouse only
+honours it when ``async_insert_deduplicate`` is enabled, which this sink leaves off).
 """
 import json
 import logging
@@ -26,7 +54,7 @@ import requests
 
 from auditflow_sdk import require_properties
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 PROPERTIES = {
     "service-url": "ClickHouse HTTP endpoint, e.g. http://clickhouse:8123 (required)",
@@ -37,8 +65,17 @@ PROPERTIES = {
     "verify-ssl": "Verify TLS certificates: true/false (default: true)",
     "async-insert": "Use server-side async_insert batching: true/false (default: true)",
     "wait-for-async-insert": "Block until the insert is flushed: true/false (default: true)",
-    "async-insert-busy-timeout-ms": "Server-side flush window in ms (default: 1000)",
-    "timeout": "HTTP timeout in seconds; must exceed the flush window (default: 10)",
+    "async-insert-busy-timeout-ms": "Server-side flush window in ms; ClickHouse aliases this to "
+                                    "async_insert_busy_timeout_max_ms (default: 200)",
+    "async-insert-use-adaptive-busy-timeout": "Let ClickHouse float the flush window between the "
+                                              "min and max: true/false (default: true). Set false "
+                                              "to pin it at the max — only worth it when sink "
+                                              "deliveries are genuinely concurrent",
+    "async-insert-busy-timeout-min-ms": "Lower bound of the adaptive window in ms; no effect once "
+                                        "async-insert-use-adaptive-busy-timeout is false "
+                                        "(optional, ClickHouse default: 50)",
+    "timeout": "HTTP timeout in seconds; must stay comfortably above the flush window "
+               "(default: 10)",
 }
 
 logger = logging.getLogger(__name__)
@@ -72,7 +109,19 @@ def process(event_data: dict, properties: dict) -> dict:
         params["async_insert"] = "1"
         params["wait_for_async_insert"] = "1" if _is_true(properties, "wait-for-async-insert") else "0"
         params["async_insert_busy_timeout_ms"] = str(
-            properties.get("async-insert-busy-timeout-ms", 1000))
+            properties.get("async-insert-busy-timeout-ms", 200))
+        # On by default (ClickHouse's own default). AuditFlow does not control how many deliveries
+        # are in flight, and the adaptive window is what makes that safe: it collapses toward the
+        # 50ms min when rows are sparse (nothing to batch, so the window is pure latency) and
+        # stretches toward the max when they are dense. Pin it only if you know deliveries are
+        # concurrent — measured 5.1 -> 7.9 rows per flush there, but a 3.4x p50 penalty when they
+        # are not.
+        adaptive = _is_true(properties, "async-insert-use-adaptive-busy-timeout", "true")
+        params["async_insert_use_adaptive_busy_timeout"] = "1" if adaptive else "0"
+        # Only meaningful while the adaptive window is on; sent only when the operator sets it.
+        busy_timeout_min_ms = properties.get("async-insert-busy-timeout-min-ms")
+        if busy_timeout_min_ms is not None:
+            params["async_insert_busy_timeout_min_ms"] = str(busy_timeout_min_ms)
 
     username = properties.get("username")
     auth = (username, properties.get("password") or "") if username else None
