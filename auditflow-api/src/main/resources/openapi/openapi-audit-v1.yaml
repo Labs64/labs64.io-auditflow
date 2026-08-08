@@ -27,7 +27,9 @@ paths:
             - audit-event:write
           resourceType: AuditEvent
       requestBody:
-        description: Audit event payload to be published.
+        description: >-
+          Audit event payload to be published. The serialized request body must not exceed
+          the allowed limit; larger requests are rejected with 413 before reaching this service.
         required: true
         content:
           application/json:
@@ -93,6 +95,17 @@ paths:
               example:
                 code: "VALIDATION_ERROR"
                 message: "Request method 'GET' is not supported"
+                timestamp: "2025-11-30T10:15:30Z"
+        "413":
+          description: >-
+            Request body exceeds the limit.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                code: "VALIDATION_ERROR"
+                message: "Request body exceeds the maximum allowed size"
                 timestamp: "2025-11-30T10:15:30Z"
         "415":
           description: Unsupported Content-Type — this operation accepts application/json only.
@@ -247,7 +260,12 @@ components:
         the bundled transformers and promoted to top-level fields when delivered to sinks):
         `userId` (the actor), `action_name` (what happened), `action_status` (the outcome, e.g.
         SUCCESS/FAILURE), and `action_message` (a human-readable description).
+        `extra` is a metadata bag, not a payload channel: do not use it to carry request/response
+        bodies, file contents or base64 blobs. The whole request is additionally subject to the
+        size limit documented on the operation.
       additionalProperties: true
+      # Bounds the number of keys so a spec-valid event cannot grow without limit.
+      maxProperties: 64
       example:
         userId: "customer123"
         userBU: "BU12345678"
