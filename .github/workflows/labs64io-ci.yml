@@ -71,9 +71,9 @@ jobs:
       L64_PUB_CI_USERNAME: ${{ secrets.L64_PUB_CI_USERNAME }}
       L64_PUB_CI_PASSWORD: ${{ secrets.L64_PUB_CI_PASSWORD }}
     with:
-      working-directory: auditflow-be
+      working-directory: .
       java-version: "25"
-      maven-goals: verify
+      maven-goals: -pl auditflow-be -am verify
       artifact-name: backend-test-results
       docker-build-context: auditflow-be
       docker-build-tag: auditflow:ci-${{ github.sha }}
