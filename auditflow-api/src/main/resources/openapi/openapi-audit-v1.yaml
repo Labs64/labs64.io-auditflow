@@ -254,15 +254,43 @@ components:
           example: "Munich"
     Extra:
       type: object
-      description: >-
+      description: |-
         Custom user-defined fields — any additional key-value pairs relevant to the event.
-        The following keys are recommended, well-known audit-semantics conventions (recognised by
-        the bundled transformers and promoted to top-level fields when delivered to sinks):
-        `userId` (the actor), `action_name` (what happened), `action_status` (the outcome, e.g.
-        SUCCESS/FAILURE), and `action_message` (a human-readable description).
+
         `extra` is a metadata bag, not a payload channel: do not use it to carry request/response
         bodies, file contents or base64 blobs. The whole request is additionally subject to the
         size limit documented on the operation.
+
+        ## Well-known keys
+
+        The keys below are the recommended, well-known audit-semantics vocabulary. They are
+        optional — `extra` accepts any key — but the bundled transformers recognise them and
+        **promote them to dedicated top-level fields/columns** when delivering to a sink, which is
+        what makes them queryable as report dimensions rather than opaque map entries. Anything not
+        listed here is passed through unchanged in the sink's own metadata map. Use the exact
+        spelling: promotion is by literal key match, and a misspelled key silently degrades to an
+        untyped map entry.
+
+        | Key | Meaning |
+        |---|---|
+        | `userId` | The actor who performed the action (not necessarily the subject it is about). |
+        | `action_name` | What happened, e.g. an API operation name. |
+        | `action_status` | Outcome of the **action**: `SUCCESS`, `FAILURE`, `DENIED`. This is the outcome of the operation, not the state of any entity it acted on. |
+        | `action_message` | Human-readable description of the outcome. |
+        | `sessionId` | Session the action belongs to; the unit of "concurrent usage". |
+        | `durationMs` | Server-side processing time in milliseconds (integer). |
+        | `responseStatus` | HTTP status returned to the caller (integer). |
+
+        ## Domain-specific keys
+
+        This contract stays deliberately domain-free: AuditFlow is a generic audit router, and no
+        publisher's field names belong in the shared vocabulary above. A use case that wants its
+        own keys as first-class report dimensions layers them on instead, by pairing a transformer
+        module that promotes them with a sink schema that has the matching columns.
+
+        Nothing needs to be declared here for that to work: unrecognised keys travel through
+        unchanged, so a domain layer is additive and a deployment without it loses queryability,
+        not data.
       additionalProperties: true
       # Bounds the number of keys so a spec-valid event cannot grow without limit.
       maxProperties: 64
