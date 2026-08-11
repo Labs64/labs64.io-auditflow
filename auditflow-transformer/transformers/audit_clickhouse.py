@@ -27,6 +27,11 @@ layering, not by editing this file:
 
 3. Point the pipeline at that module (``transformer.name: <module>``).
 
+A deployment that only needs a few extra columns and no new module can skip step 2 entirely and set
+``AUDITFLOW_PROMOTED_KEYS='{"invoiceRef": "invoice_ref"}'`` on the transformer container instead.
+The env mapping is applied on top of whatever the module declares, and a malformed value fails the
+module's import rather than silently dropping the column.
+
 ``examples/netlicensing/audit_clickhouse_netlicensing.py`` is a worked example, paired with
 ``examples/clickhouse/schema-netlicensing.sql``.
 
@@ -64,27 +69,17 @@ Example output (one ClickHouse row, absent scalars omitted):
       "extra": {"invoiceRef": "INV-1"}
     }
 """
-import json
+from auditflow_sdk import WELL_KNOWN_EXTRA, resolve_promoted, stringify_value
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 
 PROPERTIES = {}
 
-# Well-known audit-semantics keys promoted out of `extra` into dedicated columns.
-# `audit_opensearch` promotes only the three action_* keys; ClickHouse promotes the rest because a
-# column store benefits from a dedicated column where a document store does not.
-#
-# This vocabulary is documented on the `Extra` schema in
-# auditflow-api/src/main/resources/openapi/openapi-audit-v1.yaml — keep the two in sync.
-_PROMOTED = {
-    "actionName": "action_name",
-    "actionStatus": "action_status",
-    "actionMessage": "action_message",
-    "userId": "user_id",
-    "sessionId": "session_id",
-    "durationMs": "duration_ms",
-    "responseStatus": "response_status",
-}
+# The generic audit-semantics keys promoted out of `extra` into dedicated columns, sourced from the
+# shared vocabulary so this module and audit_opensearch cannot drift from each other or from the
+# `Extra` schema in the AuditEvent contract. `audit_loki` promotes the same keys but keeps their
+# camelCase spelling, because Loki structured metadata is not a column namespace.
+_PROMOTED = dict(WELL_KNOWN_EXTRA)
 
 # Geolocation is a closed sub-object in the AuditEvent contract, so it is not an extension point.
 _GEO = {
@@ -95,28 +90,20 @@ _GEO = {
 }
 
 
-def _stringify(value):
-    """Map(String, String) values must all be strings; JSON-encode anything that is not scalar."""
-    if isinstance(value, str):
-        return value
-    if isinstance(value, bool):
-        # Checked before int — bool is a subclass of int, and "True" is not valid JSON.
-        return "true" if value else "false"
-    if isinstance(value, (int, float)):
-        return str(value)
-    return json.dumps(value, separators=(",", ":"), sort_keys=True)
-
-
-def make_transform(extra_promoted=None):
+def make_transform(extra_promoted=None, module_id=None):
     """Build a transform function that also promotes a domain's own `extra` keys.
 
     :param extra_promoted: ``{extra key: column name}`` for one use case, layered on top of the
         generic vocabulary. A key repeated here overrides the generic mapping, which is what lets
         a domain retarget a column without forking this module.
+    :param module_id: this module's own id, enabling its scoped ``AUDITFLOW_PROMOTED_KEYS_<ID>``
+        env mapping. Pass ``__name__`` from a domain module built on this one.
     :returns: the ``transform(input_data) -> dict`` entry point, carrying the effective mapping as
         ``transform.promoted`` so tests and the registry can introspect what a module promotes.
+    :raises ValueError: if the deployment's env promotion mapping is malformed — see
+        ``auditflow_sdk.resolve_promoted``.
     """
-    promoted = {**_PROMOTED, **(extra_promoted or {})}
+    promoted = resolve_promoted({**_PROMOTED, **(extra_promoted or {})}, module_id)
 
     def transform(input_data: dict) -> dict:
         """Flatten a canonical AuditEvent into one ClickHouse row keyed by column name."""
@@ -152,7 +139,7 @@ def make_transform(extra_promoted=None):
         row["geo_lon"] = geolocation.get("lon")
 
         row["extra"] = {
-            key: _stringify(value) for key, value in extra.items() if key not in promoted
+            key: stringify_value(value) for key, value in extra.items() if key not in promoted
         }
 
         return row
