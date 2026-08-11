@@ -1,132 +1,201 @@
-"""Loki transformer: reshapes an AuditFlow event into a Grafana Loki push payload."""
-from datetime import datetime
+"""Loki transformer: reshapes an AuditFlow event into a Grafana Loki push payload.
 
-__version__ = "1.0.0"
+`extra` is an OPEN map — the well-known keys are a convention, not a schema — so this module holds
+to three rules:
+
+* **Absent is absent.** A missing key yields an omitted label/field, never `"unknown"` or `"N/A"`.
+  A fabricated label value is indistinguishable from a publisher that really sent it, and it
+  pollutes the label index with a value nobody can filter meaningfully.
+* **Nothing is dropped.** Every `extra` key that is not a label lands in structured metadata, so a
+  deployment's own field names always survive the trip to Loki.
+* **Labels stay a closed set.** Only `action_name` and `action_status` are promoted out of `extra`
+  into stream labels. Labels are an index dimension in Loki, and promoting operator-defined keys
+  into them is an unbounded-cardinality failure. A deployment's promoted keys are renamed
+  *within structured metadata*, not turned into labels.
+
+Extending it for a use case
+---------------------------
+Same two paths as `audit_clickhouse`. Either build a module on this one::
+
+    from audit_loki import make_transform
+    transform = make_transform({"invoiceRef": "invoice_ref"}, module_id=__name__)
+
+or, with no new module, set ``AUDITFLOW_PROMOTED_KEYS='{"invoiceRef": "invoice_ref"}'`` on the
+transformer container. Renaming only affects the structured-metadata field name; see the label rule
+above.
+
+Example input:
+    {
+      "eventTime": "2026-08-07T10:14:55Z",
+      "timestamp": "2026-08-07T10:15:30Z",
+      "eventId": "fedcba98-7654-3210-fedc-ba9876543210",
+      "eventType": "api.call",
+      "sourceSystem": "netlicensing/core",
+      "tenantId": "V12345678",
+      "geolocation": {"lat": 48.1264019, "lon": 11.5407647, "countryCode": "DE"},
+      "extra": {"userId": "customer123", "actionName": "licensee/validate",
+                "actionStatus": "SUCCESS", "actionMessage": "Validation completed",
+                "invoiceRef": "INV-1"}
+    }
+
+Example output:
+    {
+      "streams": [{
+        "stream": {"job": "auditflow", "service_name": "netlicensing/core",
+                   "tenant_id": "V12345678", "event_type": "api.call",
+                   "action_name": "licensee/validate", "action_status": "SUCCESS"},
+        "values": [["1754561695000000000", "Validation completed",
+                    {"eventId": "fedcba98-7654-3210-fedc-ba9876543210", "level": "INFO",
+                     "userId": "customer123", "country_code": "DE",
+                     "latitude": "48.1264019", "longitude": "11.5407647",
+                     "invoiceRef": "INV-1"}]]
+      }]
+    }
+"""
+from datetime import datetime, timezone
+
+from auditflow_sdk import WELL_KNOWN_EXTRA, resolve_promoted, stringify_value
+
+__version__ = "2.0.0"
 
 PROPERTIES = {}
 
-status_to_level_mapping = {
+# `actionStatus` -> Loki level. The contract's outcome vocabulary is SUCCESS / FAILURE / DENIED;
+# PENDING is retained for publishers that emit it. An unrecognised status maps to nothing rather
+# than to "UNKNOWN" — see get_log_level.
+STATUS_TO_LEVEL = {
     "SUCCESS": "INFO",
     "FAILURE": "ERROR",
-    "PENDING": "WARN"
+    "DENIED": "WARN",
+    "PENDING": "WARN",
 }
 
+# Top-level event fields that become stream labels.
+_TOP_LEVEL_LABELS = {
+    "sourceSystem": "service_name",
+    "tenantId": "tenant_id",
+    "eventType": "event_type",
+}
+
+# The only `extra` keys allowed to become stream labels — see the label rule in the module
+# docstring. Everything else, promoted or not, goes to structured metadata.
+_LABEL_KEYS = {
+    "actionName": "action_name",
+    "actionStatus": "action_status",
+}
+
+# Geolocation is a closed sub-object in the AuditEvent contract, so it is not an extension point.
+_GEO = {
+    "countryCode": "country_code",
+    "country": "country",
+    "region": "region",
+    "city": "city",
+    "lat": "latitude",
+    "lon": "longitude",
+}
+
+# Loki structured metadata is not a column namespace, so the well-known keys keep their camelCase
+# contract spelling here rather than the snake_case names audit_clickhouse uses for columns.
+_PROMOTED = {key: key for key in WELL_KNOWN_EXTRA}
+
+
 def get_log_level(status):
+    """Map an `actionStatus` to a Loki level, or None when there is nothing to map.
+
+    Returns None — not "UNKNOWN" — for an absent or unrecognised status: `actionStatus` is an
+    optional convention, and a level the publisher never expressed must not be invented.
     """
-    Maps a status string to a log level string.
+    if not isinstance(status, str) or not status:
+        return None
+    return STATUS_TO_LEVEL.get(status.upper())
+
+
+def _unix_nano(iso_timestamp):
+    """ISO 8601 -> Loki's nanosecond timestamp string; None when absent or unparseable."""
+    if not isinstance(iso_timestamp, str) or not iso_timestamp:
+        return None
+    try:
+        parsed = datetime.fromisoformat(iso_timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return str(int(parsed.timestamp() * 1_000_000_000))
+
+
+def make_transform(extra_promoted=None, module_id=None):
+    """Build a transform function that also renames a domain's own `extra` keys in metadata.
+
+    :param extra_promoted: ``{extra key: metadata field}`` for one use case, layered on top of the
+        generic vocabulary.
+    :param module_id: this module's own id, enabling its scoped ``AUDITFLOW_PROMOTED_KEYS_<ID>``
+        env mapping. Pass ``__name__`` from a domain module built on this one.
+    :returns: the ``transform(input_data) -> dict`` entry point, carrying the effective mapping as
+        ``transform.promoted``.
+    :raises ValueError: if the deployment's env promotion mapping is malformed.
     """
-    return status_to_level_mapping.get(status.upper(), "UNKNOWN")
+    promoted = resolve_promoted({**_PROMOTED, **(extra_promoted or {})}, module_id)
 
-def transform(input_data):
-    """
-    Transforms a Labs64.IO AuditFlow JSON structure into a Loki-compatible payload.
+    def transform(input_data: dict) -> dict:
+        """Reshape a canonical AuditEvent into a Loki push payload."""
+        geolocation = input_data.get("geolocation") or {}
+        extra = input_data.get("extra") or {}
 
-    This function is intended to be dynamically loaded by the FastAPI application
-    when the transformer_id matches this module (e.g., if this file is named 'loki_transformer.py'
-    and the request is to /transform/loki_transformer).
+        # ── Stream labels: only what the event actually carries.
+        stream = {"job": "auditflow"}
+        for source_key, label in _TOP_LEVEL_LABELS.items():
+            value = input_data.get(source_key)
+            if value is not None:
+                stream[label] = stringify_value(value)
+        for source_key, label in _LABEL_KEYS.items():
+            value = extra.get(source_key)
+            if value is not None:
+                stream[label] = stringify_value(value)
 
-    Example Input (expected from FastAPI endpoint):
-    {
-      "timestamp": "2025-07-04T10:00:00Z",
-      "eventId": "fedcba98-7654-3210-fedc-ba9876543210",
-      "eventType": "audit.action.performed",
-      "sourceSystem": "system-name/service-name",
-      "tenantId": "tenant-001",
-      "geolocation": {
-        "lat": 48.1351,
-        "lon": 11.5820,
-        "city": "Munich",
-        "region": "Bavaria",
-        "country": "Germany",
-        "countryCode": "DE"
-      },
-      "extra": {
-        "userId": "user123",
-        "browser": "Chrome",
-        "actionName": "LOGIN_SUCCESS",
-        "actionStatus": "SUCCESS",
-        "actionMessage": "User logged in successfully"
-      }
-    }
+        # ── Structured metadata: everything else, so no key is ever dropped.
+        metadata = {}
+        for source_key, field in (("eventId", "eventId"), ("correlationId", "correlationId")):
+            value = input_data.get(source_key)
+            if value is not None:
+                metadata[field] = stringify_value(value)
 
-    Example Output (Loki payload):
-    {
-      "streams": [
-        {
-          "stream": {
-            "job": "auditflow",
-            "service_name": "netlicensing/core",
-            "tenant_id": "V12345678",
-            "event_type": "api.call",
-            "action_name": "licensee/validate",
-            "action_status": "SUCCESS"
-          },
-          "values": [
-            [
-              "1756157127354000128",
-              "Validation completed successfully",
-              {
-                "eventId": "fedcba98-7654-3210-fedc-ba9876543210",
-                "level": "INFO",
-                "userId": "customer123",
-                "country_code": "DE",
-                "latitude": "48.1264019",
-                "longitude": "11.5407647"
-              }
-            ]
-          ]
-        }
-      ]
-    }
-    """
-    geolocation = input_data.get('geolocation', {})
-    extra = input_data.get('extra', {})
+        level = get_log_level(extra.get("actionStatus"))
+        if level is not None:
+            metadata["level"] = level
 
-    # Prepare the "stream" object based on the desired output structure
-    stream_data = {
-        "job": "auditflow",
-        "service_name": input_data.get("sourceSystem", "unknown"),
-        "tenant_id": input_data.get("tenantId", "unknown"),
-        "event_type": input_data.get("eventType", "unknown"),
-        "action_name": extra.get("actionName", "unknown_action"),
-        "action_status": extra.get("actionStatus", "unknown_status"),
-    }
+        for source_key, field in _GEO.items():
+            value = geolocation.get(source_key)
+            if value is not None:
+                metadata[field] = stringify_value(value)
 
-    # Prepare the nested dictionary for the "values" array
-    values_dict = {
-        "eventId": input_data.get("eventId", "N/A"),
-        "level": get_log_level(extra.get("actionStatus", "N/A")),
-        "userId": extra.get("userId", "N/A"),
-        "country_code": geolocation.get("countryCode", "N/A"),
-        "latitude": f'{geolocation.get("lat", "N/A")}',
-        "longitude": f'{geolocation.get("lon", "N/A")}',
-    }
+        # Promoted keys under their configured names, then every remaining key verbatim. Keys that
+        # are already labels are not repeated in metadata.
+        for source_key, field in promoted.items():
+            if source_key in _LABEL_KEYS:
+                continue
+            value = extra.get(source_key)
+            if value is not None:
+                metadata[field] = stringify_value(value)
+        for key, value in extra.items():
+            if key in promoted or key in _LABEL_KEYS or value is None:
+                continue
+            metadata[key] = stringify_value(value)
 
-    # Prepare the "values" array
-    # The timestamp needs to be a string in Unix nanoseconds
-    timestamp_iso = input_data.get("timestamp")
-    unix_nano_timestamp = "0"
-    if timestamp_iso:
-        try:
-            dt_object = datetime.fromisoformat(timestamp_iso.replace('Z', '+00:00'))
-            unix_nano_timestamp = str(int(dt_object.timestamp() * 1_000_000_000))
-        except ValueError:
-            pass
+        # ── Log line: the publisher's own description when there is one, else the event
+        # classification. Never a placeholder — this is the only human-readable field in the entry.
+        line = extra.get("actionMessage")
+        if line is None:
+            line = input_data.get("eventType")
+        line = "" if line is None else stringify_value(line)
 
-    values_data = [
-        unix_nano_timestamp,
-        extra.get("actionMessage", "N/A"),
-        values_dict
-    ]
+        # eventTime is the business time reports group on; fall back to server receipt time. Loki
+        # rejects a zero timestamp as out of range, so an event carrying neither gets now().
+        nano = _unix_nano(input_data.get("eventTime")) or _unix_nano(input_data.get("timestamp"))
+        if nano is None:
+            nano = str(int(datetime.now(timezone.utc).timestamp() * 1_000_000_000))
 
-    # Construct the final nested output structure
-    loki_payload = {
-        "streams": [
-            {
-                "stream": stream_data,
-                "values": [values_data]
-            }
-        ]
-    }
+        return {"streams": [{"stream": stream, "values": [[nano, line, metadata]]}]}
 
-    return loki_payload
+    transform.promoted = promoted
+    return transform
+
+
+transform = make_transform()
