@@ -30,7 +30,13 @@ layering, not by editing this file:
 A deployment that only needs a few extra columns and no new module can skip step 2 entirely and set
 ``AUDITFLOW_PROMOTED_KEYS='{"invoiceRef": "invoice_ref"}'`` on the transformer container instead.
 The env mapping is applied on top of whatever the module declares, and a malformed value fails the
-module's import rather than silently dropping the column.
+module's import rather than silently dropping the column. A target naming one of this module's own
+columns — an envelope field such as ``tenant_id``/``event_id``/``timestamp``, a ``geo_*`` field, or
+``extra`` — is rejected the same way: promotion runs after the envelope, so it would otherwise let a
+publisher's ``extra`` value replace the event's identity.
+
+An ``extra`` value that is explicitly ``null`` is treated as ABSENT and omitted, like a key the
+publisher never sent. Falsy-but-present values (``0``, ``""``, ``false``) are real and are kept.
 
 ``examples/netlicensing/audit_clickhouse_netlicensing.py`` is a worked example, paired with
 ``examples/clickhouse/schema-netlicensing.sql``.
@@ -81,6 +87,17 @@ PROPERTIES = {}
 # camelCase spelling, because Loki structured metadata is not a column namespace.
 _PROMOTED = dict(WELL_KNOWN_EXTRA)
 
+# Envelope fields, as {event field: column}. The event's own identity — never an extension point.
+_ENVELOPE = {
+    "timestamp": "timestamp",
+    "eventTime": "event_time",
+    "eventId": "event_id",
+    "correlationId": "correlation_id",
+    "eventType": "event_type",
+    "sourceSystem": "source_system",
+    "tenantId": "tenant_id",
+}
+
 # Geolocation is a closed sub-object in the AuditEvent contract, so it is not an extension point.
 _GEO = {
     "countryCode": "geo_country_code",
@@ -88,6 +105,17 @@ _GEO = {
     "region": "geo_region",
     "city": "geo_city",
 }
+
+# Columns this module writes itself, so no promotion may target one: the row is a flat namespace and
+# the promotion loop runs after the envelope loop, so a colliding target would let a publisher's
+# `extra` value REPLACE the envelope value. That is not cosmetic — `tenant_id` leads the table's
+# ORDER BY and is the tenant-isolation dimension, `event_id` is the ReplacingMergeTree dedup key,
+# and `timestamp` is its version column. Derived from the dicts above so it cannot drift from them;
+# `test_audit_clickhouse_contract.py` asserts the row never carries a column outside this set plus
+# the promotion targets.
+_RESERVED_COLUMNS = (
+    set(_ENVELOPE.values()) | set(_GEO.values()) | {"geo_lat", "geo_lon", "extra"}
+)
 
 
 def make_transform(extra_promoted=None, module_id=None):
@@ -100,10 +128,11 @@ def make_transform(extra_promoted=None, module_id=None):
         env mapping. Pass ``__name__`` from a domain module built on this one.
     :returns: the ``transform(input_data) -> dict`` entry point, carrying the effective mapping as
         ``transform.promoted`` so tests and the registry can introspect what a module promotes.
-    :raises ValueError: if the deployment's env promotion mapping is malformed — see
-        ``auditflow_sdk.resolve_promoted``.
+    :raises ValueError: if the deployment's env promotion mapping is malformed, or if it targets one
+        of this module's reserved columns — see ``auditflow_sdk.resolve_promoted``.
     """
-    promoted = resolve_promoted({**_PROMOTED, **(extra_promoted or {})}, module_id)
+    promoted = resolve_promoted({**_PROMOTED, **(extra_promoted or {})}, module_id,
+                                reserved=_RESERVED_COLUMNS)
 
     def transform(input_data: dict) -> dict:
         """Flatten a canonical AuditEvent into one ClickHouse row keyed by column name."""
@@ -111,17 +140,10 @@ def make_transform(extra_promoted=None, module_id=None):
         extra = input_data.get("extra") or {}
         timestamp = input_data.get("timestamp")
 
-        row = {
-            "timestamp": timestamp,
-            # eventTime is the client-supplied business time and the axis every report is grouped
-            # on; fall back to server receipt time so the column is never null.
-            "event_time": input_data.get("eventTime") or timestamp,
-            "event_id": input_data.get("eventId"),
-            "correlation_id": input_data.get("correlationId"),
-            "event_type": input_data.get("eventType"),
-            "source_system": input_data.get("sourceSystem"),
-            "tenant_id": input_data.get("tenantId"),
-        }
+        row = {column: input_data.get(source_key) for source_key, column in _ENVELOPE.items()}
+        # eventTime is the client-supplied business time and the axis every report is grouped on;
+        # fall back to server receipt time so the column is never null.
+        row["event_time"] = input_data.get("eventTime") or timestamp
 
         for source_key, column in promoted.items():
             row[column] = extra.get(source_key)
@@ -138,8 +160,12 @@ def make_transform(extra_promoted=None, module_id=None):
         row["geo_lat"] = geolocation.get("lat")
         row["geo_lon"] = geolocation.get("lon")
 
+        # An explicitly null `extra` value is treated as ABSENT and omitted, exactly like a key the
+        # publisher never sent — a null carries no information, and stringifying it would fabricate
+        # the literal "null". Falsy-but-present values (0, "", false) are real and are kept.
         row["extra"] = {
-            key: stringify_value(value) for key, value in extra.items() if key not in promoted
+            key: stringify_value(value) for key, value in extra.items()
+            if key not in promoted and value is not None
         }
 
         return row

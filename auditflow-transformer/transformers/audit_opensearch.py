@@ -56,6 +56,15 @@ Example Output:
   }
 }
 
+`extra` is an open map
+----------------------
+No key is required, unrecognised keys survive in the nested `extra` object, and an absent key yields
+an omitted field. An `extra` value that is explicitly `null` is treated as ABSENT and omitted, like
+a key the publisher never sent; falsy-but-present values (`0`, `""`, `false`) are real and are kept.
+A promotion target naming one of this module's own document fields (an envelope field such as
+`tenant_id`/`event_id`, a `location*` field, or `extra`) is rejected at import — promotion runs after
+the envelope, so it would otherwise let a publisher's `extra` value replace the event's identity.
+
 Migration from 1.x
 ------------------
 `sessionId`, `durationMs` and `responseStatus` are now promoted to top-level `session_id`,
@@ -99,6 +108,14 @@ _TOP_LEVEL = {
     "tenantId": "tenant_id",
 }
 
+# Document fields this module writes itself, so no promotion may target one: the document is a flat
+# namespace and the promotion loop runs after the envelope loop, so a colliding target would let a
+# publisher's `extra` value REPLACE the envelope value — including `tenant_id`, the tenant-isolation
+# dimension, and `event_id`, the document identity. Derived from the dicts above so it cannot drift.
+_RESERVED_FIELDS = (
+    set(_TOP_LEVEL.values()) | set(_GEO_DESCRIPTIVE.values()) | {"location", "extra"}
+)
+
 
 def make_transform(extra_promoted=None, module_id=None):
     """Build a transform function that also promotes a domain's own `extra` keys.
@@ -109,9 +126,11 @@ def make_transform(extra_promoted=None, module_id=None):
         env mapping. Pass ``__name__`` from a domain module built on this one.
     :returns: the ``transform(input_data) -> dict`` entry point, carrying the effective mapping as
         ``transform.promoted``.
-    :raises ValueError: if the deployment's env promotion mapping is malformed.
+    :raises ValueError: if the deployment's env promotion mapping is malformed, or if it targets one
+        of this module's reserved document fields.
     """
-    promoted = resolve_promoted({**_PROMOTED, **(extra_promoted or {})}, module_id)
+    promoted = resolve_promoted({**_PROMOTED, **(extra_promoted or {})}, module_id,
+                                reserved=_RESERVED_FIELDS)
 
     def transform(input_data: dict) -> dict:
         """Flatten a canonical AuditEvent into an OpenSearch-friendly document."""
@@ -138,8 +157,13 @@ def make_transform(extra_promoted=None, module_id=None):
             if value is not None:
                 document[field] = value
 
-        # Everything not promoted stays in a nested object — never dropped.
-        remaining = {key: value for key, value in extra.items() if key not in promoted}
+        # Everything not promoted stays in a nested object — never dropped. An explicitly null value
+        # is treated as ABSENT and omitted, like a key the publisher never sent; falsy-but-present
+        # values (0, "", false) are real and are kept.
+        remaining = {
+            key: value for key, value in extra.items()
+            if key not in promoted and value is not None
+        }
         if remaining:
             document["extra"] = remaining
 

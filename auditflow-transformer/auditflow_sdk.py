@@ -25,7 +25,7 @@ import json
 import os
 import re
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Iterable, Optional
 
 # Entry-point signatures (handy for type hints in bare-function modules).
 TransformFn = Callable[[Dict[str, Any]], Dict[str, Any]]
@@ -118,7 +118,8 @@ def _parse_promoted_env(var_name: str) -> Dict[str, str]:
     return parsed
 
 
-def resolve_promoted(base: Dict[str, str], module_id: Optional[str] = None) -> Dict[str, str]:
+def resolve_promoted(base: Dict[str, str], module_id: Optional[str] = None,
+                     reserved: Optional[Iterable[str]] = None) -> Dict[str, str]:
     """Merge the deployment's env promotion mapping onto a module's built-in one.
 
     Precedence, lowest to highest: the module's built-in vocabulary and its
@@ -129,13 +130,58 @@ def resolve_promoted(base: Dict[str, str], module_id: Optional[str] = None) -> D
     :param base: ``{extra key: target field}`` the module ships with.
     :param module_id: the module's own id, enabling its scoped env var. Pass ``__name__`` from a
         domain module; omit it to honour only the global mapping.
+    :param reserved: the field names the calling module writes itself — envelope fields, geolocation
+        fields, derived fields. Promotion writes into the same flat namespace, so a target that
+        lands on one of these would *replace* the value the module derived from the event. Pass the
+        module's own set; it is checked against every source of promotion, including ``base``.
     :returns: a new mapping — ``base`` is never mutated.
+    :raises ValueError: if the mapping is malformed, or if any target name is reserved.
     """
     promoted = dict(base or {})
     promoted.update(_parse_promoted_env(PROMOTED_KEYS_ENV))
     if module_id:
         promoted.update(_parse_promoted_env(f"{PROMOTED_KEYS_ENV}_{module_id.upper()}"))
+
+    if reserved:
+        reserved = set(reserved)
+        clashes = sorted(
+            (key, target) for key, target in promoted.items() if target in reserved)
+        if clashes:
+            detail = ", ".join(f"{key!r} -> {target!r}" for key, target in clashes)
+            raise ValueError(
+                f"promotion target is a reserved field of this module: {detail}. Reserved names "
+                f"({', '.join(sorted(reserved))}) are written from the event envelope, its "
+                f"geolocation, or derived by the module; promoting an `extra` key onto one would "
+                f"let a publisher overwrite it. Choose a different target name in "
+                f"{PROMOTED_KEYS_ENV}, {PROMOTED_KEYS_ENV}_<MODULE_ID>, or the module's "
+                f"make_transform() mapping.")
     return promoted
+
+
+# ── Reserved-name collisions ────────────────────────────────────────────────────────────────────
+#
+# `extra` is an OPEN, publisher-controlled key space, and every delivery format flattens it into a
+# namespace that already has names of its own (a ClickHouse column, a Loki structured-metadata
+# field, a CEF extension key). Two values therefore compete for one name.
+#
+# ONE convention everywhere: the module's own value keeps the plain name, and the `extra` key is
+# emitted under `extra_<name>` (then `extra_<name>_2`, `_3`, … if that is taken too). Dropping the
+# `extra` key would violate "nothing is dropped"; overwriting would let a publisher rewrite its own
+# audit record. Both values survive, and which is which is unambiguous.
+RENAMED_PREFIX = "extra_"
+
+
+def collision_free_name(field: str, taken: Iterable[str]) -> str:
+    """Return ``field``, or ``extra_<field>`` (``_2``, ``_3``, …) when ``field`` is already taken."""
+    taken = set(taken)
+    if field not in taken:
+        return field
+    candidate = f"{RENAMED_PREFIX}{field}"
+    suffix = 2
+    while candidate in taken:
+        candidate = f"{RENAMED_PREFIX}{field}_{suffix}"
+        suffix += 1
+    return candidate
 
 
 def stringify_value(value: Any) -> str:
