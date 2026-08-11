@@ -101,6 +101,26 @@ three files that must agree, and the NetLicensing one is the worked example:
 | Vocabulary | `Extra` schema in the OpenAPI contract | `examples/clickhouse/NETLICENSING_KPI.md` ("Field vocabulary" + event catalog + query book) |
 | Pipeline | `tenants/_platform.yaml` | `tenants/demo.yaml` |
 
+**`extra` is an open map — four invariants** (`auditflow-transformer/tests/test_extra_contract.py`
+enforces them across every module in `transformers/`, so a new transformer is covered on arrival):
+
+1. **Open** — no `extra` key is required; the well-known 7 are a convention, not a schema.
+2. **Absent is absent** — never fabricate `"unknown"` / `"N/A"` / `level: "UNKNOWN"` for a missing
+   key. A placeholder is indistinguishable from a publisher that really sent it.
+3. **Nothing is dropped** — a non-promoted key always reaches the sink via its metadata channel.
+4. **Uniform extension** — every promoting transformer exposes
+   `make_transform(extra_promoted=None, module_id=None)` and `transform.promoted`.
+
+These bind the **generic** modules. A **domain** module may require its own keys (`netlicensing_sink`
+needs `extra.transaction`) provided it documents them and gates on `eventType` first.
+
+The shared vocabulary lives in `auditflow-transformer/auditflow_sdk.py` (`WELL_KNOWN_EXTRA`,
+`resolve_promoted`, `stringify_value`) — **service root, never `transformers/`**: the registry
+imports every non-`__` `*.py` there and reports a module without a `transform` callable as broken.
+Promotion also accepts `AUDITFLOW_PROMOTED_KEYS` / `AUDITFLOW_PROMOTED_KEYS_<MODULE_ID>` (JSON
+object); a malformed value **must** keep raising at import so the registry excludes the module
+instead of silently dropping a column.
+
 Both schema files are compose init scripts, applied only on an empty data dir — `just clean` after
 editing either. Invariants to preserve when touching any of this:
 
@@ -180,7 +200,7 @@ test event.
 | Condition operator | `auditflow-be/.../service/ConditionEvaluator.java` |
 | Add transformer | `auditflow-transformer/transformers/<name>.py` |
 | Add sink | `auditflow-sink/sinks/<name>.py` |
-| Add a use-case field vocabulary | a transformer built on `audit_clickhouse.make_transform()` + an `ALTER TABLE` script — never new keys in the generic module (see "Build, run, test") |
+| Add a use-case field vocabulary | a transformer built on `audit_clickhouse.make_transform()` + an `ALTER TABLE` script — never new keys in the generic module (see "Build, run, test"); or, deployment-wide with no code, `AUDITFLOW_PROMOTED_KEYS` / `AUDITFLOW_PROMOTED_KEYS_<MODULE_ID>` (still needs the matching sink column) |
 | OTel Collector config | `observability/otel-collector/config.yaml` |
 | Grafana dashboard | `observability/grafana/dashboards/*.json` |
 | Observability toggle (local) | `docker-compose-observability.yml` (`just up obs`) — env-only, no rebuild |

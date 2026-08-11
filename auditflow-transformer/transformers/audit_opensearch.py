@@ -61,7 +61,13 @@ Migration from 1.x
 `sessionId`, `durationMs` and `responseStatus` are now promoted to top-level `session_id`,
 `duration_ms` and `response_status` instead of remaining inside the `extra` object, making the
 promotion set symmetric with `audit_clickhouse`. Queries and dashboards reading `extra.sessionId`
-(etc.) must move to the top-level field, and the index mapping gains three fields.
+(etc.) must move to the top-level field.
+
+The index mapping gains five fields in total, not three: those same three moved-out fields, plus
+`event_time` and `correlation_id`. The two groups are not the same kind of change — `session_id`,
+`duration_ms` and `response_status` only *moved* out of `extra`, where 1.x already emitted them;
+`event_time` and `correlation_id` are genuinely new top-level fields with no 1.x equivalent, since
+1.x never emitted `eventTime` or `correlationId` at all, promoted or not.
 """
 
 from auditflow_sdk import WELL_KNOWN_EXTRA, resolve_promoted

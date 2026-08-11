@@ -340,6 +340,57 @@ See [DEVELOPERS.md's ClickHouse section](DEVELOPERS.md#clickhouse-analytics-sink
 reference: the schema-layering model, redaction visibility, and everything worth knowing before
 trusting a number out of it.
 
+### Event vocabulary and the `extra` block
+
+`AuditEvent` has a small required core — `eventType` and `sourceSystem` — and everything else your
+domain needs goes in `extra`, an **open map**. No key in it is required, and none is guaranteed:
+every deployment defines its own field set, and a publisher whose keys appear nowhere in our docs is
+a fully supported setup. Unrecognised keys are delivered unchanged in the sink's metadata map, so an
+event never loses data by using names AuditFlow has not heard of.
+
+On top of that, a small **convention** — the generic audit-semantics keys `userId`, `actionName`,
+`actionStatus`, `actionMessage`, `sessionId`, `durationMs`, `responseStatus` — is what the bundled
+transformers promote out of the map into dedicated fields, columns and labels. Promotion is what
+makes a key a queryable report dimension rather than an opaque map entry. Every one is optional, and
+an absent key yields an omitted field, never a placeholder.
+
+To make **your** keys first-class dimensions, promote them — two paths, same effect:
+
+```python
+# 1. A transformer module: per-pipeline, one module per domain.
+#    Drop it into transformers_bootstrap/ (compose mounts it) or ship it as a wheel.
+from audit_clickhouse import make_transform
+transform = make_transform({"orderRef": "order_ref", "carrier": "carrier"}, module_id=__name__)
+```
+
+```yaml
+# 2. Configuration only: deployment-wide, no code.
+environment:
+  AUDITFLOW_PROMOTED_KEYS: '{"orderRef": "order_ref", "carrier": "carrier"}'
+```
+
+Code declares the domain and the operator overrides the code, so precedence runs built-in vocabulary
+→ `make_transform()` argument → `AUDITFLOW_PROMOTED_KEYS` → `AUDITFLOW_PROMOTED_KEYS_<MODULE_ID>`. A
+malformed mapping fails that module's import and shows up in `GET /registry` rather than silently
+dropping the column — an operator typo must not become missing analytics data.
+
+A promoted key needs somewhere to land: pair it with a sink schema that has the column (for
+ClickHouse, an `ALTER TABLE ... ADD COLUMN`). Without one the key is dropped at insert time rather
+than rejected, so the pairing is what the `examples/clickhouse` layer demonstrates below.
+
+Four rules every bundled transformer and sink follows, enforced by
+`auditflow-transformer/tests/test_extra_contract.py`:
+
+| | Rule |
+|---|---|
+| **Open** | No `extra` key is required. |
+| **Absent is absent** | A missing key yields an omitted field, never `"unknown"` or `"N/A"`. |
+| **Nothing is dropped** | Non-promoted keys always reach the sink. |
+| **Uniform extension** | Every bundled transformer takes the same `make_transform` + env mapping. |
+
+Those bind the *generic* modules. A **domain** module may require its own keys — `netlicensing_sink`
+raises without `extra.transaction` — as long as it documents them and gates on `eventType` first.
+
 ### Licensing & monetization KPIs — and how to model your own domain
 
 The ClickHouse transformer and schema are **generic**: they promote the well-known audit-semantics
