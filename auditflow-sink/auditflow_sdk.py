@@ -22,7 +22,7 @@ subclass one and bind the entry point at module level, e.g.::
     process = MySink().process   # the registry resolves the module-level callable
 """
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, Iterable
 
 # Entry-point signatures (handy for type hints in bare-function modules).
 TransformFn = Callable[[Dict[str, Any]], Dict[str, Any]]
@@ -56,3 +56,31 @@ def require_properties(properties: Dict[str, Any], *required: str) -> None:
     missing = [key for key in required if not properties.get(key)]
     if missing:
         raise ValueError(f"Missing required propert{'y' if len(missing) == 1 else 'ies'}: {', '.join(missing)}")
+
+
+# ── Reserved-name collisions ────────────────────────────────────────────────────────────────────
+#
+# `extra` is an OPEN, publisher-controlled key space, and a sink that flattens it into a wire format
+# writes into a namespace that already has names of its own (a CEF extension key, a log field). Two
+# values therefore compete for one name.
+#
+# ONE convention everywhere: the sink's own value keeps the plain name, and the `extra` key is
+# emitted under `extra_<name>` (then `extra_<name>_2`, `_3`, … if that is taken too). Dropping the
+# `extra` key would violate "nothing is dropped"; overwriting would let a publisher rewrite its own
+# audit record. Both values survive, and which is which is unambiguous.
+#
+# Kept identical to the transformer's copy of this SDK — the two services share one convention.
+RENAMED_PREFIX = "extra_"
+
+
+def collision_free_name(field: str, taken: Iterable[str]) -> str:
+    """Return ``field``, or ``extra_<field>`` (``_2``, ``_3``, …) when ``field`` is already taken."""
+    taken = set(taken)
+    if field not in taken:
+        return field
+    candidate = f"{RENAMED_PREFIX}{field}"
+    suffix = 2
+    while candidate in taken:
+        candidate = f"{RENAMED_PREFIX}{field}_{suffix}"
+        suffix += 1
+    return candidate

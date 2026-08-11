@@ -1,17 +1,23 @@
 """Loki transformer: reshapes an AuditFlow event into a Grafana Loki push payload.
 
 `extra` is an OPEN map — the well-known keys are a convention, not a schema — so this module holds
-to three rules:
+to four rules:
 
 * **Absent is absent.** A missing key yields an omitted label/field, never `"unknown"` or `"N/A"`.
   A fabricated label value is indistinguishable from a publisher that really sent it, and it
-  pollutes the label index with a value nobody can filter meaningfully.
+  pollutes the label index with a value nobody can filter meaningfully. An `extra` value that is
+  explicitly `null` counts as absent and is omitted too; falsy-but-present values (`0`, `""`,
+  `false`) are real and are kept.
 * **Nothing is dropped.** Every `extra` key that is not a label lands in structured metadata, so a
   deployment's own field names always survive the trip to Loki.
+* **Derived metadata is never overwritten.** `eventId`, `correlationId`, `level` and the geolocation
+  fields come from the event, not from `extra`. An `extra` key that would land on one of those names
+  is emitted as `extra_<name>` instead — both values survive, and the derived one keeps the plain
+  name. Without that guard `extra: {"eventId": ..., "level": "INFO"}` would let a publisher rewrite
+  its own entry's identity and mask a FAILURE as INFO.
 * **Labels stay a closed set.** Only `action_name` and `action_status` are promoted out of `extra`
   into stream labels. Labels are an index dimension in Loki, and promoting operator-defined keys
-  into them is an unbounded-cardinality failure. A deployment's promoted keys are renamed
-  *within structured metadata*, not turned into labels.
+  into them is an unbounded-cardinality failure.
 
 Extending it for a use case
 ---------------------------
@@ -21,8 +27,14 @@ Same two paths as `audit_clickhouse`. Either build a module on this one::
     transform = make_transform({"invoiceRef": "invoice_ref"}, module_id=__name__)
 
 or, with no new module, set ``AUDITFLOW_PROMOTED_KEYS='{"invoiceRef": "invoice_ref"}'`` on the
-transformer container. Renaming only affects the structured-metadata field name; see the label rule
-above.
+transformer container. Promotion renames the **structured-metadata** field only; it never creates a
+label. Two mappings are therefore rejected at import rather than silently ignored:
+
+* a mapping for `actionName` or `actionStatus`, whose values are stream labels and cannot be
+  renamed (their names are the label index, so remapping them is a cardinality decision, not a
+  formatting one);
+* a mapping whose target is a name this module derives itself (`eventId`, `correlationId`, `level`,
+  a geolocation field, or a label name).
 
 Example input:
     {
@@ -97,6 +109,15 @@ _GEO = {
 # Loki structured metadata is not a column namespace, so the well-known keys keep their camelCase
 # contract spelling here rather than the snake_case names audit_clickhouse uses for columns.
 _PROMOTED = {key: key for key in WELL_KNOWN_EXTRA}
+
+# Names this module writes itself: derived from the event, never from `extra`. Two guards use it — no
+# promotion target may be one of these (a promoted key would otherwise replace the derived value,
+# since the promotion loop runs last), and an unpromoted `extra` key landing on one is renamed to
+# `extra_<name>`. Derived from the dicts above so it cannot drift from them.
+_RESERVED_FIELDS = (
+    set(_TOP_LEVEL_LABELS.values()) | set(_LABEL_KEYS.values()) | set(_GEO.values())
+    | {"eventId", "correlationId", "level"}
+)
 
 
 def get_log_level(status):
