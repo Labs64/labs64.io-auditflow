@@ -296,6 +296,54 @@ Worth knowing when evaluating ClickHouse here:
   consumer sees only duplicates. `docker compose restart backend` clears that state; `just clean
   && just up` does both at once.
 
+### Extending the `extra` vocabulary
+
+Promoting an `extra` key into a queryable field works the same way on any promoting transformer, not
+just `audit_clickhouse` — two paths, same effect:
+
+```python
+# 1. A transformer module: per-pipeline, one module per domain.
+#    Drop it into transformers_bootstrap/ (compose mounts it) or ship it as a wheel.
+from audit_clickhouse import make_transform
+transform = make_transform({"orderRef": "order_ref", "carrier": "carrier"}, module_id=__name__)
+```
+
+```yaml
+# 2. Configuration only: deployment-wide, no code.
+environment:
+  AUDITFLOW_PROMOTED_KEYS: '{"orderRef": "order_ref", "carrier": "carrier"}'
+```
+
+Either path needs the same second half: a matching column in the sink schema. ClickHouse inserts
+with `input_format_skip_unknown_fields=1`, so a promoted key with no column is **silently dropped at
+insert time**, not rejected — that is true of the module path and the config-only path equally;
+neither one is schema-agnostic on its own.
+
+Precedence, lowest to highest: the module's built-in vocabulary → its `make_transform(extra_promoted)`
+argument → `AUDITFLOW_PROMOTED_KEYS` → `AUDITFLOW_PROMOTED_KEYS_<MODULE_ID>`. Code declares the
+domain and the operator overrides the code.
+
+A malformed `AUDITFLOW_PROMOTED_KEYS*` value — invalid JSON, a non-object, or a target name that
+isn't a plain identifier — raises `ValueError` at import. That is handled exactly like any other
+broken plugin: `PluginRegistry` excludes the module rather than crashing the service, `GET
+/registry` lists it under its errors, and a pipeline still pointed at that `transformer.name` gets a
+404 — never a silently missing column.
+
+Target field names land in SQL identifier position (a ClickHouse column name), so they are
+constrained to `^[a-zA-Z_][a-zA-Z0-9_]*$` — anything else would need quoting, or could inject SQL if
+a target name were ever interpolated instead of bound.
+
+#### Migrating from audit_opensearch 1.x
+
+`audit_opensearch` 2.0.0 promotes all 7 well-known keys instead of 3. `sessionId`, `durationMs` and
+`responseStatus` now land in top-level `session_id`, `duration_ms` and `response_status` instead of
+staying inside the `extra` object — update any query or dashboard reading `extra.sessionId` (etc.).
+The index mapping gains **five** fields in total: those same three moved-out fields, plus
+`event_time` and `correlation_id`, which are genuinely new — 1.x never emitted an `eventTime` or
+`correlationId` top-level field at all, promoted or not. `audit_loki` 2.0.0 additionally stops
+emitting the placeholder labels `action_name="unknown_action"` / `action_status="unknown_status"`
+and the log line `"N/A"` — a panel filtering on those was matching fabricated data.
+
 ### Observability Stack
 
 The observability overlay adds OTel Collector, Tempo (traces), Loki (logs), Prometheus (metrics), and Grafana (dashboards) to any base stack. See [Health & Observability](#health--observability) for full details.

@@ -41,6 +41,9 @@ AuditFlowClient client = AuditFlowClient.builder()
 // Compile-time safe: eventType is required in the constructor
 AuditEvent event = AuditEvents.builder("user.login")
         .extra("userId", "u1")
+        // `extra` is an open map: any key is valid. These two are the optional well-known
+        // convention the bundled transformers promote to dedicated fields — see the `Extra`
+        // schema in the OpenAPI contract for the full list and for how to promote your own.
         .extra("actionStatus", "SUCCESS")
         .build();
 

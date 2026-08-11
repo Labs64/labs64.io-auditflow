@@ -207,6 +207,13 @@ matching column (or a deployment that never applied `schema-netlicensing.sql`) i
 insert time rather than failing delivery. Promotion is by literal key match — a misspelled key
 silently degrades to an untyped entry in the `extra` map column.
 
+These keys are a **layer on top of** the generic AuditFlow contract, not part of it — NetLicensing
+is one worked example of modeling a domain, not a set of reserved names. The generic half is the
+`Extra` schema of
+[`openapi-audit-v1.yaml`](../../auditflow-api/src/main/resources/openapi/openapi-audit-v1.yaml):
+its seven well-known keys are what every bundled transformer promotes regardless of domain: nothing
+below extends or narrows that contract.
+
 ### Customer
 
 | Key | Column | Meaning |
