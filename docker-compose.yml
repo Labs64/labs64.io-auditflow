@@ -106,6 +106,11 @@ services:
       # Transformer modules only: the registry scans this directory for *.py and reports anything
       # without a `transform` entry point as a broken plugin.
       - ./examples/netlicensing:/home/l64user/transformers_bootstrap:ro
+    environment:
+      # No-code `extra` promotion: {extra key: target field}. Passed through from the host so
+      # `AUDITFLOW_PROMOTED_KEYS='{"orderRef":"order_ref"}' just up` works without editing this file.
+      # Unset or blank is treated as "no extra promotion" by auditflow_sdk.resolve_promoted.
+      AUDITFLOW_PROMOTED_KEYS: ${AUDITFLOW_PROMOTED_KEYS:-}
     networks:
       - auditflow-net
     healthcheck:
