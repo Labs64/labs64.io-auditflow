@@ -35,6 +35,55 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/AuditEvent"
+            examples:
+              minimal:
+                summary: Only the two required fields
+                description: >-
+                  `extra` is entirely optional. An event with no `extra` at all is valid and routes
+                  through every pipeline whose condition it matches.
+                value:
+                  eventType: "api.call"
+                  sourceSystem: "netlicensing/core"
+              domainSpecific:
+                summary: A deployment's own field names
+                description: >-
+                  No key here belongs to the well-known vocabulary, and that is a fully supported
+                  setup: unrecognised keys are delivered unchanged in the sink's metadata map. Pair
+                  them with a transformer that promotes them (or set `AUDITFLOW_PROMOTED_KEYS`) to
+                  make them queryable report dimensions.
+                value:
+                  eventType: "order.shipped"
+                  sourceSystem: "warehouse/dispatch"
+                  tenantId: "V12345678"
+                  eventTime: "2025-11-30T10:14:55Z"
+                  extra:
+                    orderRef: "ORD-4711"
+                    shipmentId: "SHP-8823"
+                    carrier: "DHL"
+                    warehouse: "MUC-2"
+              wellKnownVocabulary:
+                summary: The well-known audit-semantics keys
+                description: >-
+                  The optional convention the bundled transformers promote to dedicated
+                  fields/columns. Mixing these with your own keys, as below, is the common case.
+                value:
+                  eventType: "api.call"
+                  sourceSystem: "netlicensing/core"
+                  tenantId: "V12345678"
+                  eventTime: "2025-11-30T10:14:55Z"
+                  geolocation:
+                    lat: 48.1264019
+                    lon: 11.5407647
+                    countryCode: "DE"
+                  extra:
+                    userId: "customer123"
+                    actionName: "licensee/validate"
+                    actionStatus: "SUCCESS"
+                    actionMessage: "Validation completed successfully"
+                    sessionId: "sess456"
+                    durationMs: 34
+                    responseStatus: 200
+                    invoiceRef: "INV-1"
       responses:
         "200":
           description: Audit event published successfully
@@ -255,7 +304,14 @@ components:
     Extra:
       type: object
       description: |-
-        Custom user-defined fields — any additional key-value pairs relevant to the event.
+        Custom user-defined fields — an **open map** of any additional key-value pairs relevant to
+        the event.
+
+        **No key is required, and no key is guaranteed.** Every deployment defines its own field
+        set; a publisher whose keys appear nowhere in this document is a fully supported setup.
+        Unrecognised keys are delivered unchanged in the sink's own metadata map, so an event never
+        loses data by using field names AuditFlow has not heard of. The keys shown in the examples
+        are illustrative, not a schema.
 
         `extra` is a metadata bag, not a payload channel: do not use it to carry request/response
         bodies, file contents or base64 blobs. The whole request is additionally subject to the
@@ -263,13 +319,13 @@ components:
 
         ## Well-known keys
 
-        The keys below are the recommended, well-known audit-semantics vocabulary. They are
-        optional — `extra` accepts any key — but the bundled transformers recognise them and
-        **promote them to dedicated top-level fields/columns** when delivering to a sink, which is
-        what makes them queryable as report dimensions rather than opaque map entries. Anything not
-        listed here is passed through unchanged in the sink's own metadata map. Use the exact
-        spelling: promotion is by literal key match, and a misspelled key silently degrades to an
-        untyped map entry.
+        The keys below are a **convention**, not a requirement: the generic audit-semantics
+        vocabulary that the bundled transformers recognise and **promote to dedicated top-level
+        fields/columns** when delivering to a sink, which is what makes them queryable as report
+        dimensions rather than opaque map entries. Every one is optional, and an absent key yields
+        an omitted field — never a placeholder value. Use the exact spelling: promotion is by
+        literal key match, and a misspelled key degrades to an untyped map entry rather than
+        failing.
 
         | Key | Meaning |
         |---|---|
@@ -281,25 +337,35 @@ components:
         | `durationMs` | Server-side processing time in milliseconds (integer). |
         | `responseStatus` | HTTP status returned to the caller (integer). |
 
-        ## Domain-specific keys
+        ## Your own keys
 
         This contract stays deliberately domain-free: AuditFlow is a generic audit router, and no
-        publisher's field names belong in the shared vocabulary above. A use case that wants its
-        own keys as first-class report dimensions layers them on instead, by pairing a transformer
-        module that promotes them with a sink schema that has the matching columns.
+        publisher's field names belong in the shared vocabulary above. Nothing needs to be declared
+        here for your own keys to work — unrecognised keys travel through unchanged, so a domain
+        layer is additive and a deployment without one loses queryability, not data.
 
-        Nothing needs to be declared here for that to work: unrecognised keys travel through
-        unchanged, so a domain layer is additive and a deployment without it loses queryability,
-        not data.
+        To make your keys first-class report dimensions, promote them, in either of two ways:
+
+        * **A transformer module** — `make_transform({"orderRef": "order_ref"})` on top of a
+          bundled transformer, paired with a sink schema that has the matching columns. One module
+          per domain, selected per pipeline by `transformer.name`, so two pipelines can promote
+          different vocabularies.
+        * **Configuration only** — set `AUDITFLOW_PROMOTED_KEYS='{"orderRef": "order_ref"}'` on the
+          transformer container. Applies to every pipeline in that deployment, and needs no code.
+
+        Either way the promoted key leaves the map and lands in its own field or column.
       additionalProperties: true
       # Bounds the number of keys so a spec-valid event cannot grow without limit.
       maxProperties: 64
-      example:
-        userId: "customer123"
-        userBU: "BU12345678"
-        actionName: "login"
-        actionStatus: "SUCCESS"
-        actionMessage: "User logged in successfully"
+      examples:
+        - orderRef: "ORD-4711"
+          shipmentId: "SHP-8823"
+          carrier: "DHL"
+        - userId: "customer123"
+          actionName: "login"
+          actionStatus: "SUCCESS"
+          actionMessage: "User logged in successfully"
+          invoiceRef: "INV-1"
 
     ErrorCode:
       type: string
