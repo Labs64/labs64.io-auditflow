@@ -5,7 +5,7 @@ requests==2.34.2
 python-multipart==0.0.32
 
 # AWS sinks
-boto3==1.43.66
+boto3==1.43.67
 
 # Google Cloud sinks
 google-cloud-storage==3.13.1
