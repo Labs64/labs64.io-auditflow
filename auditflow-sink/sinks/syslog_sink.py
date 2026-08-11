@@ -164,31 +164,81 @@ def format_json(event_data: dict) -> str:
     return json.dumps(event_data, separators=(',', ':'))
 
 
+def _escape_cef_header(value) -> str:
+    """Escape a CEF header field: backslash and pipe only.
+
+    `=` is a delimiter in the extension, not the header, so escaping it here would corrupt a
+    perfectly legal name.
+    """
+    return str(value).replace('\\', '\\\\').replace('|', '\\|')
+
+
+def _escape_cef_extension(value) -> str:
+    """Escape a CEF extension value: backslash, `=`, and newlines.
+
+    `extra` is an open map, so values are arbitrary publisher input. An unescaped `=` silently
+    splits one field into two, and a raw newline lets a value forge a second syslog record.
+    """
+    if isinstance(value, bool):
+        # Checked before int — bool is an int subclass, and "True" is not valid JSON.
+        text = "true" if value else "false"
+    elif isinstance(value, (str, int, float)):
+        text = str(value)
+    else:
+        text = json.dumps(value, separators=(',', ':'), sort_keys=True)
+    return (text.replace('\\', '\\\\')
+                .replace('=', '\\=')
+                .replace('\r\n', '\\n')
+                .replace('\n', '\\n')
+                .replace('\r', '\\n'))
+
+
 def format_cef(event_data: dict) -> str:
     """
     Format event as Common Event Format (CEF).
     CEF:Version|Device Vendor|Device Product|Device Version|Signature ID|Name|Severity|Extension
+
+    `extra` is an open map: no key is guaranteed. Absent keys are omitted rather than rendered as
+    "unknown" (a value indistinguishable from a publisher that really sent it), and every key the
+    formatter does not recognise is passed through as its own extension so nothing is lost.
     """
-    extra = event_data.get('extra', {})
+    extra = event_data.get('extra') or {}
 
     # CEF header
     cef_version = 0
     device_vendor = "Labs64"
     device_product = "AuditFlow"
     device_version = "1.0"
-    signature_id = event_data.get('eventType', 'unknown')
-    name = extra.get('actionName', 'unknown')
+    signature_id = event_data.get('eventType')
+    # `actionName` is a convention, not a guaranteed field — fall back to the event classification,
+    # which the contract does require.
+    name = extra.get('actionName') or event_data.get('eventType')
+
     severity = 5  # Medium
 
-    # CEF extension
+    # CEF extension — only fields the event actually carries.
     extensions = []
-    extensions.append(f"src={event_data.get('sourceSystem', 'unknown')}")
-    extensions.append(f"act={extra.get('actionName', 'unknown')}")
-    extensions.append(f"outcome={extra.get('actionStatus', 'unknown')}")
+    for source_key, cef_key in (('sourceSystem', 'src'), ('eventId', 'externalId'),
+                                ('correlationId', 'cs1'), ('tenantId', 'cs2')):
+        value = event_data.get(source_key)
+        if value is not None:
+            extensions.append(f"{cef_key}={_escape_cef_extension(value)}")
 
-    if 'eventId' in event_data:
-        extensions.append(f"externalId={event_data['eventId']}")
+    for source_key, cef_key in (('actionName', 'act'), ('actionStatus', 'outcome'),
+                                ('actionMessage', 'msg'), ('userId', 'suser')):
+        value = extra.get(source_key)
+        if value is not None:
+            extensions.append(f"{cef_key}={_escape_cef_extension(value)}")
+
+    # Everything else in `extra`, under its own key — a deployment's field names must survive.
+    _MAPPED = {'actionName', 'actionStatus', 'actionMessage', 'userId'}
+    for key, value in extra.items():
+        if key in _MAPPED or value is None:
+            continue
+        extensions.append(f"{_escape_cef_extension(key)}={_escape_cef_extension(value)}")
 
     extension = ' '.join(extensions)
 
-    return f"CEF:{cef_version}|{device_vendor}|{device_product}|{device_version}|{signature_id}|{name}|{severity}|{extension}"
+    return (f"CEF:{cef_version}|{device_vendor}|{device_product}|{device_version}"
+            f"|{_escape_cef_header(signature_id or '')}|{_escape_cef_header(name or '')}"
+            f"|{severity}|{extension}")

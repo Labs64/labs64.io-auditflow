@@ -40,6 +40,14 @@ Expected event structure (from checkout module):
         }
     }
 }
+
+Required `extra` keys
+---------------------
+This is a DOMAIN sink, not a generic one: it requires `extra.transaction` (with `status` and the
+item list) and raises without it. That is a legitimate exception to the "no `extra` key is
+required" rule the generic modules follow — a sink that writes into NetLicensing cannot proceed
+without a transaction. It gates on `eventType` first, so a non-matching event is declined
+(`processed: False`) rather than failed.
 """
 import logging
 import base64
