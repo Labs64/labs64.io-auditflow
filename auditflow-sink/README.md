@@ -10,15 +10,21 @@ Drop `mysink.py` into `sinks/` (or `sinks_bootstrap/` at runtime) implementing
 `process(event_data: dict, properties: dict) -> dict` — see
 [DEVELOPERS.md](../DEVELOPERS.md#adding-a-new-sink) for the full walkthrough.
 
-**`extra` is an open map — four invariants** (`auditflow-transformer/tests/test_extra_contract.py`
-enforces them across every module in `transformers/`, so a new transformer is covered on arrival):
+**`extra` is an open map — a sink must honour three invariants** (see e.g.
+`auditflow-sink/tests/test_syslog_sink.py`, which exercises exactly this for one sink; there is no
+single cross-module contract test on the sink side the way there is for transformers):
 
-1. **Open** — no `extra` key is required; the well-known 7 are a convention, not a schema.
-2. **Absent is absent** — never fabricate `"unknown"` / `"N/A"` / `level: "UNKNOWN"` for a missing
-   key. A placeholder is indistinguishable from a publisher that really sent it.
-3. **Nothing is dropped** — a non-promoted key always reaches the sink via its metadata channel.
-4. **Uniform extension** — every promoting transformer exposes
-   `make_transform(extra_promoted=None, module_id=None)` and `transform.promoted`.
+1. **Open** — no `extra` key is required.
+2. **Absent is absent** — never fabricate `"unknown"` / `"N/A"` for a missing key. A placeholder is
+   indistinguishable from a publisher that really sent it.
+3. **Nothing is dropped** — a non-promoted key always reaches the destination, via whatever
+   metadata channel the destination offers (a map column, structured-log fields, a CEF extension, …).
 
-These bind the **generic** modules. A **domain** module may require its own keys (`netlicensing_sink`
-needs `extra.transaction`) provided it documents them and gates on `eventType` first.
+Promotion itself — `make_transform(extra_promoted=None, module_id=None)` and `transform.promoted` —
+is a **transformer-side** mechanism (see
+[`auditflow-transformer/README.md`](../auditflow-transformer/README.md#adding-a-transformer)). A
+sink has no equivalent: it receives whatever the transformer already produced and does not promote
+keys itself.
+
+A **domain** sink may require its own keys — `netlicensing_sink` needs `extra.transaction` —
+provided it documents them and gates on `eventType` first.
