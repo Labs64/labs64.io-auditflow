@@ -79,4 +79,4 @@ PROMOTED = {
     "isTrial": "is_trial",
 }
 
-transform = make_transform(PROMOTED)
+transform = make_transform(PROMOTED, module_id=__name__)

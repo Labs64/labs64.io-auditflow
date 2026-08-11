@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from transformers import audit_clickhouse
 
 FULL_EVENT = {
@@ -160,3 +162,45 @@ def test_make_transform_lets_a_domain_retarget_a_generic_column():
 
     assert row["actor_id"] == "customer123"
     assert "user_id" not in row
+
+
+def test_promoted_map_is_the_shared_well_known_vocabulary():
+    # One source of truth: a key added to the SDK map without a column here would silently produce
+    # a row key with no column, which the sink drops at insert time.
+    from auditflow_sdk import WELL_KNOWN_EXTRA
+    assert audit_clickhouse.transform.promoted == dict(WELL_KNOWN_EXTRA)
+
+
+def test_env_mapping_promotes_a_deployment_s_own_key(monkeypatch):
+    monkeypatch.setenv("AUDITFLOW_PROMOTED_KEYS", '{"invoiceRef": "invoice_ref"}')
+    transform = audit_clickhouse.make_transform()
+    row = transform({"eventType": "api.call", "timestamp": "2026-08-07T10:15:30Z",
+                     "extra": {"invoiceRef": "INV-1", "other": "x"}})
+    assert row["invoice_ref"] == "INV-1"
+    assert row["extra"] == {"other": "x"}      # promoted keys leave the map
+
+
+def test_module_scoped_env_mapping_wins(monkeypatch):
+    monkeypatch.setenv("AUDITFLOW_PROMOTED_KEYS", '{"invoiceRef": "global_col"}')
+    monkeypatch.setenv("AUDITFLOW_PROMOTED_KEYS_AUDIT_CLICKHOUSE", '{"invoiceRef": "module_col"}')
+    transform = audit_clickhouse.make_transform(module_id="audit_clickhouse")
+    row = transform({"eventType": "api.call", "timestamp": "2026-08-07T10:15:30Z",
+                     "extra": {"invoiceRef": "INV-1"}})
+    assert row["module_col"] == "INV-1"
+    assert "global_col" not in row
+
+
+def test_code_declared_vocabulary_is_still_applied_with_env_set(monkeypatch):
+    # The env mapping ADDS to make_transform()'s argument; it does not replace it.
+    monkeypatch.setenv("AUDITFLOW_PROMOTED_KEYS", '{"invoiceRef": "invoice_ref"}')
+    transform = audit_clickhouse.make_transform({"mrrDelta": "mrr_delta"})
+    row = transform({"eventType": "api.call", "timestamp": "2026-08-07T10:15:30Z",
+                     "extra": {"invoiceRef": "INV-1", "mrrDelta": 10}})
+    assert row["invoice_ref"] == "INV-1"
+    assert row["mrr_delta"] == 10
+
+
+def test_malformed_env_mapping_raises(monkeypatch):
+    monkeypatch.setenv("AUDITFLOW_PROMOTED_KEYS", "{not json")
+    with pytest.raises(ValueError, match="not valid JSON"):
+        audit_clickhouse.make_transform()
