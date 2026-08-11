@@ -34,9 +34,9 @@ def transform(input_data: dict) -> dict:
       "extra": {
         "userId": "user123",
         "browser": "Chrome",
-        "action_name": "LOGIN_SUCCESS",
-        "action_status": "SUCCESS",
-        "action_message": "User logged in successfully"
+        "actionName": "LOGIN_SUCCESS",
+        "actionStatus": "SUCCESS",
+        "actionMessage": "User logged in successfully"
       }
     }
 
@@ -77,12 +77,12 @@ def transform(input_data: dict) -> dict:
     transformed_data['tenant_id'] = input_data.get('tenantId')
 
     # Action fields (now in extra) — only include if present
-    if extra.get('action_name') is not None:
-        transformed_data['action_name'] = extra.get('action_name')
-    if extra.get('action_status') is not None:
-        transformed_data['action_status'] = extra.get('action_status')
-    if extra.get('action_message') is not None:
-        transformed_data['action_message'] = extra.get('action_message')
+    if extra.get('actionName') is not None:
+        transformed_data['action_name'] = extra.get('actionName')
+    if extra.get('actionStatus') is not None:
+        transformed_data['action_status'] = extra.get('actionStatus')
+    if extra.get('actionMessage') is not None:
+        transformed_data['action_message'] = extra.get('actionMessage')
 
     # Geolocation fields - Combined for OpenSearch geo_point
     if geolocation and geolocation.get('lat') is not None and geolocation.get('lon') is not None:
@@ -103,7 +103,7 @@ def transform(input_data: dict) -> dict:
             transformed_data[key] = value
 
     # Extra — keep as a nested object, but strip the action fields already promoted above
-    _ACTION_KEYS = {'action_name', 'action_status', 'action_message'}
+    _ACTION_KEYS = {'actionName', 'actionStatus', 'actionMessage'}
     remaining_extra = {k: v for k, v in extra.items() if k not in _ACTION_KEYS}
     if remaining_extra:
         transformed_data['extra'] = remaining_extra

@@ -143,7 +143,7 @@ public class AuditFlowConfiguration {
      */
     public static class ConditionRule {
         /**
-         * JSON path to the field (e.g., "eventType", "extra.action_name", "tenantId")
+         * JSON path to the field (e.g., "eventType", "extra.actionName", "tenantId")
          */
         private String field;
 

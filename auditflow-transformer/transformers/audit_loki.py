@@ -43,9 +43,9 @@ def transform(input_data):
       "extra": {
         "userId": "user123",
         "browser": "Chrome",
-        "action_name": "LOGIN_SUCCESS",
-        "action_status": "SUCCESS",
-        "action_message": "User logged in successfully"
+        "actionName": "LOGIN_SUCCESS",
+        "actionStatus": "SUCCESS",
+        "actionMessage": "User logged in successfully"
       }
     }
 
@@ -88,14 +88,14 @@ def transform(input_data):
         "service_name": input_data.get("sourceSystem", "unknown"),
         "tenant_id": input_data.get("tenantId", "unknown"),
         "event_type": input_data.get("eventType", "unknown"),
-        "action_name": extra.get("action_name", "unknown_action"),
-        "action_status": extra.get("action_status", "unknown_status"),
+        "action_name": extra.get("actionName", "unknown_action"),
+        "action_status": extra.get("actionStatus", "unknown_status"),
     }
 
     # Prepare the nested dictionary for the "values" array
     values_dict = {
         "eventId": input_data.get("eventId", "N/A"),
-        "level": get_log_level(extra.get("action_status", "N/A")),
+        "level": get_log_level(extra.get("actionStatus", "N/A")),
         "userId": extra.get("userId", "N/A"),
         "country_code": geolocation.get("countryCode", "N/A"),
         "latitude": f'{geolocation.get("lat", "N/A")}',
@@ -115,7 +115,7 @@ def transform(input_data):
 
     values_data = [
         unix_nano_timestamp,
-        extra.get("action_message", "N/A"),
+        extra.get("actionMessage", "N/A"),
         values_dict
     ]
 

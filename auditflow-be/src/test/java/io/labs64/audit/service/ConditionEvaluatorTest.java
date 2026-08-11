@@ -35,9 +35,9 @@ class ConditionEvaluatorTest {
                 "extra": {
                     "userId": "customer123",
                     "userBU": "BU12345678",
-                    "action_name": "login",
-                    "action_status": "SUCCESS",
-                    "action_message": "User logged in successfully",
+                    "actionName": "login",
+                    "actionStatus": "SUCCESS",
+                    "actionMessage": "User logged in successfully",
                     "count": 42
                 },
                 "items": [
@@ -193,7 +193,7 @@ class ConditionEvaluatorTest {
     @DisplayName("Should navigate deeply nested fields")
     void shouldNavigateDeeplyNestedFields() {
         ConditionProperties condition = createCondition("all",
-                createRule("extra.action_status", "eq", "SUCCESS"));
+                createRule("extra.actionStatus", "eq", "SUCCESS"));
         assertTrue(evaluator.evaluate(node(), condition));
     }
 
@@ -246,7 +246,7 @@ class ConditionEvaluatorTest {
     @DisplayName("Should match with case-insensitive equals")
     void shouldMatchWithCaseInsensitiveEquals() {
         ConditionProperties condition = createCondition("all",
-                createRule("extra.action_status", "eqIgnoreCase", "success"));
+                createRule("extra.actionStatus", "eqIgnoreCase", "success"));
         assertTrue(evaluator.evaluate(node(), condition));
     }
 

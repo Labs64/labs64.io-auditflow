@@ -72,6 +72,11 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: admin
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_FEATURE_TOGGLES_ENABLE: traceqlEditor
+      # Downloaded at container start — needs network access on first run.
+      GF_INSTALL_PLUGINS: "grafana-clickhouse-datasource"
+      # Interpolated into provisioning/datasources/datasources.yaml by Grafana itself.
+      CLICKHOUSE_USERNAME: ${CLICKHOUSE_USERNAME:-auditflow}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-auditflow}
     volumes:
       - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro

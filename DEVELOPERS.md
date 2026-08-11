@@ -11,6 +11,7 @@ Everything you need to work with AuditFlow locally, test it, and troubleshoot is
 - [Quick Start](#quick-start)
 - [Project Layout](#project-layout)
 - [Running Locally](#running-locally)
+- [Manual Verification (Smoke Test)](#manual-verification-smoke-test) — step-by-step, for testers
 - [Testing](#testing)
 - [Adding a New Sink](#adding-a-new-sink)
 - [Adding a New Transformer](#adding-a-new-transformer)
@@ -84,22 +85,42 @@ cp .env.example .env
 
 ## Quick Start
 
-```bash
-# 1. Build and start the full stack
-just up
+Four steps, each with the command and what you should see. Takes about a minute.
 
-# 2. Publish a test event
+**1. Build and start the full stack**
+
+```bash
+just up
+```
+Builds the backend JAR, builds all three Docker images, and starts the stack. Wait for the URL
+banner it prints at the end — that's your signal everything is up.
+
+**2. Publish a test event**
+
+```bash
 curl -s -X POST http://localhost:8080/audit/publish \
   -H "Content-Type: application/json" \
   -d '{"eventType":"user.login","sourceSystem":"test","tenantId":"demo"}'
+```
+Expect the response body `Audit event published successfully`.
 
-# 3. Check it arrived in the sink
+**3. Check it arrived in the sink**
+
+```bash
 just log sink
 # Ctrl+C to stop tailing
+```
+Expect a `POST /sink/logging_sink` log line carrying the event you just sent — that's the full
+publish → broker → transform → sink round trip working.
 
-# 4. When done
+**4. Tear down**
+
+```bash
 just down
 ```
+
+Ready to go further? [Manual Verification (Smoke Test)](#manual-verification-smoke-test) walks
+through the rest of the core paths — tenant isolation, redaction, the DLQ — the same way.
 
 ---
 
@@ -116,8 +137,8 @@ labs64.io-auditflow/
 │       └── application.yml  # Main configuration (tenant source, broker, OTel endpoints)
 ├── auditflow-transformer/   # Python transformer service
 │   ├── transformer.py       # FastAPI app
-│   ├── transformers/        # Built-in transformers (zero, audit_loki, audit_opensearch)
-│   ├── transformers_bootstrap/  # Mounted at runtime for custom transformers
+│   ├── transformers/        # Built-in transformers (zero, audit_loki, audit_opensearch, audit_clickhouse)
+│   ├── transformers_bootstrap/  # Mounted at runtime for custom transformers (compose mounts examples/netlicensing/)
 │   └── tests/
 ├── auditflow-sink/          # Python sink service
 │   ├── sink.py              # FastAPI app
@@ -127,6 +148,10 @@ labs64.io-auditflow/
 ├── docker-compose.yml              # Local stack (3 services + RabbitMQ)
 ├── docker-compose-observability.yml # Observability overlay (OTel Collector + Tempo + Loki + Prometheus + Grafana)
 
+├── examples/                       # Runnable examples, not part of any image
+│   ├── getting-started.ipynb       # Hands-on walkthrough (section 6 = ClickHouse round trip)
+│   ├── clickhouse/                 # schema.sql (core) + the NetLicensing layer's DDL, KPI book, seeder
+│   └── netlicensing/               # Use-case transformer, mounted into transformers_bootstrap/
 ├── observability/                  # Config for the observability overlay
 │   ├── otel-collector/config.yaml  # OTel Collector: receivers, processors, exporters
 │   ├── prometheus/prometheus.yml   # Prometheus scrape targets
@@ -143,15 +168,133 @@ labs64.io-auditflow/
 
 ### Docker (recommended)
 
-All 3 services + RabbitMQ, in-memory idempotency via `JAVA_OPTS`.
+All 3 services + RabbitMQ + Cerbos + ClickHouse, in-memory idempotency via `JAVA_OPTS`.
 
 ```bash
 just up        # build JAR + Docker images, start everything
 just up obs    # start with observability overlay
+just up full   # additionally start Redis
 just logs      # tail all service logs (Ctrl+C to stop)
 just down      # stop containers (keeps images)
 just clean     # stop + remove volumes (full reset)
 ```
+
+### ClickHouse (analytics sink)
+
+ClickHouse is part of the default stack so the local setup delivers events to a **queryable**
+destination, not just a log line. The `clickhouse-analytics` pipeline is enabled for both the
+`demo` and `_platform` tenants, and two init scripts are applied on first start:
+
+| File | Contains |
+|---|---|
+| `examples/clickhouse/schema.sql` | Core audit columns — the generic, domain-free contract. |
+| `examples/clickhouse/schema-netlicensing.sql` | The NetLicensing example layer: licensing/monetization columns, the `revenue_signed` alias, and the `ops_daily` rollup. |
+
+They are layered rather than merged so a deployment that only wants an audit trail is not forced to
+carry MRR columns — see [Extending it for a use case](#extending-it-for-a-use-case) below.
+
+**Try it, from the shell** (stack must be running — `just up`):
+
+**1. Seed a dataset.** Publishes a coherent synthetic licensing business (customers,
+subscriptions, payments, upgrades, churn, validations) so there's something to query:
+```bash
+just ch-seed
+```
+
+**2. Look at what landed:**
+```bash
+just ch-events        # 20 most recent stored events
+just ch-stats         # counts grouped by tenant / event type / status
+```
+
+**3. Run your own SQL**, or drop into an interactive shell:
+```bash
+just ch "SELECT count() FROM audit_events WHERE tenant_id = 'demo'"
+just ch-shell          # interactive clickhouse-client
+```
+
+Also reachable at http://localhost:8123/play (`auditflow` / `auditflow`), and over the native
+protocol on `localhost:9000` for JDBC/ODBC drivers and BI tools.
+
+For the fully asserted round trip — publish → poll → `SELECT` → check every column — see
+**section 6 of `examples/getting-started.ipynb`**, run via `just notebook-getting-started`. For a
+guided tour of the KPI query book built on the seeded data, see
+[`examples/clickhouse/NETLICENSING_KPI.md`](examples/clickhouse/NETLICENSING_KPI.md#quick-start).
+
+#### Extending it for a use case
+
+`audit_clickhouse` and `schema.sql` are deliberately domain-free: they promote only the generic
+audit-semantics keys published in the `Extra` schema of the AuditEvent contract, and leave
+everything else in the `extra` `Map(String, String)` column. A domain usually wants its own keys as
+real columns — a column store rewards a dedicated column wherever a key is a `GROUP BY` dimension —
+so it **layers** on top rather than widening the core:
+
+```python
+# examples/netlicensing/audit_clickhouse_netlicensing.py
+from audit_clickhouse import make_transform
+
+PROMOTED = {"licenseeNumber": "licensee_number", "mrrDelta": "mrr_delta", ...}
+transform = make_transform(PROMOTED)
+```
+
+```sql
+-- examples/clickhouse/schema-netlicensing.sql, applied after schema.sql
+ALTER TABLE audit.audit_events ADD COLUMN IF NOT EXISTS licensee_number String;
+```
+
+```yaml
+# tenants/demo.yaml
+transformer:
+  name: audit_clickhouse_netlicensing
+```
+
+A transformer takes no pipeline properties, so the **module id is what selects a vocabulary** — one
+module per domain, chosen per pipeline. Two pipelines can therefore write different column subsets
+to the same table, which is exactly what the compose stack demonstrates: `_platform` uses the
+generic transformer, `demo` uses the NetLicensing layer.
+
+The example is **mounted, not shipped** — compose bind-mounts `examples/netlicensing/` onto the
+transformer's `transformers_bootstrap` directory, the same runtime extension point (a ConfigMap in
+Kubernetes) an integrator uses for their own module. Only transformer modules belong in that
+directory; the registry reports any other `.py` file as a broken plugin.
+
+Nothing fails if a layer is only half-applied: the sink inserts with
+`input_format_skip_unknown_fields=1`, so a promoted key with no column is dropped at insert time
+rather than dead-lettering the event, and applying only `schema.sql` stays supported. That
+tolerance is also why the pairing needs a test —
+`auditflow-transformer/tests/test_audit_clickhouse_netlicensing.py` asserts that every promoted key
+has a column, every column has a key, and every key is documented for publishers.
+
+The licensing KPI model — the field vocabulary, which events a publisher such as NetLicensing must
+emit, and the query book built on them — is
+[`examples/clickhouse/NETLICENSING_KPI.md`](examples/clickhouse/NETLICENSING_KPI.md).
+
+Worth knowing when evaluating ClickHouse here:
+
+- **Aggregate on `event_time`, not `timestamp`.** `timestamp` is when AuditFlow received the event;
+  `event_time` is when the business action happened. The table is partitioned, sorted and expired on
+  `event_time` for that reason. Group revenue on `timestamp` and a backfill of two years of history
+  lands every euro of it in today's bucket.
+- `tenant_id` is the **leading `ORDER BY` column**. A tenantless event stores an empty string —
+  routing maps a null tenant to `_platform`, but the event *body* the transformer reads keeps its
+  null `tenantId`. Publish with an explicit `tenantId` for representative partition pruning.
+- `audit_events` is a **`ReplacingMergeTree`** keyed on `event_id`: AuditFlow is at-least-once with
+  a ~24h idempotency window, so a DLQ replayed later would otherwise double-count revenue. Dedup
+  happens on merge, so exact money queries use `FINAL`.
+- Redaction runs in the **backend**, before the pipeline, so it is visible in the stored row: the
+  compose `JAVA_OPTS` mask `extra.userId` (→ `user_id = '***'`) and drop `extra.apiKey`. They
+  deliberately avoid keys that are promoted to reporting dimensions — a redacted dimension makes a
+  dashboard look empty rather than broken.
+- The sink relies on server-side `async_insert` with `wait_for_async_insert=1`, so a delivery
+  succeeds only once the part is flushed — expect a sub-second delay before a `SELECT` sees the row.
+- The init scripts only run on an **empty data dir**. After editing either schema file, run
+  `just clean && just up` — a plain restart keeps the old table.
+- **Truncating the table is not the same as a clean slate.** `TRUNCATE TABLE audit_events` empties
+  ClickHouse, but the backend's idempotency store (in-memory for the local stack) still remembers
+  every event ID as already delivered. Republishing the same events (e.g. re-running `just
+  ch-seed`) then reports success at the HTTP layer but silently delivers **zero** rows — the
+  consumer sees only duplicates. `docker compose restart backend` clears that state; `just clean
+  && just up` does both at once.
 
 ### Observability Stack
 
@@ -179,6 +322,90 @@ mvn spring-boot:run \
   -Dspring-boot.run.jvmArguments="-Dspring.rabbitmq.host=localhost -Dspring.rabbitmq.port=5673"
 ```
 
+---
+
+## Manual Verification (Smoke Test)
+
+A scripted checklist for confirming a build works end-to-end — before signing off on a change, or
+as a first "does this even work" pass if you're new to the repo. Each step is one action and one
+expected result, so a pass/fail is unambiguous at every step. Takes about 10 minutes; assumes
+nothing is running yet.
+
+This is the manual counterpart to [Testing](#testing) below: the automated suites check units and
+individual endpoints, this checklist checks the paths a real integrator or auditor cares about —
+delivery, tenant isolation, redaction, and the DLQ safety net — by actually driving the running
+stack.
+
+**1. Start clean**
+
+```bash
+just clean   # only if a previous stack is still around — also removes volumes
+just up
+just status  # repeat until every row shows "healthy"
+```
+Expect all six containers (`backend`, `transformer`, `sink`, `rabbitmq`, `cerbos`, `clickhouse`)
+showing `Up ... (healthy)`.
+
+**2. Publish a plain event and confirm delivery**
+
+```bash
+curl -s -X POST http://localhost:8080/audit/publish \
+  -H "Content-Type: application/json" \
+  -d '{"eventType":"user.login","sourceSystem":"smoke-test","tenantId":"demo"}'
+```
+Expect `Audit event published successfully`. Then:
+```bash
+just log sink   # Ctrl+C once you see it
+```
+Expect a `POST /sink/logging_sink HTTP/1.1" 200 OK` log line carrying the event you just sent.
+
+**3. Confirm tenant isolation**
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:8080/audit/publish \
+  -H "Content-Type: application/json" \
+  -d '{"eventType":"user.login","sourceSystem":"smoke-test","tenantId":"does-not-exist"}'
+```
+Expect `403` — an unprovisioned tenant is rejected at ingest, never silently routed to another
+tenant's sink. See [Configuring Pipelines](#configuring-pipelines) for the tenant model.
+
+**4. Confirm redaction and the ClickHouse round trip**
+
+```bash
+curl -s -X POST http://localhost:8080/audit/publish \
+  -H "Content-Type: application/json" \
+  -d '{"eventType":"payment.succeeded","sourceSystem":"smoke-test","tenantId":"demo",
+       "extra":{"userId":"alice","apiKey":"super-secret","sessionId":"sess-1"}}'
+
+just ch "SELECT user_id, session_id, has(extra,'apiKey') AS has_api_key
+         FROM audit_events ORDER BY timestamp DESC LIMIT 1"
+```
+Expect `user_id = '***'` (masked), `has_api_key = 0` (dropped before the pipeline ever saw it),
+and `session_id` intact. This confirms redaction runs in the backend, before the broker, and
+deliberately leaves reporting dimensions alone — see the redaction rules in `docker-compose.yml`'s
+backend `JAVA_OPTS` and [Extending it for a use case](#extending-it-for-a-use-case).
+
+For the fully asserted round trip (publish → broker → transform → sink → `SELECT`, checked column
+by column), run `just notebook-getting-started` and read section 6.
+
+**5. Confirm the DLQ is reachable and empty on a healthy run**
+
+```bash
+curl -s http://localhost:8080/actuator/dlq/demo
+```
+Expect `{"messageCount":0,"tenantId":"demo","status":"available"}` — no messages waiting after the
+steps above. To actually exercise a failure — inspect, replay, purge — see
+[Dead Letter Queue filling up](#dead-letter-queue-filling-up), which walks through pointing a
+pipeline at an unreachable destination and recovering from it.
+
+**6. Tear down**
+
+```bash
+just down     # keeps images; `just clean` also removes volumes
+```
+
+If all six steps matched their expected result, the core paths — ingest, routing, tenant
+isolation, redaction, delivery, and the DLQ safety net — all work.
 
 ---
 
@@ -220,7 +447,8 @@ Tests use `pytest` + `httpx` (TestClient). They cover plugin registry, endpoint 
 ### End-to-End (stack must be running)
 
 ```bash
-just log sink  # watch for "Audit Event Logged"
+just log sink                  # watch for "Audit Event Logged"
+just notebook-getting-started  # section 6 asserts the ClickHouse round trip
 ```
 
 ### Getting-Started Notebook (stack must be running)
@@ -309,9 +537,12 @@ pipelines:
       name: logging_sink
 ```
 
-### Available transformers (3)
+### Available transformers (4)
 
-`zero` (pass-through), `audit_loki`, `audit_opensearch`
+`zero` (pass-through), `audit_loki`, `audit_opensearch`, `audit_clickhouse`
+
+Plus `audit_clickhouse_netlicensing`, mounted from `examples/netlicensing/` rather than shipped —
+see [Extending it for a use case](#extending-it-for-a-use-case).
 
 ### Multi-stage transformer chains
 
@@ -698,10 +929,6 @@ curl -s http://localhost:8080/actuator/metrics | grep deduplicated
 
 ---
 
-
-
----
-
 ## Quick Reference
 
 ### Service URLs
@@ -733,7 +960,7 @@ curl -s http://localhost:8080/actuator/metrics | grep deduplicated
 |---|---|
 | `just up` | Build and start the stack (default) |
 | `just up obs` | Stack + observability overlay |
-
+| `just up full` | Stack + Redis (multi-replica dedup / rate-limiting) |
 | `just log backend` | Tail backend (Java) logs |
 | `just log sink` | Tail sink (Python) logs |
 | `just log transformer` | Tail transformer (Python) logs |

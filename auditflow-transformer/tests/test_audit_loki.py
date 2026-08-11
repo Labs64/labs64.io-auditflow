@@ -21,9 +21,9 @@ def test_transform_basic_event():
             "countryCode": "US"
         },
         "extra": {
-            "action_name": "TEST_ACTION",
-            "action_status": "SUCCESS",
-            "action_message": "Test successful",
+            "actionName": "TEST_ACTION",
+            "actionStatus": "SUCCESS",
+            "actionMessage": "Test successful",
             "userId": "u1"
         }
     }

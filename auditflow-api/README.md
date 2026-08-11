@@ -41,7 +41,7 @@ AuditFlowClient client = AuditFlowClient.builder()
 // Compile-time safe: eventType is required in the constructor
 AuditEvent event = AuditEvents.builder("user.login")
         .extra("userId", "u1")
-        .extra("action_status", "SUCCESS")
+        .extra("actionStatus", "SUCCESS")
         .build();
 
 // Synchronous — throws a typed AuditFlowException on failure

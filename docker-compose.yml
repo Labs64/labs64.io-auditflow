@@ -50,32 +50,42 @@ services:
     profiles:
       - full
 
+  # ClickHouse is part of the default stack (not the `full` profile): the
+  # clickhouse-analytics pipeline is enabled in ./tenants/demo.yaml and
+  # ./tenants/_platform.yaml, so `just up` gives a working publish → sink → query
+  # round trip out of the box.
+  # Query it with `just ch-events` / `just ch "<SQL>"`; the end-to-end round trip with
+  # assertions is section 6 of examples/getting-started.ipynb.
   clickhouse:
-    image: clickhouse/clickhouse-server:25.3-alpine
+    image: clickhouse/clickhouse-server:26.7-alpine
     container_name: auditflow-clickhouse
     ports:
-      - "8123:8123"    # HTTP interface
+      - "8123:8123"    # HTTP interface  →  http://localhost:8123/play
+      - "9000:9000"    # Native protocol (clickhouse-client, JDBC/ODBC drivers)
     environment:
       CLICKHOUSE_USER: ${CLICKHOUSE_USERNAME:-auditflow}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-auditflow}
       CLICKHOUSE_DB: audit
     volumes:
-      # Canonical schema, also parsed by the transformer contract test.
-      - ./examples/clickhouse/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+      # Canonical core schema, also parsed by the transformer contract test, plus the NetLicensing
+      # use-case extension. Numbered targets because init scripts run in lexicographic order and
+      # the extension ALTERs the core table.
+      # Init scripts run only on an empty data dir — `just clean` drops the volume to re-apply.
+      - ./examples/clickhouse/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./examples/clickhouse/schema-netlicensing.sql:/docker-entrypoint-initdb.d/02-schema-netlicensing.sql:ro
+      - clickhouse-data:/var/lib/clickhouse
     ulimits:
       nofile:
         soft: 262144
         hard: 262144
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8123/ping"]
+      test: ["CMD-SHELL", "wget -qO- --header=\"X-ClickHouse-User: $$CLICKHOUSE_USER\" --header=\"X-ClickHouse-Key: $$CLICKHOUSE_PASSWORD\" http://127.0.0.1:8123/ping"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 15s
     networks:
       - auditflow-net
-    profiles:
-      - full
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Transformer service
@@ -88,6 +98,14 @@ services:
     container_name: auditflow-transformer
     ports:
       - "8081:8081"
+    volumes:
+      # The bootstrap directory is the runtime extension point for transformers (a ConfigMap in
+      # k8s, a bind mount here). It carries the NetLicensing example — `audit_clickhouse` itself
+      # stays domain-free and ships in the image, while the licensing vocabulary layered on top
+      # of it is mounted, which is exactly how an integrator adds their own.
+      # Transformer modules only: the registry scans this directory for *.py and reports anything
+      # without a `transform` entry point as a broken plugin.
+      - ./examples/netlicensing:/home/l64user/transformers_bootstrap:ro
     networks:
       - auditflow-net
     healthcheck:
@@ -168,13 +186,32 @@ services:
       LABS64_AUTH_AUTHZ_PDPADDRESS: cerbos:3593
       # Pipelines live in ./tenants/_platform.yaml (mounted below) — the tenant model replaced
       # the -Dauditflow.pipelines[N].* JAVA_OPTS, which now fail startup by design.
+      #
+      # The redaction rules below demonstrate mask and drop. They deliberately target `userId`
+      # and `apiKey` and NOT `sessionId`: redaction runs before the pipeline, so a redacted key
+      # is silently empty in every sink — and `sessionId` is promoted to the `session_id` column
+      # that the "active sessions per product" KPI counts. Redacting a reporting dimension makes
+      # the dashboard wrong in a way that looks like no data rather than like an error.
+      #
+      # max-in-flight-per-tenant is the Layer-2 fairness cap: a per-tenant semaphore that stops one
+      # flooding tenant from monopolizing the shared consumer. Raised here from the shipped default
+      # of 4 to match `spring.cloud.stream.bindings.audit-in-0.consumer.concurrency` (8), because
+      # the local stack is single-tenant and a bulk publisher is the *expected* load, not abuse:
+      # `just ch-seed` pushes ~3000 events as fast as it can, and at 4 the other four consumer
+      # threads were rejected on arrival, exhausted their redeliveries and dead-lettered ~9% of the
+      # seed — a partial dataset and a full DLQ on a demo command.
+      # The invariant is `cap >= consumer.concurrency`: the consumer thread blocks for the whole
+      # event, so in-flight per replica can never exceed concurrency, and at 8 the semaphore is
+      # unreachable. That is the point *here* and exactly why the default is left at 4 for real
+      # multi-tenant deployments — raise concurrency and this must move with it.
       JAVA_OPTS: >-
         -Dauditflow.idempotency.store=memory
+        -Dtenants.consumer.max-in-flight-per-tenant=8
         -Dspring.autoconfigure.exclude=org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration,org.springframework.boot.data.redis.autoconfigure.DataRedisReactiveAutoConfiguration,org.springframework.boot.data.redis.autoconfigure.health.DataRedisHealthContributorAutoConfiguration,org.springframework.boot.data.redis.autoconfigure.health.DataRedisReactiveHealthContributorAutoConfiguration
         -Dauditflow.redaction.enabled=true
         -Dauditflow.redaction.rules[0].field=extra.userId
         -Dauditflow.redaction.rules[0].action=mask
-        -Dauditflow.redaction.rules[1].field=extra.sessionId
+        -Dauditflow.redaction.rules[1].field=extra.apiKey
         -Dauditflow.redaction.rules[1].action=drop
     volumes:
       - ./tenants:/config/tenants:ro
@@ -186,6 +223,11 @@ services:
       sink:
         condition: service_healthy
       cerbos:
+        condition: service_healthy
+      # Not a backend dependency in the strict sense — the sink talks to ClickHouse, not the
+      # backend. Waiting here anyway means the first published event cannot lose its race with
+      # the schema init script and land in the DLQ.
+      clickhouse:
         condition: service_healthy
     networks:
       - auditflow-net
@@ -199,3 +241,6 @@ services:
 networks:
   auditflow-net:
     driver: bridge
+
+volumes:
+  clickhouse-data:

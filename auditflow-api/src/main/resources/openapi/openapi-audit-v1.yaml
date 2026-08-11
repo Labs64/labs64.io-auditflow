@@ -274,9 +274,9 @@ components:
         | Key | Meaning |
         |---|---|
         | `userId` | The actor who performed the action (not necessarily the subject it is about). |
-        | `action_name` | What happened, e.g. an API operation name. |
-        | `action_status` | Outcome of the **action**: `SUCCESS`, `FAILURE`, `DENIED`. This is the outcome of the operation, not the state of any entity it acted on. |
-        | `action_message` | Human-readable description of the outcome. |
+        | `actionName` | What happened, e.g. an API operation name. |
+        | `actionStatus` | Outcome of the **action**: `SUCCESS`, `FAILURE`, `DENIED`. This is the outcome of the operation, not the state of any entity it acted on. |
+        | `actionMessage` | Human-readable description of the outcome. |
         | `sessionId` | Session the action belongs to; the unit of "concurrent usage". |
         | `durationMs` | Server-side processing time in milliseconds (integer). |
         | `responseStatus` | HTTP status returned to the caller (integer). |
@@ -297,9 +297,9 @@ components:
       example:
         userId: "customer123"
         userBU: "BU12345678"
-        action_name: "login"
-        action_status: "SUCCESS"
-        action_message: "User logged in successfully"
+        actionName: "login"
+        actionStatus: "SUCCESS"
+        actionMessage: "User logged in successfully"
 
     ErrorCode:
       type: string

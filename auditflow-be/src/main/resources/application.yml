@@ -269,7 +269,7 @@ auditflow:
 #    condition:
 #      match: 'any'
 #      rules:
-#        - field: 'extra.action_status'
+#        - field: 'extra.actionStatus'
 #          operator: 'eq'
 #          value: 'FAILURE'
 #        - field: 'eventType'

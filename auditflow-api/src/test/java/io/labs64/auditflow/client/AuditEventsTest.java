@@ -13,14 +13,14 @@ class AuditEventsTest {
                 .sourceSystem("auth-service")
                 .tenantId("V12345678")
                 .extra("userId", "u1")
-                .extra("action_status", "SUCCESS")
+                .extra("actionStatus", "SUCCESS")
                 .build();
 
         assertEquals("user.login", event.getEventType());
         assertEquals("auth-service", event.getSourceSystem());
         assertEquals("V12345678", event.getTenantId());
         assertEquals("u1", event.getExtra().get("userId"));
-        assertEquals("SUCCESS", event.getExtra().get("action_status"));
+        assertEquals("SUCCESS", event.getExtra().get("actionStatus"));
     }
 
     @Test

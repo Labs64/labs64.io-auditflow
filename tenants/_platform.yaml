@@ -32,12 +32,17 @@ pipelines:
       properties:
         log-level: WARN
         format: json
-  # ClickHouse analytics sink. Disabled by default: it needs the `full` compose profile
-  # (`just up full`), which starts ClickHouse and applies examples/clickhouse/schema.sql.
+  # ClickHouse analytics sink — enabled by default; ClickHouse is part of the default compose
+  # stack and applies examples/clickhouse/schema.sql on first start. Every event published here
+  # lands in audit.audit_events (query with `just ch-events`; the asserted round trip is
+  # section 6 of examples/getting-started.ipynb).
   # Tenant config is hot-reloaded, so flipping `enabled` takes effect within ~5s, no restart.
   - name: clickhouse-analytics
-    enabled: false
+    enabled: true
     transformer:
+      # The generic, domain-free transformer: core audit columns only, everything else preserved
+      # in the `extra` map column. Contrast with tenants/demo.yaml, which points the same sink at
+      # a use-case layer that promotes licensing/monetization keys into their own columns.
       name: audit_clickhouse
     sink:
       name: clickhouse_sink

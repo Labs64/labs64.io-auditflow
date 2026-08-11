@@ -117,7 +117,7 @@ public class ConditionEvaluator {
     }
 
     /**
-     * Navigate JSON using dot-notation path (e.g., "extra.action_name")
+     * Navigate JSON using dot-notation path (e.g., "extra.actionName")
      */
     private JsonNode getFieldValue(JsonNode root, String fieldPath) {
         if (fieldPath == null || fieldPath.isEmpty()) {

@@ -177,14 +177,14 @@ def format_cef(event_data: dict) -> str:
     device_product = "AuditFlow"
     device_version = "1.0"
     signature_id = event_data.get('eventType', 'unknown')
-    name = extra.get('action_name', 'unknown')
+    name = extra.get('actionName', 'unknown')
     severity = 5  # Medium
 
     # CEF extension
     extensions = []
     extensions.append(f"src={event_data.get('sourceSystem', 'unknown')}")
-    extensions.append(f"act={extra.get('action_name', 'unknown')}")
-    extensions.append(f"outcome={extra.get('action_status', 'unknown')}")
+    extensions.append(f"act={extra.get('actionName', 'unknown')}")
+    extensions.append(f"outcome={extra.get('actionStatus', 'unknown')}")
 
     if 'eventId' in event_data:
         extensions.append(f"externalId={event_data['eventId']}")

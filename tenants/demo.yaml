@@ -1,0 +1,46 @@
+# Compose-local demo tenant, mounted read-only into the backend at /config/tenants.
+#
+# Exists so the ClickHouse round trip can be exercised with a *real* tenant rather than the
+# reserved `_platform` pseudo-tenant. That distinction matters when evaluating ClickHouse:
+# `tenant_id` is the leading column of the audit_events ORDER BY key, and a tenantless event
+# stores an empty string there (routing resolves null -> _platform, but the event body — which
+# is what the transformer reads — keeps its null tenantId). Publish with "tenantId": "demo" to
+# see realistic per-tenant partition pruning; see examples/getting-started.ipynb section 6.
+#
+# Hot-reloaded: edits are picked up by the local-dir poll within ~5s, no restart.
+tenantId: demo
+enabled: true
+quota:
+  rateLimitPerSec: 2000
+  burst: 4000
+pipelines:
+  - name: clickhouse-analytics
+    enabled: true
+    transformer:
+      # The NetLicensing use-case layer, NOT the generic `audit_clickhouse` that `_platform` uses:
+      # same core columns, plus the licensing/monetization keys promoted out of `extra`. It is a
+      # mounted example (examples/netlicensing/), not part of the image — a transformer takes no
+      # pipeline properties, so the module id is what selects a vocabulary. Switch this to
+      # `audit_clickhouse` to see the same events land with the licensing keys left in the
+      # `extra` map column instead.
+      name: audit_clickhouse_netlicensing
+    sink:
+      name: clickhouse_sink
+      properties:
+        service-url: http://clickhouse:8123
+        database: audit
+        table: audit_events
+        username: auditflow
+        password: auditflow
+
+  # Mirrors the event to the container log, so `just log sink` shows what was routed
+  # alongside what ClickHouse stored.
+  - name: e2e-logging
+    enabled: true
+    transformer:
+      name: zero
+    sink:
+      name: logging_sink
+      properties:
+        log-level: DEBUG
+        format: json

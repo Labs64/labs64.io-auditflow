@@ -77,11 +77,49 @@ Both use the same plugin pattern — keep symmetric when editing one.
 ## Build, run, test
 
 ```bash
-just up          # build + start stack
+just up          # build + start stack (incl. ClickHouse; `full` additionally starts Redis)
 just up obs      # stack + OTel + Tempo + Loki + Prometheus + Grafana
-just log sink    # tail a service (backend|transformer|sink|rabbitmq)
+just log sink    # tail a service (backend|transformer|sink|rabbitmq|clickhouse)
 just down        # stop   |   just clean = also remove volumes
 ```
+
+ClickHouse is in the default stack as a **queryable** sink for the local flow. The end-to-end round
+trip lives in `examples/getting-started.ipynb` **section 6** — publish → poll → `SELECT` → assert
+the column contract (keep new local-flow checks there, not in a shell script). `just ch-events` /
+`just ch-stats` / `just ch "<SQL>"` query it ad hoc; `just ch-seed` publishes a synthetic
+licensing business for dashboard work. Pipelines are enabled in `tenants/demo.yaml` and
+`tenants/_platform.yaml`.
+
+**The ClickHouse core stays domain-free.** `audit_clickhouse` and `schema.sql` carry the generic
+audit vocabulary only; a use case is a **layer on top**, never a widening of the core. A layer is
+three files that must agree, and the NetLicensing one is the worked example:
+
+| Layer | Generic (shipped) | NetLicensing example |
+|---|---|---|
+| Columns | `examples/clickhouse/schema.sql` (CREATE TABLE) | `examples/clickhouse/schema-netlicensing.sql` (ALTER TABLE ADD COLUMN, the `revenue_signed` ALIAS, the `ops_daily` rollup) |
+| Promotion | `transformers/audit_clickhouse.py` | `examples/netlicensing/audit_clickhouse_netlicensing.py` — `make_transform({extra key: column})`, mounted into `transformers_bootstrap` by compose, **not** in the image |
+| Vocabulary | `Extra` schema in the OpenAPI contract | `examples/clickhouse/NETLICENSING_KPI.md` ("Field vocabulary" + event catalog + query book) |
+| Pipeline | `tenants/_platform.yaml` | `tenants/demo.yaml` |
+
+Both schema files are compose init scripts, applied only on an empty data dir — `just clean` after
+editing either. Invariants to preserve when touching any of this:
+
+- **Never add a domain key to `audit_clickhouse` or a domain column to `schema.sql`.** Extend via
+  `make_transform(extra_promoted)` + an `ALTER TABLE` script. A transformer takes no pipeline
+  properties, so the *module id* is what selects a vocabulary — one module per domain.
+  `test_audit_clickhouse_contract.py` fails on a domain leak into either generic file.
+- Every promoted key needs a column and every column a promoted key, or the pairing silently
+  half-works — the sink inserts with `input_format_skip_unknown_fields=1`, so a key with no column
+  is dropped rather than rejected. `test_audit_clickhouse_netlicensing.py` asserts the round trip
+  across all three files of the layer.
+- **`event_time` is the analytics axis**, `timestamp` is ingest time. Partitioning, sorting, TTL
+  and every KPI query group on `event_time`; grouping on `timestamp` silently breaks any backfill
+  or replay. The transformer falls back to `timestamp` so `event_time` is never null.
+- **`audit_events` is a `ReplacingMergeTree`** keyed on `event_id` — money queries use `FINAL`.
+  A materialized view is an insert trigger and never sees that dedup, which is why only the
+  high-volume operational metrics are rolled up and revenue is not.
+- Never redact a key that is promoted to a reporting dimension — a redacted column reads as empty,
+  not as an error. See the redaction comment in `docker-compose.yml`.
 
 Per-service:
 ```bash
@@ -142,6 +180,7 @@ test event.
 | Condition operator | `auditflow-be/.../service/ConditionEvaluator.java` |
 | Add transformer | `auditflow-transformer/transformers/<name>.py` |
 | Add sink | `auditflow-sink/sinks/<name>.py` |
+| Add a use-case field vocabulary | a transformer built on `audit_clickhouse.make_transform()` + an `ALTER TABLE` script — never new keys in the generic module (see "Build, run, test") |
 | OTel Collector config | `observability/otel-collector/config.yaml` |
 | Grafana dashboard | `observability/grafana/dashboards/*.json` |
 | Observability toggle (local) | `docker-compose-observability.yml` (`just up obs`) — env-only, no rebuild |

@@ -41,3 +41,26 @@ datasources:
           name: TraceID
           url: '$${__value.raw}'
           urlDisplayLabel: View Trace in Tempo
+
+  # Analytics sink for the audit stream. The plugin itself is installed via GF_INSTALL_PLUGINS in
+  # docker-compose-observability.yml, which downloads it at container start — a fresh `just up obs`
+  # needs network access, and on an air-gapped host Grafana comes up without this data source.
+  # KPI query book: examples/clickhouse/NETLICENSING_KPI.md
+  - name: ClickHouse
+    type: grafana-clickhouse-datasource
+    uid: clickhouse
+    access: proxy
+    jsonData:
+      # `audit` is where schema.sql creates audit_events — leaving this at `default` makes every
+      # pasted query fail with "table doesn't exist" until the user notices the database picker.
+      defaultDatabase: audit
+      port: 9000
+      protocol: native
+      server: clickhouse
+      # Grafana interpolates $VAR in provisioning files; the compose file passes these through
+      # from .env so the credentials are not duplicated here. (Grafana does not support shell
+      # `${VAR:-default}` syntax — the defaults live in docker-compose-observability.yml.)
+      username: $CLICKHOUSE_USERNAME
+      secure: false
+    secureJsonData:
+      password: $CLICKHOUSE_PASSWORD

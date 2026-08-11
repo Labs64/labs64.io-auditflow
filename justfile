@@ -28,6 +28,10 @@ _urls:
     @echo "  Transformer API:    http://localhost:8081/docs"
     @echo "  Sink API:           http://localhost:8082/docs"
     @echo "  RabbitMQ UI:        http://localhost:15673  (guest/guest)"
+    @echo "  ClickHouse Play:    http://localhost:8123/play  (auditflow/auditflow)"
+    @echo ""
+    @echo "  ClickHouse round trip: just notebook-getting-started  (section 6)"
+    @echo "  KPI demo data:         just ch-seed                   (then see examples/clickhouse/NETLICENSING_KPI.md)"
     @echo "  OTel Collector:     localhost:4317 (gRPC) / localhost:4318 (HTTP)"
     @echo "  Grafana:            http://localhost:3000   (admin/admin)"
     @echo "  Prometheus:         http://localhost:9090"
@@ -49,7 +53,7 @@ _stop-all:
 # Unrecognized tokens (e.g. wrong case, typos) are ignored but print a warning to stderr.
 up *args: build-be
     @just _stop-all
-    @for token in {{args}}; do \
+    @for token in {{ args }}; do \
         case "$token" in \
             obs|otel|yes|true|1|full) ;; \
             *) echo "WARN: just up: unrecognized argument '$token' (accepted: obs, otel, yes, true, 1, full)" >&2 ;; \
@@ -57,16 +61,8 @@ up *args: build-be
     done
     @docker compose \
         -f docker-compose.yml \
-        {{ if args =~ '(^|\s)(obs|otel|yes|true|1)(\s|$)' {
-            "-f docker-compose-observability.yml"
-        } else {
-            ""
-        } }} \
-        {{ if args =~ '(^|\s)full(\s|$)' {
-            "--profile full"
-        } else {
-            ""
-        } }} \
+        {{ if args =~ '(^|\s)(obs|otel|yes|true|1)(\s|$)' { "-f docker-compose-observability.yml" } else { "" } }} \
+        {{ if args =~ '(^|\s)full(\s|$)' { "--profile full" } else { "" } }} \
         up --build -d
     @just _urls
 
@@ -88,7 +84,7 @@ logs:
 
 # Tail logs from a specific service: just log backend | transformer | sink | rabbitmq
 log service:
-    docker compose logs -f {{service}}
+    docker compose logs -f {{ service }}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Build
@@ -130,6 +126,42 @@ test-sink:
 # Run E2E tests for this module via labs64.io-tests
 test-e2e:
     @just -f ../labs64.io-tests/justfile test-module auditflow
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ClickHouse (default stack — see the clickhouse-analytics pipeline in tenants/_platform.yaml)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# The publish → sink → query round trip is covered by examples/getting-started.ipynb
+# (section 6) — run it with `just notebook-getting-started`.
+
+# Run arbitrary SQL against the audit database: just ch "SELECT count() FROM audit_events"
+ch query:
+    @docker compose exec -T clickhouse clickhouse-client \
+        --user "${CLICKHOUSE_USERNAME:-auditflow}" \
+        --password "${CLICKHOUSE_PASSWORD:-auditflow}" \
+        --database audit \
+        --query {{ quote(query) }}
+
+# Show the most recently stored audit events (ordered on event_time, the analytics axis)
+ch-events limit="20":
+    @just ch "SELECT event_time, tenant_id, event_type, action_status, licensee_number, product_number, base_amount, base_currency, mrr_delta, extra FROM audit_events FINAL ORDER BY event_time DESC LIMIT {{ limit }} FORMAT PrettyCompactMonoBlock"
+
+# Event counts grouped by tenant / type / status
+ch-stats:
+    @just ch "SELECT tenant_id, event_type, action_status, countMerge(events) AS events, min(day) AS first_seen, max(day) AS last_seen FROM audit.ops_daily GROUP BY tenant_id, event_type, action_status ORDER BY events DESC FORMAT PrettyCompactMonoBlock"
+
+# Interactive ClickHouse shell
+ch-shell:
+    @docker compose exec clickhouse clickhouse-client \
+        --user "${CLICKHOUSE_USERNAME:-auditflow}" \
+        --password "${CLICKHOUSE_PASSWORD:-auditflow}" \
+        --database audit
+
+# Publish a synthetic NetLicensing business (customers, subscriptions, payments, churn,
+# validations) so the KPI queries in examples/clickhouse/NETLICENSING_KPI.md have data.
+# Pass extra flags through, e.g.: just ch-seed "--customers 200 --days 800"
+ch-seed *args:
+    @python3 examples/clickhouse/seed_kpi_dashboards.py {{ args }}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Example notebooks

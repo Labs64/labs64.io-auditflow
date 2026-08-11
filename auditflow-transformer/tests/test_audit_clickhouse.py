@@ -20,10 +20,14 @@ FULL_EVENT = {
     },
     "extra": {
         "userId": "customer123",
-        "action_name": "login",
-        "action_status": "SUCCESS",
-        "action_message": "User logged in successfully",
+        "actionName": "login",
+        "actionStatus": "SUCCESS",
+        "actionMessage": "User logged in successfully",
         "sessionId": "sess456",
+        "durationMs": 34,
+        "responseStatus": 200,
+        # Outside the well-known vocabulary — must survive in the map column.
+        "invoiceRef": "INV-1",
     },
 }
 
@@ -58,8 +62,11 @@ def test_promotes_well_known_extra_keys_and_removes_them_from_extra():
     assert row["action_status"] == "SUCCESS"
     assert row["action_message"] == "User logged in successfully"
     assert row["user_id"] == "customer123"
-    # Promoted keys must not be duplicated into the map column.
-    assert row["extra"] == {"sessionId": "sess456"}
+    assert row["session_id"] == "sess456"
+    assert row["duration_ms"] == 34
+    assert row["response_status"] == 200
+    # Promoted keys must not be duplicated into the map column; unknown ones must stay in it.
+    assert row["extra"] == {"invoiceRef": "INV-1"}
 
 
 def test_missing_geolocation_yields_null_coordinates_not_zero():
@@ -119,3 +126,37 @@ def test_empty_extra_still_emits_an_empty_map():
     row = audit_clickhouse.transform({"eventType": "api.call", "sourceSystem": "svc"})
 
     assert row["extra"] == {}
+
+
+# ── make_transform: the extension point a use-case layer builds on ───────────────────────────────
+# The worked example (examples/netlicensing/) is covered by test_audit_clickhouse_netlicensing.py;
+# these cover the mechanism itself.
+
+def test_make_transform_promotes_a_domain_key_into_its_own_column():
+    domain_transform = audit_clickhouse.make_transform({"orderRef": "order_ref"})
+    row = domain_transform({"eventType": "order.placed", "extra": {"orderRef": "ORD-1"}})
+
+    assert row["order_ref"] == "ORD-1"
+    # Promoted, so it must no longer be duplicated in the map column.
+    assert row["extra"] == {}
+    # ...and the generic vocabulary is still promoted alongside it.
+    assert set(audit_clickhouse.transform.promoted) <= set(domain_transform.promoted)
+
+
+def test_make_transform_does_not_mutate_the_generic_vocabulary():
+    # A domain layer is additive: building one must not change what any other pipeline promotes.
+    audit_clickhouse.make_transform({"orderRef": "order_ref"})
+
+    assert "orderRef" not in audit_clickhouse.transform.promoted
+    row = audit_clickhouse.transform({"eventType": "order.placed", "extra": {"orderRef": "ORD-1"}})
+    assert "order_ref" not in row
+    assert row["extra"] == {"orderRef": "ORD-1"}
+
+
+def test_make_transform_lets_a_domain_retarget_a_generic_column():
+    # Last mapping wins, so a use case can redirect a generic key without forking the module.
+    domain_transform = audit_clickhouse.make_transform({"userId": "actor_id"})
+    row = domain_transform({"eventType": "api.call", "extra": {"userId": "customer123"}})
+
+    assert row["actor_id"] == "customer123"
+    assert "user_id" not in row

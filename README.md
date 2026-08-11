@@ -153,7 +153,7 @@ You're building a service that publishes audit events and want to verify end-to-
 
 **What to try:**
 - `just up` — starts the stack
-- Walk through [DEVELOPERS.md](DEVELOPERS.md#manual-verification-plan)
+- Walk through the step-by-step [Manual Verification (Smoke Test)](DEVELOPERS.md#manual-verification-smoke-test) checklist — publish an event, confirm tenant isolation, confirm redaction, confirm the DLQ — each step with an expected result to check against
 
 ---
 
@@ -266,27 +266,42 @@ Key design decisions:
 
 ## Quick Start
 
-Three commands and you have the full stack — backend, broker, transformer, and sink — publishing and delivering events on your machine.
+Four steps and you have the full stack — backend, broker, transformer, and sink — publishing and delivering events on your machine.
 
-You'll need Docker, Docker Compose v2, [`just`](https://github.com/casey/just), and — because `just up` builds the backend jar on your machine before starting the containers — **JDK 25** and **Maven 3.6.3+**.
+**Prerequisites:** Docker, Docker Compose v2, [`just`](https://github.com/casey/just), and — because `just up` builds the backend jar on your machine before starting the containers — **JDK 25** and **Maven 3.6.3+**.
 
 Measured at **61 seconds** from `just up` to a delivered event on a warm developer machine; see the [timed quickstart](https://github.com/Labs64/labs64.io-docs/blob/master/auditflow/quickstart.md) for the full breakdown and what was cold.
 
+**1. Clone the repo**
 ```bash
-# Clone
 git clone https://github.com/Labs64/labs64.io-auditflow.git
 cd labs64.io-auditflow
+```
 
-# Build images and start the full stack (3 services + RabbitMQ + Redis)
+**2. Build and start the stack**
+```bash
 just up
+```
+Builds the backend JAR and all three Docker images, then starts the full local stack — 3 services
++ RabbitMQ + Cerbos + ClickHouse (see [Deployment](#deployment) for what the other profiles add).
 
-# Watch the sink receive it
+**3. Publish an event and watch it arrive**
+```bash
+curl -s -X POST http://localhost:8080/audit/publish \
+  -H "Content-Type: application/json" \
+  -d '{"eventType":"user.login","sourceSystem":"quickstart","tenantId":"demo"}'
+
 just log sink
 # Look for: "Audit Event Logged" — then Ctrl+C
+```
 
-# Tear down
+**4. Tear down**
+```bash
 just down
 ```
+
+Want a guided checklist that also confirms tenant isolation, redaction, and the DLQ — not just
+that one event arrived? See [Manual Verification (Smoke Test)](DEVELOPERS.md#manual-verification-smoke-test).
 
 Local URLs once the stack is running:
 
@@ -296,6 +311,59 @@ Local URLs once the stack is running:
 | http://localhost:8081/docs | Transformer registry + API docs |
 | http://localhost:8082/docs | Sink registry + API docs |
 | http://localhost:15673 | RabbitMQ Management UI (`guest` / `guest`) |
+| http://localhost:8123/play | ClickHouse query console (`auditflow` / `auditflow`) |
+
+### Query the stored events
+
+The default stack ships ClickHouse as a working analytics sink, so events are not only delivered
+but queryable. Section 6 of the getting-started notebook walks the whole path — publish → broker →
+transformer → sink → `audit.audit_events` → `SELECT` — and asserts the stored row against the
+column contract:
+
+```bash
+just notebook-getting-started              # section 6: ClickHouse Analytics Sink (End-to-End)
+```
+
+From the shell, in order:
+
+```bash
+just ch-seed                               # 1. seed a synthetic licensing business to query
+just ch-events                             # 2. look at what landed — 20 most recent events
+just ch "SELECT count() FROM audit_events" # 3. run your own SQL
+```
+
+The `demo` tenant (`tenants/demo.yaml`) and the reserved `_platform` tenant both route to
+ClickHouse. Note that `tenant_id` leads the table's `ORDER BY` key, and a **tenantless** event
+stores an empty string there — publish with `"tenantId": "demo"` for a representative round trip.
+
+See [DEVELOPERS.md's ClickHouse section](DEVELOPERS.md#clickhouse-analytics-sink) for the full
+reference: the schema-layering model, redaction visibility, and everything worth knowing before
+trusting a number out of it.
+
+### Licensing & monetization KPIs — and how to model your own domain
+
+The ClickHouse transformer and schema are **generic**: they promote the well-known audit-semantics
+keys into columns and leave everything else in a `Map(String, String)`. A use case that wants its
+own fields as queryable dimensions adds a layer instead of changing the core — a key map on top of
+the shipped transformer, an `ALTER TABLE` script, and a documented vocabulary:
+
+| Layer | Generic | NetLicensing example |
+|---|---|---|
+| Columns | [`schema.sql`](examples/clickhouse/schema.sql) | [`schema-netlicensing.sql`](examples/clickhouse/schema-netlicensing.sql) |
+| Promotion | `audit_clickhouse` | [`audit_clickhouse_netlicensing.py`](examples/netlicensing/audit_clickhouse_netlicensing.py) — `make_transform({...})`, ~40 lines of data |
+| Vocabulary | `Extra` in the API contract | [`NETLICENSING_KPI.md`](examples/clickhouse/NETLICENSING_KPI.md) |
+| Pipeline | `tenants/_platform.yaml` | `tenants/demo.yaml` |
+
+The example is mounted into the transformer's bootstrap directory rather than baked into the image —
+the same extension point you would use for your own. Both pipelines write to the same table, so the
+compose stack shows the two side by side.
+
+[**`examples/clickhouse/NETLICENSING_KPI.md`**](examples/clickhouse/NETLICENSING_KPI.md) is the
+reference model for a product like NetLicensing: the field vocabulary, which events to emit and with
+which fields, and a query book covering MRR and its movement, revenue retention, churn, LTV, revenue
+by product/module/license type, customer demographics, and validation/API/session operations.
+`just ch-seed` publishes a coherent synthetic business (customers, subscriptions, payments,
+upgrades, churn, validations) so every one of those queries returns real data.
 
 ---
 
@@ -307,8 +375,9 @@ Two Compose profiles cover local iteration and observability:
 
 | Command | Stack | When to use |
 |---------|-------|-------------|
-| `just up` | 3 services + RabbitMQ | Fastest start; in-memory dedup |
+| `just up` | 3 services + RabbitMQ + Cerbos + ClickHouse | Fastest start; in-memory dedup, queryable sink |
 | `just up obs` | Stack + OTel Collector + Tempo + Loki + Prometheus + Grafana | Full telemetry, fast iteration |
+| `just up full` | Stack + Redis | Redis-backed dedup / rate limiting |
 
 ```bash
 cp .env.example .env   # optional — only needed for custom RabbitMQ credentials
@@ -506,6 +575,11 @@ Redaction runs at ingest, before the event is published to the broker — sensit
 | `zero` | Pass-through (no change) |
 | `audit_loki` | Reshape event for Loki label conventions |
 | `audit_opensearch` | Reshape event for OpenSearch indexing |
+| `audit_clickhouse` | Flatten event into one ClickHouse row; extensible per use case via `make_transform()` |
+
+Mounted example (not shipped in the image): `audit_clickhouse_netlicensing`, in
+[`examples/netlicensing/`](examples/netlicensing/) — see
+[Licensing & monetization KPIs](#licensing--monetization-kpis--and-how-to-model-your-own-domain).
 
 ### Adding your own sink or transformer
 
