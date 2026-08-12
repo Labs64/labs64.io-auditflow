@@ -142,3 +142,10 @@ def test_the_generic_contract_carries_no_domain_vocabulary():
     domain_keys = {"licenseeNumber", "mrrDelta", "grossAmount", "licenseNumber"}
     leaked = sorted(domain_keys & set(audit_clickhouse.transform.promoted))
     assert not leaked, f"domain keys leaked into the generic transformer: {leaked}"
+
+def test_well_known_extra_keys_have_matching_columns():
+    # One source of truth: a key added to the SDK map without a column in schema.sql would silently
+    # produce a row key with no column, which the sink drops at insert time.
+    from auditflow_sdk import WELL_KNOWN_EXTRA
+    missing = sorted(col for col in WELL_KNOWN_EXTRA.values() if col not in core_columns())
+    assert not missing, f"WELL_KNOWN_EXTRA columns missing from schema.sql: {missing}"
