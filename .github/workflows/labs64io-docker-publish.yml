@@ -1,8 +1,21 @@
 name: Labs64.IO - AuditFlow - Publish Docker
 
+# Publishes the three AuditFlow component images to Docker Hub on GitHub Release
+# (image names match the Helm chart repositories):
+#   * auditflow-be          -> labs64/auditflow
+#   * auditflow-transformer -> labs64/auditflow-transformer
+#   * auditflow-sink        -> labs64/auditflow-sink
+#
+# All three carry the same version. The chart's appVersion is a single scalar and
+# every image defaults its tag to it, so the three release as one set — if any
+# publish job fails the release is incomplete and must not be propagated to the
+# chart with a partial set of digests.
+#
+# The test jobs are repeated here rather than assumed from labs64io-ci.yml: a
+# release can be cut from any tag, including a commit that never ran CI.
+
 permissions:
   contents: read
-  packages: write
 
 on:
   release:
@@ -10,130 +23,129 @@ on:
 
 jobs:
   # ─────────────────────────────────────────────────────────────────────────────
-  # Run all three test suites before publishing anything
+  # Gate: all three suites must pass before anything is pushed
   # ─────────────────────────────────────────────────────────────────────────────
-  test:
-    name: Test before publish
+  test-backend:
+    name: Test backend (Java)
+    # working-directory is auditflow-be rather than the reactor root so the gate
+    # resolves auditflow-api exactly the way the published image does (from Nexus,
+    # not from a locally built sibling).
+    uses: Labs64/labs64.io-workspace/.github/workflows/java-ci.yml@master
+    with:
+      working-directory: auditflow-be
+      java-version: "25"
+      maven-goals: verify
+    secrets:
+      L64_PUB_CI_USERNAME: ${{ secrets.L64_PUB_CI_USERNAME }}
+      L64_PUB_CI_PASSWORD: ${{ secrets.L64_PUB_CI_PASSWORD }}
+
+  test-transformer:
+    name: Test transformer (Python)
+    uses: Labs64/labs64.io-workspace/.github/workflows/python-ci.yml@master
+    with:
+      working-directory: auditflow-transformer
+      cache-dependency-path: |
+        auditflow-transformer/requirements.txt
+        auditflow-transformer/requirements-dev.txt
+
+  test-sink:
+    name: Test sink (Python)
+    uses: Labs64/labs64.io-workspace/.github/workflows/python-ci.yml@master
+    with:
+      working-directory: auditflow-sink
+      cache-dependency-path: |
+        auditflow-sink/requirements.txt
+        auditflow-sink/requirements-dev.txt
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Publish — each job emits image/tag/digest/image-ref outputs
+  # ─────────────────────────────────────────────────────────────────────────────
+  publish-be:
+    name: Build & Push Backend image (labs64/auditflow)
+    needs: [test-backend, test-transformer, test-sink]
+    uses: Labs64/labs64.io-workspace/.github/workflows/docker-publish.yml@master
+    with:
+      image: labs64/auditflow
+      context: ./auditflow-be
+      mode: release
+      version: ${{ github.event.release.tag_name }}
+      # The auditflow-be Dockerfile copies target/*.jar, so build the jar first.
+      build-command: mvn -B -ntp -DskipTests package --file ./auditflow-be/pom.xml
+      java-version: "25"
+    secrets: inherit
+
+  publish-transformer:
+    name: Build & Push Transformer image (labs64/auditflow-transformer)
+    needs: [test-backend, test-transformer, test-sink]
+    # Self-contained Python image — no pre-build step needed.
+    uses: Labs64/labs64.io-workspace/.github/workflows/docker-publish.yml@master
+    with:
+      image: labs64/auditflow-transformer
+      context: ./auditflow-transformer
+      mode: release
+      version: ${{ github.event.release.tag_name }}
+    secrets: inherit
+
+  publish-sink:
+    name: Build & Push Sink image (labs64/auditflow-sink)
+    needs: [test-backend, test-transformer, test-sink]
+    uses: Labs64/labs64.io-workspace/.github/workflows/docker-publish.yml@master
+    with:
+      image: labs64/auditflow-sink
+      context: ./auditflow-sink
+      mode: release
+      version: ${{ github.event.release.tag_name }}
+    secrets: inherit
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Verify the release is complete before anything downstream consumes it
+  # ─────────────────────────────────────────────────────────────────────────────
+  release-images:
+    name: Release image digests
+    needs: [publish-be, publish-transformer, publish-sink]
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v7
-
-      - name: Set up JDK 25
-        uses: actions/setup-java@v5
-        with:
-          java-version: '25'
-          distribution: 'temurin'
-          cache: maven
-
-      - name: Test backend (Java)
-        run: mvn -B verify --file auditflow-be/pom.xml
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.13'
-          cache: 'pip'
-          cache-dependency-path: |
-            auditflow-transformer/requirements-dev.txt
-            auditflow-sink/requirements-dev.txt
-
-      - name: Test transformer (Python)
-        working-directory: auditflow-transformer
+      - name: Summarize
+        env:
+          VERSION: ${{ github.event.release.tag_name }}
+          BE_REF: ${{ needs.publish-be.outputs.image-ref }}
+          TRN_REF: ${{ needs.publish-transformer.outputs.image-ref }}
+          SNK_REF: ${{ needs.publish-sink.outputs.image-ref }}
+          BE_DIGEST: ${{ needs.publish-be.outputs.digest }}
+          TRN_DIGEST: ${{ needs.publish-transformer.outputs.digest }}
+          SNK_DIGEST: ${{ needs.publish-sink.outputs.digest }}
         run: |
-          pip install -r requirements-dev.txt
-          pytest -v --tb=short
-
-      - name: Test sink (Python)
-        working-directory: auditflow-sink
-        run: |
-          pip install -r requirements-dev.txt
-          pytest -v --tb=short
-
-  # ─────────────────────────────────────────────────────────────────────────────
-  # Build and push all three images
-  # ─────────────────────────────────────────────────────────────────────────────
-  build_and_push:
-    name: Build & Push Docker images
-    runs-on: ubuntu-latest
-    needs: test
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-
-      - name: Set up JDK 25
-        uses: actions/setup-java@v5
-        with:
-          java-version: '25'
-          distribution: 'temurin'
-          cache: maven
-
-      - name: Build backend JAR
-        run: mvn -B package -DskipTests --file ./auditflow-be/pom.xml
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Get release tag
-        id: get_release_tag
-        run: echo "RELEASE_TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-
-      - name: Build and push backend image
-        uses: docker/build-push-action@v7
-        with:
-          context: ./auditflow-be
-          push: true
-          platforms: linux/amd64,linux/arm64/v8
-          build-args: |
-            GIT_REVISION=${{ github.sha }}
-          tags: |
-            labs64/auditflow:latest
-            labs64/auditflow:${{ steps.get_release_tag.outputs.RELEASE_TAG }}
-          cache-from: type=gha,scope=${{ github.workflow }}
-          cache-to: type=gha,mode=max,scope=${{ github.workflow }}
-
-      - name: Build and push transformer image
-        uses: docker/build-push-action@v7
-        with:
-          context: ./auditflow-transformer
-          push: true
-          platforms: linux/amd64,linux/arm64/v8
-          build-args: |
-            GIT_REVISION=${{ github.sha }}
-          tags: |
-            labs64/auditflow-transformer:latest
-            labs64/auditflow-transformer:${{ steps.get_release_tag.outputs.RELEASE_TAG }}
-          cache-from: type=gha,scope=${{ github.workflow }}-transformer
-          cache-to: type=gha,mode=max,scope=${{ github.workflow }}-transformer
-
-      - name: Build and push sink image
-        uses: docker/build-push-action@v7
-        with:
-          context: ./auditflow-sink
-          push: true
-          platforms: linux/amd64,linux/arm64/v8
-          build-args: |
-            GIT_REVISION=${{ github.sha }}
-          tags: |
-            labs64/auditflow-sink:latest
-            labs64/auditflow-sink:${{ steps.get_release_tag.outputs.RELEASE_TAG }}
-          cache-from: type=gha,scope=${{ github.workflow }}-sink
-          cache-to: type=gha,mode=max,scope=${{ github.workflow }}-sink
-
-      - name: Verify required OCI labels
-        run: |
-          for img in labs64/auditflow labs64/auditflow-transformer labs64/auditflow-sink; do
-            docker pull "$img:latest"
-            LABELS="$(docker inspect --format '{{json .Config.Labels}}' "$img:latest")"
-            for key in org.opencontainers.image.licenses org.opencontainers.image.revision org.opencontainers.image.source io.labs64.edition; do
-              echo "$LABELS" | jq -e --arg k "$key" 'has($k) and (.[$k] | length > 0)' >/dev/null \
-                || { echo "::error::missing or empty OCI label '$key' on $img:latest"; exit 1; }
-            done
+          set -euo pipefail
+          for ref in "$BE_REF" "$TRN_REF" "$SNK_REF"; do
+            if [[ -z "$ref" ]]; then
+              echo "::error::incomplete release — one or more images produced no digest"
+              exit 1
+            fi
           done
+          {
+            echo "## AuditFlow ${VERSION} — image digests"
+            echo
+            echo "| Image | Digest |"
+            echo "| --- | --- |"
+            echo "| auditflow | \`${BE_DIGEST}\` |"
+            echo "| auditflow-transformer | \`${TRN_DIGEST}\` |"
+            echo "| auditflow-sink | \`${SNK_DIGEST}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Propagate to the chart — opens a PR in labs64.io-helm-charts pinning all three
+  # digests. Needs release-images so a partial release can never be propagated.
+  # ─────────────────────────────────────────────────────────────────────────────
+  propagate-to-chart:
+    name: Pin digests in charts/auditflow
+    needs: [publish-be, publish-transformer, publish-sink, release-images]
+    uses: Labs64/labs64.io-workspace/.github/workflows/chart-update-dispatch.yml@master
+    with:
+      chart: auditflow
+      version: ${{ github.event.release.tag_name }}
+      images: |
+        ${{ needs.publish-be.outputs.image-ref }}
+        ${{ needs.publish-transformer.outputs.image-ref }}
+        ${{ needs.publish-sink.outputs.image-ref }}
+    secrets:
+      CHART_DISPATCH_TOKEN: ${{ secrets.CHART_DISPATCH_TOKEN }}
