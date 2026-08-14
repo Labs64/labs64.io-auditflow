@@ -45,7 +45,7 @@ datasources:
   # Analytics sink for the audit stream. The plugin itself is installed via GF_INSTALL_PLUGINS in
   # docker-compose-observability.yml, which downloads it at container start — a fresh `just up obs`
   # needs network access, and on an air-gapped host Grafana comes up without this data source.
-  # KPI query book: examples/clickhouse/NETLICENSING_KPI.md
+  # Event vocabulary and queries: examples/clickhouse/NETLICENSING_EVENTS.md
   - name: ClickHouse
     type: grafana-clickhouse-datasource
     uid: clickhouse

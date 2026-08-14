@@ -87,7 +87,7 @@ ClickHouse is in the default stack as a **queryable** sink for the local flow. T
 trip lives in `examples/getting-started.ipynb` **section 6** — publish → poll → `SELECT` → assert
 the column contract (keep new local-flow checks there, not in a shell script). `just ch-events` /
 `just ch-stats` / `just ch "<SQL>"` query it ad hoc; `just ch-seed` publishes a synthetic
-licensing business for dashboard work. Pipelines are enabled in `tenants/demo.yaml` and
+NetLicensing API + Payment Gateway event stream to query against. Pipelines are enabled in `tenants/demo.yaml` and
 `tenants/_platform.yaml`.
 
 **The ClickHouse core stays domain-free.** `audit_clickhouse` and `schema.sql` carry the generic
@@ -96,9 +96,9 @@ three files that must agree, and the NetLicensing one is the worked example:
 
 | Layer | Generic (shipped) | NetLicensing example |
 |---|---|---|
-| Columns | `examples/clickhouse/schema.sql` (CREATE TABLE) | `examples/clickhouse/schema-netlicensing.sql` (ALTER TABLE ADD COLUMN, the `revenue_signed` ALIAS, the `ops_daily` rollup) |
+| Columns | `examples/clickhouse/schema.sql` (CREATE TABLE) | `examples/clickhouse/schema-netlicensing.sql` (ALTER TABLE ADD COLUMN) |
 | Promotion | `transformers/audit_clickhouse.py` | `examples/netlicensing/audit_clickhouse_netlicensing.py` — `make_transform({extra key: column})`, mounted into `transformers_bootstrap` by compose, **not** in the image |
-| Vocabulary | `Extra` schema in the OpenAPI contract | `examples/clickhouse/NETLICENSING_KPI.md` ("Field vocabulary" + event catalog + query book) |
+| Vocabulary | `Extra` schema in the OpenAPI contract | `examples/clickhouse/NETLICENSING_EVENTS.md` (field vocabulary + event templates + queries) |
 | Pipeline | `tenants/_platform.yaml` | `tenants/demo.yaml` |
 
 **`extra` is an open map — four invariants** (`auditflow-transformer/tests/test_extra_contract.py`

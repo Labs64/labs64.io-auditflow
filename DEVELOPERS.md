@@ -188,23 +188,26 @@ destination, not just a log line. The `clickhouse-analytics` pipeline is enabled
 | File | Contains |
 |---|---|
 | `examples/clickhouse/schema.sql` | Core audit columns — the generic, domain-free contract. |
-| `examples/clickhouse/schema-netlicensing.sql` | The NetLicensing example layer: licensing/monetization columns, the `revenue_signed` alias, and the `ops_daily` rollup. |
+| `examples/clickhouse/schema-netlicensing.sql` | The NetLicensing example layer: the columns the NetLicensing API and Payment Gateway events carry. |
 
 They are layered rather than merged so a deployment that only wants an audit trail is not forced to
-carry MRR columns — see [Extending it for a use case](#extending-it-for-a-use-case) below.
+carry licensing columns — see [Extending it for a use case](#extending-it-for-a-use-case) below.
 
 **Try it, from the shell** (stack must be running — `just up`):
 
-**1. Seed a dataset.** Publishes a coherent synthetic licensing business (customers,
-subscriptions, payments, upgrades, churn, validations) so there's something to query:
+**1. Seed a dataset.** Publishes ~2000 events over 30 days — NetLicensing entity CRUD, licensee
+and license lifecycle, `licensee/validate` traffic with its expiry verdicts, and correlated
+Payment Gateway lifecycles (create → pay → close, cancellations, renewals):
 ```bash
 just ch-seed
+just ch-seed "--events 20000 --days 90"   # bigger stream
+just ch-seed "--seed 7"                   # reproducible
 ```
 
 **2. Look at what landed:**
 ```bash
 just ch-events        # 20 most recent stored events
-just ch-stats         # counts grouped by tenant / event type / status
+just ch-stats         # counts grouped by tenant / API method / status
 ```
 
 **3. Run your own SQL**, or drop into an interactive shell:
@@ -218,8 +221,8 @@ protocol on `localhost:9000` for JDBC/ODBC drivers and BI tools.
 
 For the fully asserted round trip — publish → poll → `SELECT` → check every column — see
 **section 6 of `examples/getting-started.ipynb`**, run via `just notebook-getting-started`. For a
-guided tour of the KPI query book built on the seeded data, see
-[`examples/clickhouse/NETLICENSING_KPI.md`](examples/clickhouse/NETLICENSING_KPI.md#quick-start).
+tour of the event vocabulary and the queries built on the seeded data, see
+[`examples/clickhouse/NETLICENSING_EVENTS.md`](examples/clickhouse/NETLICENSING_EVENTS.md).
 
 #### Extending it for a use case
 
@@ -233,7 +236,7 @@ so it **layers** on top rather than widening the core:
 # examples/netlicensing/audit_clickhouse_netlicensing.py
 from audit_clickhouse import make_transform
 
-PROMOTED = {"licenseeNumber": "licensee_number", "mrrDelta": "mrr_delta", ...}
+PROMOTED = {"licenseeNumber": "licensee_number", "actionMethod": "action_method", ...}
 transform = make_transform(PROMOTED)
 ```
 
@@ -265,9 +268,9 @@ tolerance is also why the pairing needs a test —
 `auditflow-transformer/tests/test_audit_clickhouse_netlicensing.py` asserts that every promoted key
 has a column, every column has a key, and every key is documented for publishers.
 
-The licensing KPI model — the field vocabulary, which events a publisher such as NetLicensing must
-emit, and the query book built on them — is
-[`examples/clickhouse/NETLICENSING_KPI.md`](examples/clickhouse/NETLICENSING_KPI.md).
+The NetLicensing event model — the field vocabulary, the event templates a publisher such as
+NetLicensing or the Payment Gateway emits, and the queries built on them — is
+[`examples/clickhouse/NETLICENSING_EVENTS.md`](examples/clickhouse/NETLICENSING_EVENTS.md).
 
 Worth knowing when evaluating ClickHouse here:
 
