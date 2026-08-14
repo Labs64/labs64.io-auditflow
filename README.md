@@ -391,7 +391,7 @@ Four rules every bundled transformer and sink follows, enforced by
 Those bind the *generic* modules. A **domain** module may require its own keys — `netlicensing_sink`
 raises without `extra.transaction` — as long as it documents them and gates on `eventType` first.
 
-### Licensing & monetization KPIs — and how to model your own domain
+### NetLicensing API events — and how to model your own domain
 
 The ClickHouse transformer and schema are **generic**: they promote the well-known audit-semantics
 keys into columns and leave everything else in a `Map(String, String)`. A use case that wants its
@@ -402,19 +402,21 @@ the shipped transformer, an `ALTER TABLE` script, and a documented vocabulary:
 |---|---|---|
 | Columns | [`schema.sql`](examples/clickhouse/schema.sql) | [`schema-netlicensing.sql`](examples/clickhouse/schema-netlicensing.sql) |
 | Promotion | `audit_clickhouse` | [`audit_clickhouse_netlicensing.py`](examples/netlicensing/audit_clickhouse_netlicensing.py) — `make_transform({...})`, ~40 lines of data |
-| Vocabulary | `Extra` in the API contract | [`NETLICENSING_KPI.md`](examples/clickhouse/NETLICENSING_KPI.md) |
+| Vocabulary | `Extra` in the API contract | [`NETLICENSING_EVENTS.md`](examples/clickhouse/NETLICENSING_EVENTS.md) |
 | Pipeline | `tenants/_platform.yaml` | `tenants/demo.yaml` |
 
 The example is mounted into the transformer's bootstrap directory rather than baked into the image —
 the same extension point you would use for your own. Both pipelines write to the same table, so the
 compose stack shows the two side by side.
 
-[**`examples/clickhouse/NETLICENSING_KPI.md`**](examples/clickhouse/NETLICENSING_KPI.md) is the
-reference model for a product like NetLicensing: the field vocabulary, which events to emit and with
-which fields, and a query book covering MRR and its movement, revenue retention, churn, LTV, revenue
-by product/module/license type, customer demographics, and validation/API/session operations.
-`just ch-seed` publishes a coherent synthetic business (customers, subscriptions, payments,
-upgrades, churn, validations) so every one of those queries returns real data.
+[**`examples/clickhouse/NETLICENSING_EVENTS.md`**](examples/clickhouse/NETLICENSING_EVENTS.md)
+documents the two sources this example models — the NetLicensing API (entity CRUD, licensee and
+license lifecycle, `licensee/validate`) and the Payment Gateway lifecycle (`payments/create`,
+`pay`, `close`, …) — with the `extra` keys each emits and the ClickHouse queries built on them.
+`just ch-seed` publishes a synthetic stream so those queries return real data.
+
+It is deliberately *not* a full analytics model: no MRR, retention or cohort machinery. It shows
+what ClickHouse gives you over a log line, and leaves the reporting model to the deployment.
 
 ---
 

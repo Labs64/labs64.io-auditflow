@@ -5,7 +5,7 @@ is three files that have to agree, and nothing at runtime checks that they do:
 
   * examples/netlicensing/audit_clickhouse_netlicensing.py  — which `extra` keys get promoted
   * examples/clickhouse/schema-netlicensing.sql             — the columns they are promoted into
-  * examples/clickhouse/NETLICENSING_KPI.md                 — what each key means to a publisher
+  * examples/clickhouse/NETLICENSING_EVENTS.md              — what each key means to a publisher
 
 A key with no column silently vanishes at insert time (`input_format_skip_unknown_fields=1`); a
 column with no key is always empty; an undocumented key is one no integrator can discover. Each of
@@ -15,6 +15,9 @@ The module is loaded from examples/ rather than imported from the package: it is
 shipped in the transformer image — docker-compose mounts it into `transformers_bootstrap`, the same
 path an integrator uses for their own. Loading it the way the plugin registry would is part of what
 this file verifies.
+
+The event shapes below are the templates from the NetLicensing API audit event spec
+(`actionMethod` / `statusCode` taxonomy), so a drift in the spec surfaces as a failure here.
 """
 import importlib.util
 import sys
@@ -31,7 +34,7 @@ from test_audit_clickhouse_contract import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MODULE_PATH = REPO_ROOT / "examples" / "netlicensing" / "audit_clickhouse_netlicensing.py"
 SCHEMA_NETLICENSING_SQL = CLICKHOUSE_DIR / "schema-netlicensing.sql"
-KPI_DOC = CLICKHOUSE_DIR / "NETLICENSING_KPI.md"
+EVENTS_DOC = CLICKHOUSE_DIR / "NETLICENSING_EVENTS.md"
 
 
 def _load_bootstrap_module():
@@ -54,13 +57,16 @@ audit_clickhouse_netlicensing = _load_bootstrap_module()
 transform = audit_clickhouse_netlicensing.transform
 
 # A publisher that fills in everything both layers know about. Every key must land in a column.
+# `actionName`/`responseStatus` (generic) and `actionMethod`/`statusCode` (this layer) both appear
+# because they are different granularities — the semantic action vs. the API endpoint that carried
+# it. No real event carries both; this one does so the "every column is fillable" check is total.
 FULL_EVENT = {
     "timestamp": "2026-08-07T10:15:30Z",
     "eventTime": "2026-08-07T10:14:55Z",
     "eventId": "fedcba98-7654-3210-fedc-ba9876543210",
     "correlationId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-    "eventType": "payment.succeeded",
-    "sourceSystem": "netlicensing/core",
+    "eventType": "api.call",
+    "sourceSystem": "netlicensing/payment-gateway",
     "tenantId": "V12345678",
     "geolocation": {
         "lat": 48.1264019,
@@ -79,138 +85,144 @@ FULL_EVENT = {
         "sessionId": "sess456",
         "durationMs": 128,
         "responseStatus": 200,
-        # customer
+        # standard API call
+        "actionMethod": "payments/pay",
+        "statusCode": 200,
+        # licensing / validation
         "licenseeNumber": "LIC-789",
-        "customerType": "B2B",
-        "customerCountry": "DE",
-        "customerSegment": "enterprise",
-        "acquisitionChannel": "direct",
-        "resellerNumber": "RES-1",
-        # product / licensing
         "productNumber": "PROD-123",
         "moduleNumber": "MOD-456",
-        "licenseNumber": "L-999",
-        "licenseTemplateNumber": "LT-1",
-        "licenseType": "SUBSCRIPTION",
-        "licensingModel": "Subscription",
         "nodeId": "node-7",
-        # entity state
-        "entityStatus": "ACTIVE",
-        "entityStatusPrev": "PENDING",
-        # commerce
+        # a JSON bool, exactly as the spec templates emit it: ClickHouse parses true/false into
+        # the Nullable(UInt8) column, so the wire format does not have to pre-encode 1/0.
+        "isDryRun": True,
+        "validationArgs": "[]",
+        "validationOutcome": "VALID",
+        "validUntil": "2026-09-01T00:00:00Z",
+        # payment gateway
         "transactionNumber": "TR-123",
-        "subscriptionNumber": "SUB-123",
         "paymentMethod": "card",
-        "quantity": 3,
         "grossAmount": 119.0,
         "netAmount": 100.0,
-        "discountAmount": 10.0,
         "taxAmount": 19.0,
         "currency": "EUR",
-        "baseAmount": 100.0,
-        "baseCurrency": "EUR",
-        "fxRate": 1.0,
-        # recurring
-        "mrrDelta": 100.0,
+        "customerCountry": "DE",
         "billingPeriod": "MONTH",
-        "billingPeriodCount": 1,
-        "periodStart": "2026-08-01T00:00:00Z",
-        "periodEnd": "2026-09-01T00:00:00Z",
-        "isTrial": False,
     },
 }
 
-# One representative event per KPI family, in the sparse shape a real publisher emits: only the
-# fields that event actually carries. Each entry is (event, {column: expected value}).
+# One event per template in the spec, in the sparse shape a real publisher emits: only the fields
+# that event actually carries. Each entry is (event, {column: expected value}).
 INDICATIVE_EVENTS = [
     (
         {
             "timestamp": "2026-08-07T10:15:30Z",
             "eventTime": "2026-08-01T09:00:00Z",
             "eventId": "event-payment",
-            "eventType": "payment.succeeded",
-            "sourceSystem": "netlicensing/core",
+            "eventType": "api.call",
+            "sourceSystem": "netlicensing/payment-gateway",
             "tenantId": "demo-vendor",
             "extra": {
-                "licenseeNumber": "LIC-789",
-                "licenseType": "SUBSCRIPTION",
-                "productNumber": "PROD-123",
+                "actionMethod": "payments/pay",
+                "actionStatus": "SUCCESS",
+                "statusCode": 200,
                 "transactionNumber": "TR-1",
+                "paymentMethod": "stripe",
                 "grossAmount": 99.99,
+                "netAmount": 84.03,
+                "taxAmount": 15.96,
                 "currency": "USD",
-                "baseAmount": 92.5,
-                "baseCurrency": "EUR",
-                "fxRate": 0.925,
-                "mrrDelta": 92.5,
+                "customerCountry": "US",
                 "billingPeriod": "MONTH",
             },
         },
         {
             "event_time": "2026-08-01T09:00:00Z",
             "gross_amount": 99.99,
-            "base_amount": 92.5,
-            "base_currency": "EUR",
-            "mrr_delta": 92.5,
-            "licensee_number": "LIC-789",
+            "action_method": "payments/pay",
+            "status_code": 200,
+            "transaction_number": "TR-1",
+            "payment_method": "stripe",
+            "customer_country": "US",
         },
     ),
     (
         {
             "timestamp": "2026-08-07T10:15:30Z",
-            "eventId": "event-refund",
-            "eventType": "payment.refunded",
-            "tenantId": "demo-vendor",
-            "extra": {"licenseeNumber": "LIC-789", "grossAmount": 20.0,
-                      "baseAmount": 18.5, "baseCurrency": "EUR", "currency": "USD"},
-        },
-        {"base_amount": 18.5, "event_type": "payment.refunded"},
-    ),
-    (
-        {
-            "timestamp": "2026-08-07T10:15:30Z",
-            "eventId": "event-sub-cancelled",
-            "eventType": "subscription.cancelled",
-            "tenantId": "demo-vendor",
-            "extra": {"licenseeNumber": "LIC-789", "subscriptionNumber": "SUB-1",
-                      "mrrDelta": -92.5, "baseCurrency": "EUR", "entityStatus": "CANCELLED"},
-        },
-        {"mrr_delta": -92.5, "entity_status": "CANCELLED", "subscription_number": "SUB-1"},
-    ),
-    (
-        {
-            "timestamp": "2026-08-07T10:15:30Z",
-            "eventId": "event-licensee-created",
-            "eventType": "licensee.created",
-            "tenantId": "demo-vendor",
-            "geolocation": {"countryCode": "FR"},
-            "extra": {"licenseeNumber": "LIC-789", "customerType": "B2B",
-                      "customerCountry": "FR", "entityStatus": "ACTIVE"},
-        },
-        {"customer_type": "B2B", "customer_country": "FR", "geo_country_code": "FR",
-         "entity_status": "ACTIVE"},
-    ),
-    (
-        {
-            "timestamp": "2026-08-07T10:15:30Z",
-            "eventId": "event-validation",
-            "eventType": "validation.requested",
-            "tenantId": "demo-vendor",
-            "extra": {"productNumber": "PROD-123", "sessionId": "sess-abc", "nodeId": "node-1",
-                      "actionStatus": "SUCCESS", "durationMs": 12},
-        },
-        {"product_number": "PROD-123", "session_id": "sess-abc", "node_id": "node-1",
-         "duration_ms": 12, "action_status": "SUCCESS"},
-    ),
-    (
-        {
-            "timestamp": "2026-08-07T10:15:30Z",
-            "eventId": "event-api-call",
+            "eventId": "event-validate-dry-run",
             "eventType": "api.call",
+            "sourceSystem": "netlicensing/core",
             "tenantId": "demo-vendor",
-            "extra": {"actionStatus": "SUCCESS", "actionName": "licensee.get",
-                      "responseStatus": 200, "durationMs": 34},
+            "extra": {"actionMethod": "licensee/validate", "actionStatus": "SUCCESS",
+                      "statusCode": 200, "licenseeNumber": "IMONITORING",
+                      "productNumber": "PMONITORING", "isDryRun": True},
         },
-        {"action_name": "licensee.get", "response_status": 200, "duration_ms": 34},
+        {"product_number": "PMONITORING", "licensee_number": "IMONITORING",
+         "action_method": "licensee/validate", "is_dry_run": True},
+    ),
+    (
+        # Scenario B — node-locked: `nodeSecret` maps to nodeId, `productModuleNumber` to
+        # moduleNumber. No productNumber at all; the column must stay unset, not be invented.
+        {
+            "timestamp": "2026-08-07T10:15:30Z",
+            "eventId": "event-validate-node-locked",
+            "eventType": "api.call",
+            "sourceSystem": "netlicensing/core",
+            "tenantId": "demo-vendor",
+            "extra": {"actionMethod": "licensee/validate", "actionStatus": "SUCCESS",
+                      "statusCode": 200, "licenseeNumber": "bparicio@power-electronics.com",
+                      "moduleNumber": "MYIYHX9W9",
+                      "nodeId": "Ab6uKqR5IN72Stkv_Nn1pzdWp7dTnvOkWve4SOem5OI"},
+        },
+        {"module_number": "MYIYHX9W9", "node_id": "Ab6uKqR5IN72Stkv_Nn1pzdWp7dTnvOkWve4SOem5OI",
+         "licensee_number": "bparicio@power-electronics.com"},
+    ),
+    (
+        # Scenario C — multi-module: the per-module args stay a serialized JSON string so nothing
+        # is lost, and the row stays flat. Queried with ClickHouse's JSON* functions, not a column.
+        {
+            "timestamp": "2026-08-07T10:15:30Z",
+            "eventId": "event-validate-multi-module",
+            "eventType": "api.call",
+            "sourceSystem": "netlicensing/core",
+            "tenantId": "demo-vendor",
+            "extra": {"actionMethod": "licensee/validate", "actionStatus": "SUCCESS",
+                      "statusCode": 200, "licenseeNumber": "skaraborgstraforadling",
+                      "validationArgs": '[{"nodeSecret":"0050B6E5D7AF",'
+                                        '"productModuleNumber":"MI7C7QC3E"}]'},
+        },
+        {"validation_args": '[{"nodeSecret":"0050B6E5D7AF","productModuleNumber":"MI7C7QC3E"}]'},
+    ),
+    (
+        # An expiring license. The call SUCCEEDs — the API answered correctly — while the licensing
+        # verdict is EXPIRING_SOON. The two must land in different columns or neither is queryable.
+        {
+            "timestamp": "2026-08-07T10:15:30Z",
+            "eventId": "event-validate-expiring",
+            "eventType": "api.call",
+            "sourceSystem": "netlicensing/core",
+            "tenantId": "demo-vendor",
+            "extra": {"actionMethod": "licensee/validate", "actionStatus": "SUCCESS",
+                      "statusCode": 200, "licenseeNumber": "LIC-42",
+                      "validationOutcome": "EXPIRING_SOON",
+                      "validUntil": "2026-09-01T00:00:00Z"},
+        },
+        {"action_status": "SUCCESS", "validation_outcome": "EXPIRING_SOON",
+         "valid_until": "2026-09-01T00:00:00Z"},
+    ),
+    (
+        # A failed call: actionStatus and statusCode have to disagree with the success path, and
+        # the layer must not swallow the failure into an empty row.
+        {
+            "timestamp": "2026-08-07T10:15:30Z",
+            "eventId": "event-api-failure",
+            "eventType": "api.call",
+            "sourceSystem": "netlicensing/SHOP",
+            "tenantId": "demo-vendor",
+            "extra": {"actionMethod": "token/generate", "actionStatus": "FAILURE",
+                      "statusCode": 500},
+        },
+        {"action_method": "token/generate", "action_status": "FAILURE", "status_code": 500},
     ),
 ]
 
@@ -221,10 +233,9 @@ def _schema_columns() -> set:
 
 def test_extension_schema_parses_to_a_plausible_column_set():
     core, netlicensing = core_columns(), alter_table_columns(SCHEMA_NETLICENSING_SQL)
-    assert {"licensee_number", "gross_amount", "base_amount", "mrr_delta"} <= netlicensing
+    assert {"licensee_number", "gross_amount", "action_method", "validation_args"} <= netlicensing
     assert not core & netlicensing, "a column is declared in both schema files"
-    assert "revenue_signed" not in _schema_columns(), "ALIAS columns must not be insertable"
-    assert len(_schema_columns()) == 54
+    assert len(_schema_columns()) == 39
 
 
 def test_transformer_output_matches_both_schema_layers_exactly():
@@ -259,7 +270,7 @@ def test_unrecognised_extra_keys_stay_in_the_extra_map():
 
 @pytest.mark.parametrize("event,expected", INDICATIVE_EVENTS,
                          ids=[e["eventId"] for e, _ in INDICATIVE_EVENTS])
-def test_indicative_kpi_events_promote_their_fields(event, expected):
+def test_indicative_events_promote_their_fields(event, expected):
     row = transform(event)
 
     # Sparse events emit a subset — an absent scalar is omitted so ClickHouse applies the DEFAULT.
@@ -267,12 +278,13 @@ def test_indicative_kpi_events_promote_their_fields(event, expected):
     assert {"timestamp", "event_time", "event_type", "tenant_id"} <= set(row)
 
     for column, value in expected.items():
-        assert row[column] == value, f"{event['eventType']}: {column}"
+        assert row[column] == value, f"{event['eventId']}: {column}"
 
 
 def test_promoted_keys_are_documented_for_publishers():
     """A use-case layer publishes its own vocabulary — the generic OpenAPI contract deliberately
-    does not carry it, so the KPI doc is where an integrator has to find these keys."""
-    doc = KPI_DOC.read_text()
+    does not carry it, so the events doc is where an integrator has to find these keys. Read
+    unguarded: a deleted doc must fail this test, not silently satisfy it."""
+    doc = EVENTS_DOC.read_text()
     undocumented = sorted(k for k in audit_clickhouse_netlicensing.PROMOTED if f"`{k}`" not in doc)
-    assert not undocumented, f"promoted but undocumented in NETLICENSING_KPI.md: {undocumented}"
+    assert not undocumented, f"promoted but undocumented in NETLICENSING_EVENTS.md: {undocumented}"

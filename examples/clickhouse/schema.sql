@@ -37,7 +37,11 @@ CREATE TABLE IF NOT EXISTS audit.audit_events
 
     -- ── Action ───────────────────────────────────────────────────────────────────────────────
     -- `action_status` is the outcome of the *action* (SUCCESS / FAILURE / DENIED). It is not an
-    -- entity state — see `entity_status` in schema-netlicensing.sql for an example of that.
+    -- entity state: a SUCCESSful call can be what moves a subscription to CANCELLED, and a use
+    -- case that needs the entity's state adds its own column for it rather than overloading this.
+    -- `action_name` is the semantic action ("payment.capture"); a use case whose events are API
+    -- calls may prefer its own endpoint column instead (see `action_method` in
+    -- schema-netlicensing.sql).
     action_name      LowCardinality(String),
     action_status    LowCardinality(String),
     action_message   String,
@@ -67,8 +71,7 @@ CREATE TABLE IF NOT EXISTS audit.audit_events
 -- so a DLQ replayed after that would insert a second copy of an event — tolerable for a log,
 -- fatal for revenue. `event_id` is in the sorting key and the row version is the ingest
 -- `timestamp`, so the later copy wins. Deduplication happens on merge; use FINAL (or aggregate
--- through a rollup such as the one in schema-netlicensing.sql) when exactness matters at query
--- time.
+-- through a rollup of your own) when exactness matters at query time.
 ENGINE = ReplacingMergeTree(timestamp)
 PARTITION BY toYYYYMM(event_time)
 ORDER BY (tenant_id, event_type, event_time, event_id)

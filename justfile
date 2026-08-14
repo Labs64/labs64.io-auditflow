@@ -31,7 +31,7 @@ _urls:
     @echo "  ClickHouse Play:    http://localhost:8123/play  (auditflow/auditflow)"
     @echo ""
     @echo "  ClickHouse round trip: just notebook-getting-started  (section 6)"
-    @echo "  KPI demo data:         just ch-seed                   (then see examples/clickhouse/NETLICENSING_KPI.md)"
+    @echo "  Demo event data:       just ch-seed                   (then see examples/clickhouse/NETLICENSING_EVENTS.md)"
     @echo "  OTel Collector:     localhost:4317 (gRPC) / localhost:4318 (HTTP)"
     @echo "  Grafana:            http://localhost:3000   (admin/admin)"
     @echo "  Prometheus:         http://localhost:9090"
@@ -144,11 +144,11 @@ ch query:
 
 # Show the most recently stored audit events (ordered on event_time, the analytics axis)
 ch-events limit="20":
-    @just ch "SELECT event_time, tenant_id, event_type, action_status, licensee_number, product_number, base_amount, base_currency, mrr_delta, extra FROM audit_events FINAL ORDER BY event_time DESC LIMIT {{ limit }} FORMAT PrettyCompactMonoBlock"
+    @just ch "SELECT event_time, tenant_id, event_type, action_status, licensee_number, product_number, action_method, gross_amount, currency, extra FROM audit_events FINAL ORDER BY event_time DESC LIMIT {{ limit }} FORMAT PrettyCompactMonoBlock"
 
-# Event counts grouped by tenant / type / status
+# Event counts grouped by tenant / API method / status
 ch-stats:
-    @just ch "SELECT tenant_id, event_type, action_status, countMerge(events) AS events, min(day) AS first_seen, max(day) AS last_seen FROM audit.ops_daily GROUP BY tenant_id, event_type, action_status ORDER BY events DESC FORMAT PrettyCompactMonoBlock"
+    @just ch "SELECT tenant_id, event_type, action_method, action_status, count() AS events, min(event_time) AS first_seen, max(event_time) AS last_seen FROM audit_events FINAL GROUP BY tenant_id, event_type, action_method, action_status ORDER BY events DESC FORMAT PrettyCompactMonoBlock"
 
 # Interactive ClickHouse shell
 ch-shell:
@@ -157,11 +157,11 @@ ch-shell:
         --password "${CLICKHOUSE_PASSWORD:-auditflow}" \
         --database audit
 
-# Publish a synthetic NetLicensing business (customers, subscriptions, payments, churn,
-# validations) so the KPI queries in examples/clickhouse/NETLICENSING_KPI.md have data.
-# Pass extra flags through, e.g.: just ch-seed "--customers 200 --days 800"
+# Publish synthetic NetLicensing API + Payment Gateway events so the queries in
+# examples/clickhouse/NETLICENSING_EVENTS.md have data.
+# Pass extra flags through, e.g.: just ch-seed "--tenant demo"
 ch-seed *args:
-    @python3 examples/clickhouse/seed_kpi_dashboards.py {{ args }}
+    @python3 examples/clickhouse/seed_events.py {{ args }}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Example notebooks
