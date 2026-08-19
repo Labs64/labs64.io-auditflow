@@ -6,6 +6,9 @@
 
 [![CI](https://github.com/Labs64/labs64.io-auditflow/actions/workflows/labs64io-ci.yml/badge.svg)](https://github.com/Labs64/labs64.io-auditflow/actions/workflows/labs64io-ci.yml)
 [![Docker Image Version](https://img.shields.io/docker/v/labs64/auditflow?logo=docker&logoColor=%23E14817&color=%23E14817)](https://hub.docker.com/r/labs64/auditflow)
+[![Docker Image Version (transformer)](https://img.shields.io/docker/v/labs64/auditflow-transformer?logo=docker&logoColor=%23E14817&color=%23E14817)](https://hub.docker.com/r/labs64/auditflow-transformer)
+[![Docker Image Version (sink)](https://img.shields.io/docker/v/labs64/auditflow-sink?logo=docker&logoColor=%23E14817&color=%23E14817)](https://hub.docker.com/r/labs64/auditflow-sink)
+[![Helm Chart](https://img.shields.io/badge/Helm%20Chart-auditflow-0F1689?logo=helm)](https://artifacthub.io/packages/helm/labs64io-helm-charts/auditflow)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![📖 Documentation](https://img.shields.io/badge/📖-Documentation-AB6543.svg)](https://github.com/Labs64/labs64.io-docs)
 
