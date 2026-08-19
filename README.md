@@ -10,7 +10,7 @@
 [![Docker Image Version (sink)](https://img.shields.io/docker/v/labs64/auditflow-sink?logo=docker&logoColor=white&color=1C90ED)](https://hub.docker.com/r/labs64/auditflow-sink)
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/labs64io-helm-charts)](https://artifacthub.io/packages/helm/labs64io-helm-charts/auditflow)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![📖 Documentation](https://img.shields.io/badge/📖-Documentation-AB6543.svg)](https://github.com/Labs64/labs64.io-docs)
+[![📖 Documentation](https://img.shields.io/badge/📖-Documentation-AB6543.svg)](https://labs64.io/docs/index.html)
 
 AuditFlow is an open-source pipeline for capturing audit events from your services and delivering them — reliably, with sensitive data stripped out at the door — to wherever they need to live: a search index, cold storage, a SIEM, or all of them at once. Your services publish events with a single REST call; you describe the routing in YAML. AuditFlow takes care of the buffering, redaction, deduplication, retries, and fan-out.
 
