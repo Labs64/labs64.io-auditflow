@@ -20,3 +20,15 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+  - package-ecosystem: "docker"
+    directory: "/auditflow-be"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker"
+    directory: "/auditflow-transformer"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker"
+    directory: "/auditflow-sink"
+    schedule:
+      interval: "weekly"
