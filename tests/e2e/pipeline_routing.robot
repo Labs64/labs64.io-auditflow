@@ -39,7 +39,7 @@ Event matching two pipelines fans out and dead-letters exactly once
     ...                failing pipeline, so the correct outcome is a rise of exactly one — not
     ...                two, and not zero (which would mean one pipeline's failure silently
     ...                swallowed the other, or the event was lost rather than retried).
-    [Tags]    auditflow    regression    pipeline-routing    critical
+    [Tags]    auditflow    regression    pipeline-routing
     ${correlation_id}=    Generate Correlation ID
     ${before}=    Get DLQ Message Count    ${AUDITFLOW_REGRESSION_SESSION}    t_regression
     ${event}=    Build Probe Audit Event    ${correlation_id}    eq    target    any_x

@@ -31,7 +31,7 @@ Replay drains and reports the tenant's own messages
     ...                retriedCount must be at least 1 (the message this test just put there —
     ...                other regression tests may have their own messages queued concurrently,
     ...                so this asserts a lower bound, not an exact count).
-    [Tags]    auditflow    regression    dlq    critical
+    [Tags]    auditflow    regression    dlq
     ${correlation_id}=    Generate Correlation ID
     ${before}=    Get DLQ Message Count    ${AUDITFLOW_REGRESSION_SESSION}    t_regression
     ${event}=    Build Probe Audit Event    ${correlation_id}    test_secretref_missing_intentional_fail

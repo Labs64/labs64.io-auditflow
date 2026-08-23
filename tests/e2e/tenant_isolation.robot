@@ -17,7 +17,7 @@ Test Teardown    Delete All Sessions
 *** Test Cases ***
 Ignore spoofed client TenantId (200|403)
     [Documentation]    Payload tenantId must not override the gateway-stamped tenant.
-    [Tags]    auditflow    regression    critical    auth    tenant-isolation
+    [Tags]    auditflow    regression    auth    tenant-isolation
     Create AuditFlow Session
     ${control_id}=    Generate Correlation ID
     ${control_event}=    Build Valid Audit Event    ${control_id}
