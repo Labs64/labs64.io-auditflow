@@ -17,7 +17,7 @@ Test Teardown    Delete All Sessions
 *** Test Cases ***
 Reject missing authorization (401)
     [Documentation]    POST /audit/publish without auth header returns 401.
-    [Tags]    auditflow    regression    critical    p0-blocker    auth
+    [Tags]    auditflow    regression    auth
     Create Unauthenticated AuditFlow Session
     ${event}=    Build Valid Audit Event    unauth-check
     ${response}=    Publish Audit Event    ${event}
@@ -25,7 +25,7 @@ Reject missing authorization (401)
 
 Reject malformed bearer token (401)
     [Documentation]    Invalid bearer credential returns 401.
-    [Tags]    auditflow    regression    critical    p0-blocker    auth
+    [Tags]    auditflow    regression    auth
     # Deliberately nonsensical test fixture credential — not a real credential or signing key.
     ${headers}=    Create Dictionary
     ...    Authorization=Bearer test-fixture-malformed-jwt
@@ -38,7 +38,7 @@ Reject malformed bearer token (401)
 
 Reject wrong scope (403)
     [Documentation]    Token missing audit-event:write scope is denied with 403 by cerbos.
-    [Tags]    auditflow    regression    critical    auth    tenant-isolation
+    [Tags]    auditflow    regression    auth    tenant-isolation
     Create Session With Scope    auditflow-wrong-scope    ${AUDITFLOW_BASE_URL}    audit-event:read
     ${event}=    Build Valid Audit Event    wrong-scope-check
     ${response}=    Publish Audit Event    ${event}    alias=auditflow-wrong-scope
@@ -46,7 +46,7 @@ Reject wrong scope (403)
 
 Allow correct scope (200)
     [Documentation]    Token with audit-event:write scope is allowed.
-    [Tags]    auditflow    regression    critical    auth
+    [Tags]    auditflow    regression    auth
     Create Session With Scope    auditflow-correct-scope    ${AUDITFLOW_BASE_URL}    audit-event:write
     ${event}=    Build Valid Audit Event    correct-scope-check
     ${response}=    Publish Audit Event    ${event}    alias=auditflow-correct-scope
@@ -54,7 +54,7 @@ Allow correct scope (200)
 
 Allow multiple scopes including correct scope (200)
     [Documentation]    Token with audit-event:write alongside other scopes is allowed.
-    [Tags]    auditflow    regression    critical    auth
+    [Tags]    auditflow    regression    auth
     Create Session With Scope    auditflow-multi-scope    ${AUDITFLOW_BASE_URL}
     ...    audit-event:read audit-event:write customer:read
     ${event}=    Build Valid Audit Event    multi-scope-check
@@ -63,7 +63,7 @@ Allow multiple scopes including correct scope (200)
 
 Reject token with no scopes (403)
     [Documentation]    Token with empty scope set is denied with 403 by cerbos.
-    [Tags]    auditflow    regression    critical    auth
+    [Tags]    auditflow    regression    auth
     Create Session With Scope    auditflow-no-scope    ${AUDITFLOW_BASE_URL}    no-access
     ${event}=    Build Valid Audit Event    no-scope-check
     ${response}=    Publish Audit Event    ${event}    alias=auditflow-no-scope

@@ -9,7 +9,7 @@ Suite Teardown   Delete All Sessions
 *** Test Cases ***
 Publish valid event (200)
     [Documentation]    Valid POST to /audit/publish returns 200 and assigns X-Audit-Event-Id.
-    [Tags]    auditflow    smoke    critical
+    [Tags]    auditflow    smoke
     ${correlation_id}=    Generate Correlation ID
     ${event}=    Build Valid Audit Event    ${correlation_id}
     ${response}=    Publish Audit Event    ${event}

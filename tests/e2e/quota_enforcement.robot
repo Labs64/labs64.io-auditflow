@@ -16,7 +16,7 @@ Exceeding the burst is rejected with 429 and Retry-After
     [Documentation]    Publish past the tenant's burst capacity (2) and confirm the ingest gate
     ...                rejects the excess with 429 TENANT_RATE_LIMITED and a Retry-After header —
     ...                never a 5xx, never silently accepted.
-    [Tags]    auditflow    regression    quota    critical
+    [Tags]    auditflow    regression    quota
     ${statuses}=    Create List
     FOR    ${i}    IN RANGE    5
         ${correlation_id}=    Generate Correlation ID

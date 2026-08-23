@@ -38,7 +38,7 @@ Resolvable secretRef delivers without dead-lettering
 Missing secretRef key fails delivery, never a blank value
     [Documentation]    A pipeline whose secretRef key is NOT provisioned must be a retryable
     ...                failure that reaches the DLQ — proving the fail-closed contract.
-    [Tags]    auditflow    regression    secret-ref    critical
+    [Tags]    auditflow    regression    secret-ref
     ${correlation_id}=    Generate Correlation ID
     ${before}=    Get DLQ Message Count    ${AUDITFLOW_REGRESSION_SESSION}    t_regression
     ${event}=    Build Probe Audit Event    ${correlation_id}    test_secretref_missing_intentional_fail
