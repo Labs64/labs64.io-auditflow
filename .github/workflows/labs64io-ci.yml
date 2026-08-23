@@ -110,3 +110,53 @@ jobs:
       docker-context: auditflow-sink
       artifact-name: sink-test-results
       test-results-path: test-results.xml
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Edge images — pushed to Docker Hub as :edge after a green master build, so
+  # downstream integration environments can run today's master without building
+  # it. labs64.io-tests' nightly regression deploys exactly these (see that
+  # repo's labs64io-regression-suite.yml); the release path, which additionally
+  # pins digests into the Helm chart, stays in labs64io-docker-publish.yml.
+  #
+  # All three gate on ALL four build jobs, exactly as the release workflow does.
+  # The three containers share a single pod in every deployment
+  # (transformer/sink `discovery.mode: local`), so a partially-refreshed :edge
+  # trio is not a degraded environment, it is a broken one.
+  # ─────────────────────────────────────────────────────────────────────────────
+  edge-image-be:
+    name: Edge image (labs64/auditflow)
+    needs: [build-api, build-backend, build-transformer, build-sink]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    uses: Labs64/labs64.io-workspace/.github/workflows/docker-publish.yml@master
+    with:
+      image: labs64/auditflow
+      context: ./auditflow-be
+      mode: edge
+      # The auditflow-be Dockerfile copies target/*.jar, so build the jar first.
+      # Building from auditflow-be's own pom (not the reactor root) resolves
+      # auditflow-api from Nexus, the same way the released image does.
+      build-command: mvn -B -ntp -DskipTests package --file ./auditflow-be/pom.xml
+      java-version: "25"
+    secrets: inherit
+
+  edge-image-transformer:
+    name: Edge image (labs64/auditflow-transformer)
+    needs: [build-api, build-backend, build-transformer, build-sink]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    uses: Labs64/labs64.io-workspace/.github/workflows/docker-publish.yml@master
+    with:
+      image: labs64/auditflow-transformer
+      context: ./auditflow-transformer
+      mode: edge
+    secrets: inherit
+
+  edge-image-sink:
+    name: Edge image (labs64/auditflow-sink)
+    needs: [build-api, build-backend, build-transformer, build-sink]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    uses: Labs64/labs64.io-workspace/.github/workflows/docker-publish.yml@master
+    with:
+      image: labs64/auditflow-sink
+      context: ./auditflow-sink
+      mode: edge
+    secrets: inherit
