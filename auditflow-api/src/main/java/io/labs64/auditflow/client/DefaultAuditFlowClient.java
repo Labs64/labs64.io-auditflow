@@ -38,8 +38,13 @@ final class DefaultAuditFlowClient implements AuditFlowClient {
 
     @Override
     public PublishResult publish(AuditEvent event) {
+        return publish(event, AuditFlowRequestOptions.empty());
+    }
+
+    @Override
+    public PublishResult publish(AuditEvent event, AuditFlowRequestOptions options) {
         try {
-            return publishAsync(event).join();
+            return publishAsync(event, options).join();
         } catch (CompletionException e) {
             Throwable cause = e.getCause();
             if (cause instanceof AuditFlowException) {
@@ -54,8 +59,13 @@ final class DefaultAuditFlowClient implements AuditFlowClient {
 
     @Override
     public CompletableFuture<PublishResult> publishAsync(AuditEvent event) {
+        return publishAsync(event, AuditFlowRequestOptions.empty());
+    }
+
+    @Override
+    public CompletableFuture<PublishResult> publishAsync(AuditEvent event, AuditFlowRequestOptions options) {
         AuditEvent prepared = prepare(event);
-        HttpRequest request = buildRequest(prepared);
+        HttpRequest request = buildRequest(prepared, options != null ? options : AuditFlowRequestOptions.empty());
         return sendAsyncWithRetry(request, 1);
     }
 
@@ -98,7 +108,12 @@ final class DefaultAuditFlowClient implements AuditFlowClient {
 
     @Override
     public void fireAndForget(AuditEvent event) {
-        publishAsync(event).whenComplete((result, error) -> {
+        fireAndForget(event, AuditFlowRequestOptions.empty());
+    }
+
+    @Override
+    public void fireAndForget(AuditEvent event, AuditFlowRequestOptions options) {
+        publishAsync(event, options).whenComplete((result, error) -> {
             if (error != null) {
                 Throwable cause = error instanceof CompletionException && error.getCause() != null
                         ? error.getCause() : error;
@@ -127,18 +142,19 @@ final class DefaultAuditFlowClient implements AuditFlowClient {
         return event;
     }
 
-    private HttpRequest buildRequest(AuditEvent event) {
+    private HttpRequest buildRequest(AuditEvent event, AuditFlowRequestOptions options) {
         String json = serialize(event);
         HttpRequest.Builder builder = HttpRequest.newBuilder(publishUri)
                 .timeout(config.requestTimeout())
-                .header("Content-Type", "application/json")
-                .header("Accept", "application/json")
-                .header("X-Correlation-ID", event.getCorrelationId())
                 .POST(HttpRequest.BodyPublishers.ofString(json));
+        options.headers().forEach(builder::setHeader);
+        builder.setHeader("Content-Type", "application/json");
+        builder.setHeader("Accept", "application/json");
+        builder.setHeader("X-Correlation-ID", event.getCorrelationId());
         if (config.tokenProvider() != null) {
             String token = config.tokenProvider().token();
             if (token != null && !token.isBlank()) {
-                builder.header("Authorization", "Bearer " + token);
+                builder.setHeader("Authorization", "Bearer " + token);
             }
         }
         return builder.build();
