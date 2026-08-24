@@ -113,7 +113,7 @@ final class DefaultAuditFlowClient implements AuditFlowClient {
 
     @Override
     public void fireAndForget(AuditEvent event, AuditFlowRequestOptions options) {
-        publishAsync(event, options).whenComplete((result, error) -> {
+        publishAsync(event, options).whenComplete((ignoredResult, error) -> {
             if (error != null) {
                 Throwable cause = error instanceof CompletionException && error.getCause() != null
                         ? error.getCause() : error;
