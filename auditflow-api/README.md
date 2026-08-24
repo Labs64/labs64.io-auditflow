@@ -50,6 +50,13 @@ AuditEvent event = AuditEvents.builder("user.login")
 // Synchronous — throws a typed AuditFlowException on failure
 PublishResult result = client.publish(event);
 
+// Request-scoped headers, for example for a direct internal call
+PublishResult internalResult = client.publish(event,
+        AuditFlowRequestOptions.builder()
+                .headers(internalCallHeaders)
+                .build());
+
+
 // Asynchronous — non-blocking
 client.publishAsync(event).thenAccept(r -> System.out.println(r.eventId()));
 

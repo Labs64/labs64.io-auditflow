@@ -21,11 +21,20 @@ public interface AuditFlowClient {
     /** Publishes synchronously, throwing a typed {@link io.labs64.auditflow.client.exception.AuditFlowException} on failure. */
     PublishResult publish(AuditEvent event);
 
+    /** Publishes synchronously with options scoped to this request. */
+    PublishResult publish(AuditEvent event, AuditFlowRequestOptions options);
+
     /** Publishes without blocking; the future completes exceptionally on failure. */
     CompletableFuture<PublishResult> publishAsync(AuditEvent event);
 
+    /** Publishes without blocking with options scoped to this request. */
+    CompletableFuture<PublishResult> publishAsync(AuditEvent event, AuditFlowRequestOptions options);
+
     /** Publishes without blocking and never throws into the caller; failures go to the configured error handler. */
     void fireAndForget(AuditEvent event);
+
+    /** Publishes without blocking with options scoped to this request. */
+    void fireAndForget(AuditEvent event, AuditFlowRequestOptions options);
 
     static Builder builder() {
         return new Builder();

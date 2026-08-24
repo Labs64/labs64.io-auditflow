@@ -58,6 +58,60 @@ class DefaultAuditFlowClientPublishTest {
     }
 
     @Test
+    void publishAppliesRequestHeadersWithoutToken() {
+        server.enqueue(CannedResponse.ok(Map.of()));
+        AuditFlowClient client = AuditFlowClient.builder()
+                .baseUrl(server.baseUrl())
+                .build();
+
+        client.publish(
+                new AuditEvent().eventType("payment.created"),
+                AuditFlowRequestOptions.builder()
+                        .headers(Map.of("X-Auth-User", "svc:payment-gateway"))
+                        .build());
+
+        assertEquals(
+                List.of("svc:payment-gateway"),
+                header(server.lastRequest().headers(), "X-Auth-User"));
+    }
+
+    @Test
+    void tokenProviderOverridesRequestAuthorizationHeader() {
+        server.enqueue(CannedResponse.ok(Map.of()));
+
+        client().publish(
+                new AuditEvent().eventType("payment.created"),
+                AuditFlowRequestOptions.builder()
+                        .header("Authorization", "Custom value")
+                        .build());
+
+        assertEquals(
+                List.of("Bearer jwt-123"),
+                header(server.lastRequest().headers(), "Authorization"));
+    }
+
+    @Test
+    void eventCorrelationIdOverridesRequestHeader() {
+        server.enqueue(CannedResponse.ok(Map.of()));
+        AuditFlowClient client = AuditFlowClient.builder()
+                .baseUrl(server.baseUrl())
+                .build();
+        AuditEvent event = new AuditEvent()
+                .eventType("payment.created")
+                .correlationId("event-correlation");
+
+        client.publish(
+                event,
+                AuditFlowRequestOptions.builder()
+                        .header("X-Correlation-ID", "options-correlation")
+                        .build());
+
+        assertEquals(
+                List.of("event-correlation"),
+                header(server.lastRequest().headers(), "X-Correlation-ID"));
+    }
+
+    @Test
     void publishUsesCorrelationIdProvider() {
         server.enqueue(CannedResponse.ok(Map.of()));
         AuditFlowClient client = AuditFlowClient.builder()
@@ -123,4 +177,11 @@ class DefaultAuditFlowClientPublishTest {
         assertEquals(3, server.requestCount());
     }
 
+    private static List<String> header(Map<String, List<String>> headers, String name) {
+        return headers.entrySet().stream()
+                .filter(entry -> entry.getKey().equalsIgnoreCase(name))
+                .map(Map.Entry::getValue)
+                .findFirst()
+                .orElse(null);
+    }
 }
