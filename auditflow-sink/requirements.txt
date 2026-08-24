@@ -1,11 +1,11 @@
 fastapi==0.141.1
-uvicorn==0.52.3
+uvicorn==0.52.4
 
 requests==2.34.2
 python-multipart==0.0.32
 
 # AWS sinks
-boto3==1.43.73
+boto3==1.43.79
 
 # Google Cloud sinks
 google-cloud-storage==3.13.1
