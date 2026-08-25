@@ -1,4 +1,4 @@
-FROM python:3.14-alpine
+FROM python:3.13-slim
 
 ARG GIT_REVISION=unknown
 
@@ -17,8 +17,8 @@ ARG USER_NAME=l64user
 ARG GROUP_NAME=l64group
 
 # Create group and user with the specified IDs
-RUN addgroup -g ${GROUP_ID} ${GROUP_NAME} && \
-    adduser -D -u ${USER_ID} -G ${GROUP_NAME} ${USER_NAME}
+RUN groupadd -g ${GROUP_ID} ${GROUP_NAME} && \
+    useradd -m -u ${USER_ID} -g ${GROUP_NAME} ${USER_NAME}
 
 # Set working directory
 WORKDIR /home/${USER_NAME}
@@ -58,7 +58,7 @@ EXPOSE 8082
 USER ${USER_NAME}
 
 HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=3 \
-    CMD wget -qO- http://127.0.0.1:8082/sinks || exit 1
+    CMD python -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8082/registry', timeout=4)" || exit 1
 
 # entrypoint.sh enables OTel auto-instrumentation iff OTEL_EXPORTER_OTLP_ENDPOINT is set
 ENTRYPOINT ["./entrypoint.sh"]
