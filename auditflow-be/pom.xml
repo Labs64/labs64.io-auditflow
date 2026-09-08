@@ -30,7 +30,7 @@
         <openapitools.version>0.2.11</openapitools.version>
         <jackson-datatype.version>2.22.2</jackson-datatype.version>
         <commons-lang3.version>3.20.0</commons-lang3.version>
-        <kubernetes-client.version>7.8.0</kubernetes-client.version>
+        <kubernetes-client.version>7.9.0</kubernetes-client.version>
         <bouncycastle.version>1.85.2</bouncycastle.version>
         <vertx.version>5.1.6</vertx.version>
         <lombok.version>1.18.46</lombok.version>
