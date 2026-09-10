@@ -32,7 +32,7 @@
         <commons-lang3.version>3.20.0</commons-lang3.version>
         <kubernetes-client.version>7.8.0</kubernetes-client.version>
         <bouncycastle.version>1.85.2</bouncycastle.version>
-        <vertx.version>5.1.6</vertx.version>
+        <vertx.version>5.1.7</vertx.version>
         <lombok.version>1.18.46</lombok.version>
         <opentelemetry-api.version>1.65.0</opentelemetry-api.version>
         <netty.version>4.2.17.Final</netty.version>
