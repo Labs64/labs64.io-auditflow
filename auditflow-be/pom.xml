@@ -22,20 +22,20 @@
         <audit.version>v1</audit.version>
         <!-- DEPENDENCIES -->
         <java.version>25</java.version>
-        <protobuf-java.version>4.35.1</protobuf-java.version>
+        <protobuf-java.version>4.36.1</protobuf-java.version>
         <auditflow-api.version>0.1.0-SNAPSHOT</auditflow-api.version>
         <spring-cloud.version>2025.1.3</spring-cloud.version>
         <logstash.version>9.0</logstash.version>
-        <springdoc.version>3.1.0</springdoc.version>
+        <springdoc.version>3.1.1</springdoc.version>
         <openapitools.version>0.2.11</openapitools.version>
         <jackson-datatype.version>2.22.2</jackson-datatype.version>
         <commons-lang3.version>3.20.0</commons-lang3.version>
         <kubernetes-client.version>7.9.0</kubernetes-client.version>
-        <bouncycastle.version>1.85.2</bouncycastle.version>
-        <vertx.version>5.1.7</vertx.version>
-        <lombok.version>1.18.46</lombok.version>
+        <bouncycastle.version>1.86</bouncycastle.version>
+        <vertx.version>5.1.8</vertx.version>
+        <lombok.version>1.18.48</lombok.version>
         <opentelemetry-api.version>1.65.0</opentelemetry-api.version>
-        <netty.version>4.2.17.Final</netty.version>
+        <netty.version>4.2.18.Final</netty.version>
         <!-- Jackson is NOT pinned here on purpose. Spring Boot's BOM manages the Jackson 3
              line (jackson-bom) and the Jackson 2 annotations line (jackson-2-bom) as a
              coordinated pair. Overriding tools.jackson.core:jackson-databind alone to 3.2.1
