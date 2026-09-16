@@ -50,7 +50,7 @@
         <maven-enforcer-plugin.version>3.6.3</maven-enforcer-plugin.version>
         <openapi-generator-maven-plugin.version>7.25.0</openapi-generator-maven-plugin.version>
         <build-helper-maven-plugin.version>3.6.1</build-helper-maven-plugin.version>
-        <exec-maven-plugin.version>3.6.3</exec-maven-plugin.version>
+        <exec-maven-plugin.version>3.6.4</exec-maven-plugin.version>
         <!-- OpenAPI auth preprocessor paths -->
         <openapi.source>${project.basedir}/../auditflow-api/src/main/resources/openapi/openapi-audit-${audit.version}.yaml</openapi.source>
         <openapi.generated>${project.build.directory}/generated-openapi/openapi-audit-${audit.version}.yaml</openapi.generated>
