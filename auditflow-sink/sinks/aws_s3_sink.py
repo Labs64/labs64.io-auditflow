@@ -189,7 +189,9 @@ def build_object_key(
         date_part = dt.strftime(partition_format)
         key_parts.append(date_part.rstrip('/'))
 
-    # Generate unique filename using the event timestamp
+    # One object per event: the full eventId makes the name unique, and a redelivery of the same
+    # message rewrites the same object instead of adding a copy. A shortened id is not unique: with
+    # time-ordered ids (UUIDv7) every event of the same second shares its first characters.
     event_id = event_data.get('eventId', str(uuid.uuid4()))
     timestamp = dt.strftime('%Y%m%d-%H%M%S')
 
@@ -197,7 +199,7 @@ def build_object_key(
     if compress:
         extension += '.gz'
 
-    filename = f"{timestamp}-{event_id[:8]}.{extension}"
+    filename = f"{timestamp}-{event_id}.{extension}"
     key_parts.append(filename)
 
     return '/'.join(key_parts)
