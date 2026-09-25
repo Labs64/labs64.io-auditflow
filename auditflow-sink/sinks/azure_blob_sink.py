@@ -174,7 +174,8 @@ def build_blob_name(
         date_part = datetime.now(timezone.utc).strftime(partition_format)
         name_parts.append(date_part.rstrip('/'))
 
-    # Generate unique filename
+    # One object per event: the full eventId makes the name unique. A shortened id is not: with
+    # time-ordered ids (UUIDv7) every event of the same second shares its first characters.
     event_id = event_data.get('eventId', str(uuid.uuid4()))
     timestamp = datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')
 
@@ -182,7 +183,7 @@ def build_blob_name(
     if compress:
         extension += '.gz'
 
-    filename = f"{timestamp}-{event_id[:8]}.{extension}"
+    filename = f"{timestamp}-{event_id}.{extension}"
     name_parts.append(filename)
 
     return '/'.join(name_parts)
