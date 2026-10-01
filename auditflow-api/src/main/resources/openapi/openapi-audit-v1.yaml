@@ -45,12 +45,13 @@ paths:
                   eventType: "api.call"
                   sourceSystem: "netlicensing/core"
               domainSpecific:
-                summary: A deployment's own field names
+                summary: A deployment's own metadata and payload
                 description: >-
                   No key here belongs to the well-known vocabulary, and that is a fully supported
-                  setup: unrecognised keys are delivered unchanged in the sink's metadata map. Pair
-                  them with a transformer that promotes them (or set `AUDITFLOW_PROMOTED_KEYS`) to
-                  make them queryable report dimensions.
+                  setup. `extra` may contain auxiliary metadata or structured domain payload.
+                  Values are passed to the configured pipeline; their final representation is
+                  determined by its transformer and sink. Promote metadata keys with a transformer
+                  (or `AUDITFLOW_PROMOTED_KEYS`) when they must become queryable report dimensions.
                 value:
                   eventType: "order.shipped"
                   sourceSystem: "warehouse/dispatch"
@@ -304,18 +305,16 @@ components:
     Extra:
       type: object
       description: |-
-        Custom user-defined fields — an **open map** of any additional key-value pairs relevant to
-        the event.
+        Publisher-defined event content — an **open map** for both auxiliary metadata and structured
+        domain payload relevant to the event.
 
         **No key is required, and no key is guaranteed.** Every deployment defines its own field
-        set; a publisher whose keys appear nowhere in this document is a fully supported setup.
-        Unrecognised keys are delivered unchanged in the sink's own metadata map, so an event never
-        loses data by using field names AuditFlow has not heard of. The keys shown in the examples
-        are illustrative, not a schema.
-
-        `extra` is a metadata bag, not a payload channel: do not use it to carry request/response
-        bodies, file contents or base64 blobs. The whole request is additionally subject to the
-        size limit documented on the operation.
+        set; keys may contain scalar values, arrays, or nested objects. A publisher whose keys
+        appear nowhere in this document is a fully supported setup. Unrecognised keys are passed
+        to the configured pipeline, whose transformer and sink determine their final representation.
+        The keys shown in the examples are illustrative, not a closed schema. The whole request,
+        including payload stored in `extra`, is subject to the size limit documented on the
+        operation.
 
         ## Well-known keys
 
