@@ -67,3 +67,18 @@ def test_datadog_sink_missing_api_key_errors():
         json={"event_data": {"eventId": "abc"}, "properties": {}},
     )
     assert response.status_code == 500
+
+
+def test_blocking_sinks_run_off_the_event_loop(monkeypatch):
+    # A sink does blocking I/O; running it on the event loop would serialize every event.
+    import threading
+    seen = {}
+
+    def slow_sink(event_data, properties):
+        seen["thread"] = threading.current_thread()
+        return {"ok": True}
+
+    monkeypatch.setattr(sink.registry, "resolve", lambda sink_id: slow_sink)
+    response = client.post("/sink/any_sink", json={"event_data": {"eventId": "x"}, "properties": {}})
+    assert response.status_code == 200
+    assert seen["thread"] is not threading.main_thread()

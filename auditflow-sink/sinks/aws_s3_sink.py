@@ -8,6 +8,7 @@ import logging
 import json
 import gzip
 import re
+import threading
 from datetime import datetime, timezone
 import uuid
 
@@ -79,16 +80,7 @@ def process(event_data: dict, properties: dict) -> dict:
     file_format = properties.get('file-format', 'json').lower()
     endpoint_url = properties.get('endpoint-url')
 
-    # Create S3 client
-    session_kwargs = {'region_name': region}
-    if access_key_id and secret_access_key:
-        session_kwargs['aws_access_key_id'] = access_key_id
-        session_kwargs['aws_secret_access_key'] = secret_access_key
-
-    if endpoint_url:
-        s3_client = boto3.client('s3', endpoint_url=endpoint_url, **session_kwargs)
-    else:
-        s3_client = boto3.client('s3', **session_kwargs)
+    s3_client = _get_s3_client(region, access_key_id, secret_access_key, endpoint_url)
 
     # Build object key
     object_key = build_object_key(
@@ -244,3 +236,34 @@ def _partition_value(value) -> str:
     if not segment or set(segment) == {'.'}:
         return 'unknown'
     return segment
+
+
+_CLIENTS = {}
+_CLIENTS_LOCK = threading.Lock()
+_MAX_CLIENTS = 64
+
+
+def _get_s3_client(region, access_key_id, secret_access_key, endpoint_url):
+    """One S3 client per (region, credentials, endpoint), reused across events.
+
+    Building a client per event re-resolves credentials every time (on EKS an STS
+    AssumeRoleWithWebIdentity call) and costs far more than the PUT itself. boto3 clients are
+    thread-safe and refresh their own temporary credentials.
+    """
+    key = (region, access_key_id, secret_access_key, endpoint_url)
+    client = _CLIENTS.get(key)
+    if client is not None:
+        return client
+    with _CLIENTS_LOCK:
+        client = _CLIENTS.get(key)
+        if client is None:
+            kwargs = {'region_name': region}
+            if access_key_id and secret_access_key:
+                kwargs['aws_access_key_id'] = access_key_id
+                kwargs['aws_secret_access_key'] = secret_access_key
+            if endpoint_url:
+                kwargs['endpoint_url'] = endpoint_url
+            if len(_CLIENTS) >= _MAX_CLIENTS:
+                _CLIENTS.clear()
+            client = _CLIENTS[key] = boto3.client('s3', **kwargs)
+    return client

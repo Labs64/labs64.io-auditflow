@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 import sys
 import os
 import logging
@@ -114,7 +115,9 @@ async def sink(
         event_id = event_data.get("eventId", "unknown")
         app_logger.info("Processing event '%s' type='%s' through sink '%s'",
                         event_id, event_data.get("eventType", ""), sink_id)
-        result = process_function(event_data, properties)
+        # Sinks do blocking I/O (S3, HTTP, JDBC). Run them in the thread pool: called directly from
+        # this coroutine they would block the event loop and serialize every event on the pod.
+        result = await run_in_threadpool(process_function, event_data, properties)
         business_telemetry.sink_completed(sink_id, True)
 
         # Return success response
