@@ -860,6 +860,22 @@ auditflow:
 
 Rate-limited events are treated as retryable failures and will be redelivered by the broker.
 
+### Consumer throughput and the per-tenant cap
+
+An event spends most of its time waiting on the transformer and sink (an S3 PUT is ~100–150 ms), so
+the number of consumer threads, not CPU, sets the rate: roughly `threads / 0.2 s` events/s per pod.
+CPU-based autoscaling therefore does not react to a backlog; raise the threads first.
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `AUDITFLOW_CONSUMER_CONCURRENCY` (env) | `8` | Consumer threads per pod (also the broker prefetch) |
+| `tenants.consumer.max-in-flight-per-tenant` | `4` (chart: `4`) | Events of one tenant processed at once per pod (fairness layer 2) |
+| `tenants.consumer.max-wait-millis` | `2000` | How long a thread over the cap waits for a slot before the event is redelivered |
+
+Every redelivery counts towards the dead-letter queue. A single-tenant deployment should set the cap
+at or above the consumer threads, otherwise the tenant can use only part of them. Fairness between
+tenants comes first from the ingest quota (`rateLimitPerSec`/`burst` in the tenant file).
+
 ### Graceful Shutdown
 
 The backend tracks in-flight events and drains them on shutdown (25s timeout). During shutdown, new events are rejected so in-flight work can complete.
