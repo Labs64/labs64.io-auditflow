@@ -24,7 +24,11 @@ spring:
           group: labs64.io-auditflow
           content-type: application/json
           consumer:
-            concurrency: 8
+            # Consumer threads per pod. An event mostly waits on transformer/sink I/O (an S3 PUT is
+            # ~100-150 ms), so threads, not CPU, bound the rate: ~threads / 0.2 s events/s per pod.
+            # Keep tenants.consumer.max-in-flight-per-tenant at or above it for a single tenant to
+            # use them all.
+            concurrency: ${AUDITFLOW_CONSUMER_CONCURRENCY:8}
         quarantine-out-0:
           destination: labs64-audit-quarantine
           content-type: application/json
@@ -42,8 +46,8 @@ spring:
               autoBindDlq: true
               republishToDlq: true
               requeueRejected: false
-              maxConcurrency: 8
-              prefetch: 8
+              maxConcurrency: ${AUDITFLOW_CONSUMER_CONCURRENCY:8}
+              prefetch: ${AUDITFLOW_CONSUMER_CONCURRENCY:8}
           quarantine-out-0:
             producer:
               exchangeType: topic
@@ -180,6 +184,9 @@ tenants:
     backend: in-memory       # in-memory (default, single replica) | redis (multi-replica) | none
   consumer:
     max-in-flight-per-tenant: 4
+    # A consumer thread over the cap waits this long for a slot before the event is redelivered
+    # (each redelivery counts towards the DLQ). Bounded so the thread returns to other tenants.
+    max-wait-millis: 2000
 secretRef:
   resolver: env              # env (default) | k8s-secret
 
