@@ -556,6 +556,23 @@ No backend code changes needed — the name is resolved dynamically at runtime.
 
 `logging_sink`, `webhook_sink`, `syslog_sink`, `loki_sink`, `opensearch_sink`, `aws_s3_sink`, `aws_cloudwatch_sink`, `gcs_sink`, `azure_blob_sink`, `netlicensing_sink`, `datadog_sink`, `splunk_sink`, `snowflake_sink`
 
+#### `aws_s3_sink` object keys
+
+One object per event: `<prefix>[tenant=<tenantId>/]<partition-format>/<yyyymmdd-HHMMSS>-<eventId>.json[.gz]`.
+`partition-format` is a `strftime` pattern (default `year=%Y/month=%m/day=%d/`) and may also contain
+`{field}` placeholders, a dotted path into the event, so event fields can become folders:
+
+```yaml
+prefix: tenants/
+partition-format: "vendor_id={extra.vendor_id}/year=%Y/month=%m/day=%d/eventType={eventType}/actionName={extra.actionName}/"
+# -> tenants/tenant=acme/vendor_id=V1/year=2026/month=10/day=02/eventType=api.call/actionName=product_create/<ts>-<id>.json
+```
+
+Values are sanitized to `[A-Za-z0-9._-]` (every other character, such as `/` in `product/create`, becomes
+`_`) and cut at 128 characters; a missing or null value becomes `unknown`. An `extra.<key>` placeholder
+falls back to the top-level key, where a promoting transformer moves well-known keys. The format is applied
+only when `partition-by-date` is `true`, and a mistyped placeholder is left in the key as literal text.
+
 ---
 
 ## Adding a New Transformer
