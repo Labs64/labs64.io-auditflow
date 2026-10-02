@@ -7,6 +7,7 @@ Supports batching, compression, and partitioning by date.
 import logging
 import json
 import gzip
+import re
 from datetime import datetime, timezone
 import uuid
 
@@ -20,7 +21,10 @@ PROPERTIES = {
     "secret-access-key": "AWS secret access key (optional)",
     "compress": "Enable gzip compression: true/false (default: false)",
     "partition-by-date": "Partition objects by event date: true/false (default: true)",
-    "partition-format": "strftime pattern for date partitioning (default: year=%Y/month=%m/day=%d/)",
+    "partition-format": "strftime pattern for partitioning (default: year=%Y/month=%m/day=%d/). "
+                        "{field} placeholders insert an event field, e.g. "
+                        "vendor_id={extra.vendor_id}/year=%Y/month=%m/day=%d/; values are sanitized to "
+                        "[A-Za-z0-9._-] and a missing value becomes 'unknown'",
     "file-format": "File format: json or jsonl (default: json)",
     "endpoint-url": "Custom S3-compatible endpoint URL (optional)",
 }
@@ -49,7 +53,7 @@ def process(event_data: dict, properties: dict) -> dict:
             - secret-access-key: AWS secret key (optional)
             - compress: Enable gzip compression (default: false)
             - partition-by-date: Partition by date (default: true)
-            - partition-format: Date format for partitioning (default: year=%Y/month=%m/day=%d/)
+            - partition-format: strftime pattern, may contain {field} placeholders (default: year=%Y/month=%m/day=%d/)
             - file-format: File format - json or jsonl (default: json)
             - endpoint-url: Custom S3 endpoint URL (optional, for S3-compatible storage)
 
@@ -186,7 +190,7 @@ def build_object_key(
 
     # Add date partition using the event timestamp
     if partition_by_date:
-        date_part = dt.strftime(partition_format)
+        date_part = _fill_placeholders(dt.strftime(partition_format), event_data)
         key_parts.append(date_part.rstrip('/'))
 
     # One object per event: the full eventId makes the name unique, and a redelivery of the same
@@ -203,3 +207,40 @@ def build_object_key(
     key_parts.append(filename)
 
     return '/'.join(key_parts)
+
+
+_PLACEHOLDER = re.compile(r'\{([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\}')
+_SAFE_SEGMENT = re.compile(r'[^A-Za-z0-9._-]')
+_MAX_SEGMENT_LENGTH = 128
+
+
+def _fill_placeholders(path: str, event_data: dict) -> str:
+    """Replace {field} (a dotted path into the event) with its key-safe value. Runs after strftime,
+    so a value can never be read as a date directive."""
+    return _PLACEHOLDER.sub(lambda m: _partition_value(_lookup(event_data, m.group(1))), path)
+
+
+def _lookup(event_data: dict, path: str):
+    """Value at a dotted path; an 'extra.' path falls back to the top level, where a promoting
+    transformer moves well-known keys such as actionName."""
+    node = event_data
+    for part in path.split('.'):
+        if not isinstance(node, dict) or part not in node:
+            node = None
+            break
+        node = node[part]
+    if node is None and path.startswith('extra.'):
+        node = event_data.get(path.rsplit('.', 1)[-1])
+    return node
+
+
+def _partition_value(value) -> str:
+    """A key-safe path segment. Values come from the publisher, so '/', '..' and the like must
+    never reach the key: every character outside [A-Za-z0-9._-] (so '/' in 'product/create')
+    becomes '_'."""
+    if value is None or isinstance(value, (dict, list)):
+        return 'unknown'
+    segment = _SAFE_SEGMENT.sub('_', str(value))[:_MAX_SEGMENT_LENGTH]
+    if not segment or set(segment) == {'.'}:
+        return 'unknown'
+    return segment
