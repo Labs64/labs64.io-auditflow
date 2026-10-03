@@ -71,4 +71,29 @@ class TenantGateTest {
         assertDoesNotThrow(() -> gate.check(null));
         assertDoesNotThrow(() -> gate.check("-"));
     }
+
+    @Test
+    void checkProvisionedSpendsNoQuota() {
+        TenantPipelineRegistry reg = new TenantPipelineRegistry();
+        reg.upsert(enabled("acme"), "t");
+        int[] calls = {0};
+        TenantGate gate = gate(reg, (t, r, b) -> {
+            calls[0]++;
+            return true;
+        });
+        assertEquals(200, gate.checkProvisioned("acme").rateLimitPerSec());
+        assertEquals(0, calls[0]);
+        assertThrows(TenantNotProvisionedException.class, () -> gate.checkProvisioned("globex"));
+    }
+
+    @Test
+    void tryAcquireQuotaAnswersInsteadOfThrowing() {
+        TenantPipelineRegistry reg = new TenantPipelineRegistry();
+        reg.upsert(enabled("acme"), "t");
+        boolean[] allow = {true};
+        TenantGate gate = gate(reg, (t, r, b) -> allow[0]);
+        assertTrue(gate.tryAcquireQuota("acme"));
+        allow[0] = false;
+        assertFalse(gate.tryAcquireQuota("acme"));
+    }
 }

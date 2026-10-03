@@ -62,7 +62,17 @@ client.publishAsync(event).thenAccept(r -> System.out.println(r.eventId()));
 
 // Fire-and-forget — never throws into your code path
 client.fireAndForget(event);
+
+// Batch — one request per 100 events, per-event results in submission order
+BatchResult batch = client.publishBatch(events);
+batch.rejected().forEach(e -> log.warn("{} not stored: {} {}", e.eventId(), e.errorCode(), e.errorMessage()));
 ```
+
+`publishBatch` assigns missing event ids before the first attempt, so a retry never stores an event
+twice. A whole request that fails with a network error or HTTP 503 is retried; entries rejected with
+`TENANT_RATE_LIMITED` or `PUBLISH_FAILED` are re-sent alone, after the server's `Retry-After` at the
+earliest, while the retry policy allows. `VALIDATION_ERROR` entries are returned as rejected without
+retry. An accepted entry is stored by the broker.
 
 ## Configuration Options
 
@@ -75,7 +85,7 @@ client.fireAndForget(event);
 | `httpClient(HttpClient)` | internal client | Bring-Your-Own `java.net.http.HttpClient` for fine-grained network control |
 | `connectTimeout(Duration)` | 5s | TCP connect timeout |
 | `requestTimeout(Duration)` | 10s | Per-request timeout |
-| `retry(RetryPolicy)` | `exponential(3)` | Retries on network / HTTP 503 errors |
+| `retry(RetryPolicy)` | `exponential(3)` | Retries on network / HTTP 503 errors (and, for `publishBatch`, rate-limited or unpublished entries) |
 | `errorHandler(BiConsumer<AuditEvent,Throwable>)` | logs via `System.Logger` | Sink for `fireAndForget` failures |
 
 ## Error Handling

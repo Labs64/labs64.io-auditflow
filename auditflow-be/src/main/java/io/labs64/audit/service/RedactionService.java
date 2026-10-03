@@ -8,15 +8,18 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
+import java.security.GeneralSecurityException;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 
 /**
  * Applies the configured {@link RedactionProperties} rules to an event tree in place, masking,
  * hashing, or dropping PII fields <em>before publish</em> so raw PII never enters the broker.
+ * Hashing is keyed (HMAC-SHA256): see {@link RedactionProperties.Action#HASH}.
  *
  * <p>Field paths use dot notation with array indices, matching the condition engine
  * (e.g. {@code extra.userEmail}, {@code items[0].card}). A path that does not exist is a no-op.</p>
@@ -26,10 +29,46 @@ public class RedactionService {
 
     private static final Logger logger = LoggerFactory.getLogger(RedactionService.class);
 
+    /** Shorter keys can be guessed; 32 characters is the size of the HMAC-SHA256 output. */
+    static final int MIN_HASH_KEY_LENGTH = 32;
+    private static final String HMAC = "HmacSHA256";
+
     private final RedactionProperties properties;
+    /** Key of the HASH action; null when no enabled rule hashes. */
+    private final SecretKeySpec hashKey;
 
     public RedactionService(RedactionProperties properties) {
         this.properties = properties;
+        this.hashKey = hashKey(properties);
+    }
+
+    /**
+     * The HASH key, checked at startup: an enabled HASH rule without a usable key stops the
+     * application instead of publishing values hashed in a way that can be reversed by guessing.
+     */
+    private static SecretKeySpec hashKey(RedactionProperties properties) {
+        boolean hashes = properties.isEnabled() && properties.getRules().stream()
+                .anyMatch(r -> r.getAction() == RedactionProperties.Action.HASH);
+        String key = properties.getHashKey();
+        if (!hashes) {
+            return null;
+        }
+        if (key == null || key.isBlank()) {
+            throw new IllegalStateException("auditflow.redaction: a rule uses the 'hash' action but no key is set. "
+                    + "Set AUDITFLOW_REDACTION_HASH_KEY (auditflow.redaction.hash-key) from a secret, "
+                    + "at least " + MIN_HASH_KEY_LENGTH + " characters, e.g. `openssl rand -base64 32`");
+        }
+        if (key.length() < MIN_HASH_KEY_LENGTH) {
+            throw new IllegalStateException("auditflow.redaction.hash-key is too short: at least "
+                    + MIN_HASH_KEY_LENGTH + " characters are required, e.g. `openssl rand -base64 32`");
+        }
+        SecretKeySpec spec = new SecretKeySpec(key.getBytes(StandardCharsets.UTF_8), HMAC);
+        try {
+            Mac.getInstance(HMAC).init(spec);   // fail at startup, not on the first event
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("auditflow.redaction: " + HMAC + " is not usable: " + e.getMessage(), e);
+        }
+        return spec;
     }
 
     public boolean isEnabled() {
@@ -95,7 +134,7 @@ public class RedactionService {
             switch (action) {
                 case DROP -> object.remove(leaf);
                 case MASK -> object.put(leaf, properties.getMask());
-                case HASH -> object.put(leaf, sha256(textOf(object.get(leaf))));
+                case HASH -> object.put(leaf, hash(textOf(object.get(leaf))));
             }
         } else if (parent instanceof ArrayNode array && isInteger(leaf)) {
             final int index;
@@ -111,7 +150,7 @@ public class RedactionService {
             switch (action) {
                 case DROP -> array.remove(index);
                 case MASK -> array.set(index, array.textNode(properties.getMask()));
-                case HASH -> array.set(index, array.textNode(sha256(textOf(array.get(index)))));
+                case HASH -> array.set(index, array.textNode(hash(textOf(array.get(index)))));
             }
         }
     }
@@ -159,17 +198,18 @@ public class RedactionService {
         return true;
     }
 
-    private String sha256(String value) {
+    /**
+     * HMAC-SHA256 of the value under the configured key, as lower-case hex (64 characters). If it
+     * cannot be computed the value is masked: a redaction rule never lets the original through.
+     */
+    private String hash(String value) {
         try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(value.getBytes(StandardCharsets.UTF_8));
-            StringBuilder hex = new StringBuilder(hash.length * 2);
-            for (byte b : hash) {
-                hex.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
-            }
-            return hex.toString();
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 not available", e);
+            Mac mac = Mac.getInstance(HMAC);   // a Mac is not thread-safe: one per call
+            mac.init(hashKey);
+            return HexFormat.of().formatHex(mac.doFinal(value.getBytes(StandardCharsets.UTF_8)));
+        } catch (GeneralSecurityException | RuntimeException e) {
+            logger.error("Redaction could not hash a value ({}); masking it instead", e.getMessage());
+            return properties.getMask();
         }
     }
 }

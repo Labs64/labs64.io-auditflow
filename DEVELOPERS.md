@@ -32,15 +32,17 @@ POST /audit/publish  (direct; via gateway: /auditflow/api/v1/audit/publish)
         │
         ▼
     Backend (Java / Spring Boot :8080)
-        │  publishes to RabbitMQ topic
+        │  publishes to RabbitMQ, answers 200 after the broker confirm
         ▼
     RabbitMQ  labs64-audit-topic
         │
-        ▼  consumer (same backend, different thread)
-    AuditService.processAuditEvent()
-        │  for each ENABLED pipeline whose condition matches:
+        ▼  router: AuditService.processAuditEvent()
+        │  one delivery message per ENABLED pipeline whose condition matches
+    RabbitMQ  labs64-audit-delivery ◄── labs64-audit-delay.<5s…3h> (retry / defer)
+        │                          ──► labs64-audit-dlq.<tenant>   (exhausted / poison)
+        ▼  DeliveryWorker (batched) → PipelineExecutor
         ├─► Transformer (Python / FastAPI :8081)  POST /transform/{name}
-        └─► Sink        (Python / FastAPI :8082)  POST /sink/{name}
+        └─► Sink        (Python / FastAPI :8082)  POST /sink/{name}[/batch]
 ```
 
 Three independently deployable services:
@@ -48,14 +50,16 @@ Three independently deployable services:
 | Service | Stack | Port | Role |
 |---------|-------|------|------|
 | `auditflow-be/` | Java 25, Spring Boot 4, Maven | 8080 | REST API, broker publish/consume, pipeline orchestration |
-| `auditflow-transformer/` | Python 3.13, FastAPI, Uvicorn | 8081 | Dynamically-loaded transform modules |
-| `auditflow-sink/` | Python 3.13, FastAPI, Uvicorn | 8082 | Dynamically-loaded sink/delivery modules |
+| `auditflow-transformer/` | Python 3.14, FastAPI, Uvicorn | 8081 | Dynamically-loaded transform modules |
+| `auditflow-sink/` | Python 3.14, FastAPI, Uvicorn | 8082 | Dynamically-loaded sink/delivery modules |
 
 Key design decisions:
 - **Pipelines are configuration, not code.** Define them in `application.yml` or via `JAVA_OPTS` environment variables.
 - **Sink/transformer resolution is dynamic.** A request to `/sink/{name}` does `importlib.import_module(name)` — drop a `.py` file in `sinks/` and it becomes available immediately.
 - **Idempotency/dedup** prevents duplicate event processing. Default store is Redis; local stack uses in-memory via `JAVA_OPTS`.
-- **Circuit breakers + retry** guard all outbound HTTP calls to transformer/sink services.
+- **Circuit breakers + retry** guard all outbound HTTP calls to transformer/sink services; delivery
+  retries over hours, backpressure and the per-tenant DLQ are described in
+  [Delivery model](#delivery-model-confirms-retries-backpressure-and-the-dlq).
 
 ---
 
@@ -65,7 +69,7 @@ Key design decisions:
 |---|---|---|
 | Java (Temurin) | `java --version` | 25 |
 | Maven | `mvn --version` | 3.6.3+ |
-| Python | `python3 --version` | 3.13 |
+| Python | `python3 --version` | 3.14 |
 | Docker Engine | `docker --version` | 24+ |
 | Docker Compose v2 | `docker compose version` | v2.x |
 | `just` task runner | `just --version` | any |
@@ -290,6 +294,8 @@ Worth knowing when evaluating ClickHouse here:
   dashboard look empty rather than broken.
 - The sink relies on server-side `async_insert` with `wait_for_async_insert=1`, so a delivery
   succeeds only once the part is flushed — expect a sub-second delay before a `SELECT` sees the row.
+  With `batch.enabled` on the pipeline the rows of a batch are one `INSERT`, which is the better way
+  to feed MergeTree; `async_insert` stays on and merges batches that arrive close together.
 - The init scripts only run on an **empty data dir**. After editing either schema file, run
   `just clean && just up` — a plain restart keeps the old table.
 - **Truncating the table is not the same as a clean slate.** `TRUNCATE TABLE audit_events` empties
@@ -477,8 +483,14 @@ mvn -B verify --file auditflow-be/pom.xml
 ```
 
 Tests live in `auditflow-be/src/test/java/` using JUnit + Spring Boot Test + Mockito. Key test classes:
-- `AuditServiceTest` — pipeline orchestration, idempotency, error classification
-- `ConditionEvaluatorTest` — all condition operators (eq, regex, in, exists, etc.)
+- `AuditServiceTest` — router: matching pipelines, idempotency, quarantine, confirmed enqueue
+- `PipelineExecutorTest` — transformer chain, sink + fallback, poison/retryable/throttled, batches
+- `DeliveryWorkerTest` — delivered/deferred/retried/dead-lettered, retry policy, batch grouping, acks
+- `ConfirmingPublisherTest` / `RetryPolicyTest` — publisher confirms, delay tiers and limits
+- `ConditionEvaluatorTest` / `ConditionEvaluatorExtensionsTest` — all condition operators, `cidr`/`wildcard`, nested groups, explanations
+- `PipelineDryRunTest` / `PipelinesEndpointTest` — dry run, fixture cases, warnings, the admin endpoint
+- `TenantFixturesTest` — every repository tenant in `tenants/` against its `tenants/fixtures/<tenant>.yaml`
+- `DlqEndpointTest` — DLQ counts, inspection with entries, replay and purge
 - `SinkServiceTest` / `TransformationServiceTest` — HTTP calls, circuit breaker, retry
 - `DeliveryErrorsTest` — error classification (poison vs retryable)
 - `RedisIdempotencyServiceTest` / `InMemoryIdempotencyServiceTest` — dedup stores
@@ -552,9 +564,115 @@ pipelines:
 
 No backend code changes needed — the name is resolved dynamically at runtime.
 
-### Available sinks (13)
+### Writing a batch in one call (optional)
 
-`logging_sink`, `webhook_sink`, `syslog_sink`, `loki_sink`, `opensearch_sink`, `aws_s3_sink`, `aws_cloudwatch_sink`, `gcs_sink`, `azure_blob_sink`, `netlicensing_sink`, `datadog_sink`, `splunk_sink`, `snowflake_sink`
+A pipeline with `batch.enabled` sends its sink several events per call. A sink that only has `process`
+gets them through it, up to 8 at a time. A sink whose destination takes many records per request
+should also define `process_batch`:
+
+```python
+from auditflow_sdk import RejectedEvent, deliver_each
+
+def process_batch(events: list, properties: dict) -> list:
+    """Return ONE outcome per event, in input order: a result dict, or an Exception."""
+    try:
+        send_all(events, properties)               # one request to the destination
+    except DestinationRefusedTheData:              # one event is bad: deliver the others
+        return deliver_each(events, properties, process)
+    except Exception as e:                         # nothing was stored
+        return [e] * len(events)
+    return [{"sent": True}] * len(events)
+```
+
+| Outcome of an event | What the backend does |
+|---|---|
+| a dict (or `None`) | delivered |
+| an `Exception` that is a `ValueError` (`RejectedEvent` is one) | dead-lettered at once as poison: the destination refused this event's data |
+| any other `Exception` | retried with the usual delays |
+| `process_batch` itself raises | every event of the call is retried; use it for a missing property, which an operator can fix while the events wait |
+
+Delivery is at-least-once. A batch whose answer is lost is sent again, and its events may then be
+grouped with others. Make a repeat harmless where the destination allows it (a deterministic object
+name, a key the destination de-duplicates on); otherwise readers de-duplicate by `eventId`.
+`auditflow_sdk` has the helpers the shipped sinks use: `deliver_each`, `chunk_indexes` (split by count
+and bytes), `batch_object_name` and `jsonl_body`. `GET /registry` shows `batch: true` for a sink with
+`process_batch`.
+
+### Available sinks (15)
+
+`logging_sink`, `webhook_sink`, `syslog_sink`, `loki_sink`, `opensearch_sink`, `aws_s3_sink`, `aws_cloudwatch_sink`, `gcs_sink`, `azure_blob_sink`, `netlicensing_sink`, `datadog_sink`, `splunk_sink`, `snowflake_sink`, `clickhouse_sink`, `postgres_sink`
+
+`GET /registry` on the sink service lists every module with its version and documented properties.
+
+#### Table, column and database names
+
+`postgres_sink`, `clickhouse_sink` and `snowflake_sink` put these names into the SQL text, where a
+bound parameter is not possible. They come from the tenant file, never from an event, and are checked
+before anything is sent: only a plain identifier is accepted (a letter or underscore, then letters,
+digits and underscores). A name that needs quoting (a space, a dash, a quote, a keyword in quotes)
+is refused with `Invalid table name '...'`; rename it or point the sink at a view.
+
+| Sink | Property | Accepted |
+|---|---|---|
+| `postgres_sink` | `table` | `table` or `schema.table`, at most 63 characters per part |
+| `clickhouse_sink` | `database`, `table` | one identifier each |
+| `snowflake_sink` | `table` | `TABLE`, `SCHEMA.TABLE` or `DATABASE.SCHEMA.TABLE`; `$` allowed after the first character |
+| `snowflake_sink` | `column` | one identifier; `$` allowed after the first character |
+
+A refused name fails the delivery as retryable, like a missing property: the events wait in the retry
+queues and go through once the tenant file is fixed. A sink of your own can use the same check,
+`auditflow_sdk.sql_identifier`.
+
+#### `clickhouse_sink`
+
+Inserts over the ClickHouse HTTP interface. It expects a row whose keys are column names, so pair it
+with the `audit_clickhouse` transformer; with `zero` every delivery fails. Turn on `batch.enabled` for
+this sink: a batch is ONE `INSERT ... FORMAT JSONEachRow`, which is what MergeTree wants. Without it
+every event is its own insert and the sink relies on server-side `async_insert` to merge them.
+Properties, schema and tuning are in [ClickHouse (analytics sink)](#clickhouse-analytics-sink).
+
+#### `postgres_sink`
+
+Inserts the event as JSON into the `event_data` column of a table you create:
+
+```sql
+CREATE TABLE audit_events (id BIGSERIAL PRIMARY KEY, received_at TIMESTAMPTZ NOT NULL DEFAULT now(), event_data JSONB NOT NULL);
+-- optional: a redelivered event becomes a no-op instead of a second row
+CREATE UNIQUE INDEX audit_events_event_id ON audit_events ((event_data->>'eventId'));
+```
+
+```yaml
+batch: {enabled: true, maxSize: 100}      # one multi-row INSERT per batch
+sink:
+  name: postgres_sink
+  properties:
+    host: postgres.example.internal
+    port: "5432"                          # default 5432
+    database: audit
+    user: auditflow
+    password: "${secretRef:postgresPassword}"
+    table: audit_events                   # or schema.table
+    connect-timeout: "10"                 # seconds, default 10
+```
+
+- **Table name.** A plain identifier, optionally `schema.table`
+  (see [Table, column and database names](#table-column-and-database-names)). Anything else is refused
+  before a connection is opened. The event is always a bound parameter, never part of the SQL text.
+- **Connections are reused.** Up to 4 idle connections are kept per host, port, database, user and
+  password in each sink process. A connection the server closed while it was idle is replaced and the
+  insert repeated once.
+- **Batch.** One `INSERT` with a row per event, in one transaction. If the database refuses one event's
+  data (for example a `\u0000` in a string, which `jsonb` cannot store), the events are inserted one
+  by one: the others are stored and the refused one is dead-lettered as poison. A constraint violation
+  is handled the same way, but that event stays retryable.
+- **Repeats.** The insert uses `ON CONFLICT DO NOTHING`. With the unique index above a redelivered
+  event is skipped; without it a repeat adds a row.
+
+Only `event_data` is written; the other columns must have defaults. The table is the system of record
+here, AuditFlow itself still stores nothing.
+
+On Kubernetes with the chart's NetworkPolicy enabled, both need a `networkPolicy.extraEgress` rule for
+the destination port (ClickHouse 8123 or 8443, PostgreSQL 5432); only 443 is open by default.
 
 #### `aws_s3_sink` object keys
 
@@ -659,8 +777,9 @@ pipelines:
       match: all                  # "all" (AND) or "any" (OR)
       rules:
         - field: eventType        # dot notation supported: extra.userId
-          operator: eq            # eq, neq, contains, startsWith, endsWith, in, notIn,
-                                  # exists, notExists, regex, gt, gte, lt, lte, eqIgnoreCase
+          operator: eq            # eq, neq, contains, startsWith, endsWith, in, notIn, exists,
+                                  # notExists, regex, gt, gte, lt, lte, eqIgnoreCase, cidr,
+                                  # notCidr, wildcard, notWildcard (see "Condition operators")
           value: "api.call"
     transformer:
       name: zero                  # optional — omit to pass through unchanged
@@ -692,8 +811,89 @@ never a blank, never another tenant's credential.
 | `exists`, `notExists` | Field exists / doesn't exist | `field: extra.userId` |
 | `regex` | Regular expression | `field: extra.email, value: .*@.*` |
 | `gt`, `gte`, `lt`, `lte` | Numeric comparisons | `field: extra.statusCode, value: 400` |
+| `cidr`, `notCidr` | IP address in one of the comma-separated networks (IPv4 and IPv6; a bare address is one host). Literals only, never resolved; an unparseable address matches neither | `field: extra.ip, value: "10.0.0.0/8, 2001:db8::/32"` |
+| `wildcard`, `notWildcard` | Glob, `*` any run, `?` one character, comma-separated alternatives; case-sensitive, linear time | `field: extra.actionName, value: "admin/*, licensee/delete"` |
 
 Field paths support dot notation (`extra.userId`) and array indices (`items[0].name`).
+
+A rule with `match` and `rules` instead of `field`/`operator` is a **nested group**, combined with
+its siblings like any rule (up to 8 levels; deeper groups never match):
+
+```yaml
+condition:
+  match: all                 # eventType = api.call AND (status >= 400 OR actionStatus = FAILURE)
+  rules:
+    - {field: eventType, operator: eq, value: api.call}
+    - match: any
+      rules:
+        - {field: extra.responseStatus, operator: gte, value: "400"}
+        - {field: extra.actionStatus, operator: eq, value: FAILURE}
+```
+
+An unknown operator never matches; the dry run reports it as a warning.
+
+### Pipeline dry run and tenant fixtures
+
+Ask the running backend which of a tenant's pipelines an event would reach, without publishing
+anything (internal admin surface, like the DLQ endpoint; port-forward in Kubernetes):
+
+```bash
+# deployed pipelines, effective retry/batch settings, configuration warnings
+curl -s localhost:8080/actuator/pipelines/<tenantId> | python3 -m json.tool
+
+# sample events: per pipeline matched or not and why; "transform": true also returns transformer output
+curl -s -X POST localhost:8080/actuator/pipelines/<tenantId>/dry-run -H 'Content-Type: application/json' \
+     -d '{"events": [{"eventType": "api.call", "extra": {"responseStatus": 500}}], "transform": true}'
+```
+
+**Fixtures** pin a tenant's routing: a list of cases, each an event plus the exact set of pipelines it
+must reach. Send them as `"cases"` (optionally with `"tenant": {...}` to test a tenant document that
+is not deployed yet); the answer is `status: failed` with a reason per failing case.
+
+```yaml
+# tenants/fixtures/<tenantId>.yaml
+cases:
+  - name: a failed call is archived and logged
+    event: {eventType: api.call, extra: {responseStatus: 500}}
+    expect: [archive, failed-calls]
+```
+
+The repository tenants in `tenants/` are checked by `TenantFixturesTest` on every build. Deployments
+keep their own fixtures next to their tenant files (labs64.io-devops: `just tenant-check <env>`).
+
+### Tamper-evidence for the S3 archive
+
+`aws_s3_sink` sends an S3-verified SHA-256 checksum with every object (`checksum: none` turns it off
+for stores without checksum support). With `digest: "true"` it also writes, per object, a signed
+digest record under `<prefix>tenant=<id>/_digests/chain=<id>/<sequence>.json`: object key, SHA-256,
+size, event ids, the previous record's hash and an Ed25519 signature. Chains are per tenant and per
+sink process; the sink needs no read access.
+
+```bash
+python3 auditflow-sink/scripts/verify_s3_digests.py --generate-key     # once: seed + public key
+```
+
+Store the seed as the tenant's secret (`k8s-secret` resolver: key `digestSigningKey` in
+`auditflow-tenant-<tenantId>-creds`) and reference it, never as a literal:
+
+```yaml
+sink:
+  name: aws_s3_sink
+  properties: {bucket: ..., prefix: tenants/, digest: "true", digest-signing-key: "${secretRef:digestSigningKey}"}
+```
+
+An auditor verifies with the public key (needs `s3:ListBucket` and `s3:GetObject` on the prefix):
+
+```bash
+python3 auditflow-sink/scripts/verify_s3_digests.py --bucket <bucket> --prefix tenants/tenant=<id> \
+        --public-key <base64> [--unattested]
+```
+
+It checks every signature, sequence and previous-record link, and every attested object's SHA-256,
+and with `--unattested` also fails on objects no record covers. Not covered by the chain alone:
+removing the newest records of a chain; enable S3 Object Lock on the bucket for that
+(labs64.io-devops: `auditflow_archive_object_lock`). Use it with `batch.enabled`: a digest record per
+object doubles the PUTs of one-object-per-event pipelines.
 
 ### Local compose
 
@@ -713,11 +913,15 @@ stack is running — the local-dir poller applies changes within ~5 seconds, no 
 | `GET /actuator/metrics` | All registered metrics |
 | `GET /actuator/metrics/auditflow.consumer.events.processed` | Total events processed |
 | `GET /actuator/metrics/auditflow.consumer.events.inflight` | Events currently in-flight |
-| `GET /actuator/metrics/auditflow.pipeline.outcomes` | Per-pipeline SUCCESS/POISON/RETRYABLE counts |
+| `GET /actuator/metrics/auditflow.pipeline.outcomes` | Router: per-pipeline ENQUEUED/SKIPPED counts |
+| `GET /actuator/metrics/auditflow.delivery.outcomes` | Delivery: delivered/deferred/retried/duplicate per tenant and pipeline |
+| `GET /actuator/metrics/auditflow.delivery.deadlettered` | DLQ entries written, per tenant, pipeline and reason |
 | `GET /actuator/metrics/auditflow.pipeline.duration` | Per-pipeline processing duration |
-| `GET /actuator/dlq/{tenantId}` | Tenant-scoped DLQ inspect (returns a message count only) |
-| `POST /actuator/dlq/{tenantId}` | Tenant-scoped DLQ replay — re-queues matching messages onto the main queue |
-| `DELETE /actuator/dlq/{tenantId}` | Tenant-scoped DLQ purge — **irreversible**; discards matching messages instead of replaying them (all three ops: only that tenant's messages; use `_platform` for tenantless events) |
+| `GET /actuator/dlq/{tenantId}[?limit=N&pipeline=<name>]` | Tenant DLQ inspect: total, counts by pipeline and by reason, legacy share; with `limit` (max 100) also the entries with event, reason, attempts, last error and timestamps; non-destructive |
+| `GET /actuator/pipelines/{tenantId}` | Deployed pipelines with effective retry/batch settings and configuration warnings |
+| `POST /actuator/pipelines/{tenantId}/dry-run` | Pipeline dry run: which pipelines events reach and why; fixture `cases` pass or fail |
+| `POST /actuator/dlq/{tenantId}` | Tenant DLQ replay: each entry back to its pipeline as a fresh delivery (attempts and age reset); body `{"pipeline":"<name>"}` limits it to one pipeline |
+| `DELETE /actuator/dlq/{tenantId}?pipeline=<name>` | Tenant DLQ purge — **irreversible**; discards entries instead of replaying them, optionally one pipeline only (all three ops touch only that tenant's queue; use `_platform` for tenantless events) |
 | `GET /actuator/metrics/auditflow.tenant.events` | Per-tenant lifecycle outcomes (routed/delivered/quarantined/rejected:*) |
 | `GET /actuator/prometheus` | Prometheus scrape endpoint |
 
@@ -858,23 +1062,104 @@ auditflow:
     default-limit-refresh-period: PT1S
 ```
 
-Rate-limited events are treated as retryable failures and will be redelivered by the broker.
+A rate-limited delivery is deferred (back in a few seconds) without spending a retry attempt.
 
-### Consumer throughput and the per-tenant cap
+### Delivery model: confirms, retries, backpressure and the DLQ
 
-An event spends most of its time waiting on the transformer and sink (an S3 PUT is ~100–150 ms), so
-the number of consumer threads, not CPU, sets the rate: roughly `threads / 0.2 s` events/s per pod.
-CPU-based autoscaling therefore does not react to a backlog; raise the threads first.
+Two stages on RabbitMQ, both in the backend:
+
+1. **Ingest and route.** `POST /audit/publish` (or `/audit/publish/batch`) redacts the event and
+   publishes it to `labs64-audit-topic`, then waits for the broker's **publisher confirm**: 200 means
+   the broker stored it; no confirm within `auditflow.broker.confirm-timeout` (5 s) is a 503 the
+   client retries with the same `eventId`. The router consumes the ingest queue and publishes **one
+   delivery message per matching pipeline** to `labs64-audit-delivery`, again confirmed, before it
+   acks the event.
+2. **Deliver.** The delivery worker consumes `labs64-audit-delivery` in batches and settles every
+   message one way before acking it:
+
+| Outcome | When | What happens |
+|---|---|---|
+| delivered | transformer and sink succeeded | the pipeline is marked done for the event (a duplicate is skipped) |
+| deferred | pipeline rate limit, tenant in-flight cap, full bulkhead | parked in the 5 s tier, **no attempt spent** |
+| retried | retryable failure (5xx, timeout, open circuit, missing secretRef) | parked in the next delay tier: 5 s, 30 s, 2 min, 10 min, 30 min, 1 h, then 3 h |
+| dead-lettered | poison (4xx, malformed transformer output), `maxAttempts` used up, `maxAge` passed, pipeline removed | one entry in `labs64-audit-dlq.<tenant>` with reason, attempts and last error |
+
+Delays are queues with a fixed TTL that dead-letter back to the delivery exchange (`labs64-audit-delay.<seconds>s`),
+so no broker plugin is needed and it works the same on Amazon MQ. Per pipeline, in the tenant file:
+
+```yaml
+pipelines:
+  - name: archive
+    retry:
+      maxAttempts: 20     # default auditflow.delivery.retry.max-attempts
+      maxAge: 24h         # default auditflow.delivery.retry.max-age; also PT24H, 30m, 2d
+    batch:
+      enabled: true       # off by default
+      maxSize: 100        # upper bound of events per sink call, 1-1000
+```
+
+**Sink batching.** With `batch.enabled` the worker groups the deliveries it received for a pipeline
+of a tenant and calls the sink's `POST /sink/<id>/batch` once per group. The sink answers per event,
+and each event is settled on its own (delivered, retried, deferred or dead-lettered), so a refused
+event never fails the others.
+
+- **`batch.enabled`** is the switch; `batch.maxSize` alone does nothing. `maxSize` is 1 to 1000
+  (default 100); a value outside that range rejects the tenant file.
+- **The size that is reached.** A group is cut from ONE batch a consumer received, so it never holds
+  more than `auditflow.delivery.batch-size` (50) events, and fewer when that batch mixes pipelines or
+  tenants. `GET /actuator/pipelines/<tenantId>` shows it as `batch.effectiveMaxSize`. For larger sink
+  batches raise `AUDITFLOW_DELIVERY_BATCH_SIZE` together with `maxSize`.
+- **When a batch closes.** When it is full, or after `auditflow.delivery.batch-receive-timeout` (1 s)
+  without new messages. Under light load batches are small and add up to 1 s of latency.
+- **Never across tenants.** Two tenants with a pipeline of the same name get separate calls.
+- **One slot, one call.** A batch takes one slot of the tenant's in-flight cap and is one call for
+  the bulkhead. The call has the same 10 s response timeout as a single event.
+- **Retries.** Only the failed events of a batch are retried, each on its own schedule. They may come
+  back grouped with other events, so a sink cannot count on seeing the same group twice.
+- **Fallback sink.** The events that failed with a retryable error go to the fallback in one call.
+
+What a sink does with a batch:
+
+| Sink | One batch becomes | A repeat after a lost answer |
+|---|---|---|
+| `aws_s3_sink`, `gcs_sink`, `azure_blob_sink` | one JSON Lines object per partition folder | the same group overwrites its object; a different grouping can repeat an event in a second object |
+| `clickhouse_sink` | one `INSERT ... FORMAT JSONEachRow` | merged away by the `ReplacingMergeTree` key of the example schema |
+| `postgres_sink` | one multi-row `INSERT` in one transaction | skipped with a unique index on `eventId`, otherwise a second row |
+| `snowflake_sink` | one connection and one multi-row `INSERT` | a second row |
+| `opensearch_sink` | one `_bulk` request, an outcome per document | indexed again (ids are generated) |
+| `aws_cloudwatch_sink` | one `PutLogEvents` call per 10,000 events or 1 MB; the group and stream are checked once | stored again |
+| `datadog_sink` | one request per 1000 entries or 5 MB | stored again |
+| `splunk_sink` | one HEC request | indexed again |
+| `loki_sink` | one push, equal label sets merged and ordered by time | dropped by Loki when stream, time and line are equal |
+| `logging_sink`, `webhook_sink`, `syslog_sink`, `netlicensing_sink` | the events through `process`, up to 8 at a time | as for single events |
+
+For every destination that stores a repeat, readers de-duplicate by `eventId`. Batching pays off most
+for ClickHouse and Snowflake (one insert instead of one per event), then for the object stores (one
+object instead of thousands of small ones). For a sink in the last row it only saves calls between
+the backend and the sink service; keep `maxSize` small there, so that the events fit into the 10 s
+call (`maxSize` x the destination's latency / 8).
+
+**Throughput.** An event mostly waits on the transformer and sink, so concurrency, not CPU, sets the
+rate (CPU-based autoscaling does not react to a backlog).
 
 | Setting | Default | Purpose |
 |---|---|---|
-| `AUDITFLOW_CONSUMER_CONCURRENCY` (env) | `8` | Consumer threads per pod (also the broker prefetch) |
-| `tenants.consumer.max-in-flight-per-tenant` | `4` (chart: `4`) | Events of one tenant processed at once per pod (fairness layer 2) |
-| `tenants.consumer.max-wait-millis` | `2000` | How long a thread over the cap waits for a slot before the event is redelivered |
+| `AUDITFLOW_DELIVERY_CONCURRENCY` (env) / `auditflow.delivery.concurrency` | `4` | Delivery consumers per pod |
+| `AUDITFLOW_DELIVERY_BATCH_SIZE` (env) / `auditflow.delivery.batch-size` | `50` | Messages a consumer takes at once (also its prefetch) |
+| `auditflow.delivery.unit-concurrency` | `16` | Deliveries of one received batch run in parallel |
+| `auditflow.circuitbreaker.bulkhead-max-concurrent-calls` | `128` | Concurrent calls per transformer/sink target; keep >= concurrency x unit-concurrency |
+| `tenants.consumer.max-in-flight-per-tenant` | `32` | One tenant's deliveries at once per pod (fairness); over it, a delivery waits up to `max-wait-millis` (2 s), then is deferred |
+| `AUDITFLOW_CONSUMER_CONCURRENCY` (env) | `8` | Router threads on the ingest queue (light work) |
+| `AUDITFLOW_BROKER_QUEUE_TYPE` (env) / `auditflow.broker.queue-type` | `classic` | `quorum` for replicated queues on a multi-node broker |
 
-Every redelivery counts towards the dead-letter queue. A single-tenant deployment should set the cap
-at or above the consumer threads, otherwise the tenant can use only part of them. Fairness between
-tenants comes first from the ingest quota (`rateLimitPerSec`/`burst` in the tenant file).
+A local run (one pod, single-process transformer and sink) delivered 3,000 events, half of them
+through a batching pipeline, in about 6 s end to end. Fairness between tenants comes first from the
+ingest quota (`rateLimitPerSec`/`burst`), then from the in-flight cap.
+
+**Metrics:** `auditflow.delivery.outcomes{tenant,pipeline,outcome}` (delivered, deferred, retried,
+duplicate), `auditflow.delivery.deadlettered{tenant,pipeline,reason}`, `auditflow.delivery.batch.size`,
+`auditflow.pipeline.duration{pipeline,outcome,mode}`. Alert on `deadlettered` > 0 and on the depth of
+`labs64-audit-dlq.*` queues.
 
 ### Graceful Shutdown
 
@@ -950,22 +1235,30 @@ Same approach — check `just log transformer` for the full traceback.
 
 ### Dead Letter Queue filling up
 
-Events land in the DLQ when they exhaust all retries. The DLQ is tenant-scoped — every
-operation requires a `{tenantId}` selector (use `_platform` for tenantless events); there is
-no un-scoped `/actuator/dlq` path. Check the DLQ for a tenant:
+A delivery lands in its tenant's DLQ (`labs64-audit-dlq.<tenant>`) when it is poison, used up its
+pipeline's `retry.maxAttempts`, passed `retry.maxAge`, or its pipeline was removed. Each entry is one
+pipeline of one event, with `x-auditflow-dlq-reason` and `x-auditflow-last-error` headers. Entries
+from before per-pipeline delivery, and events whose routing failed, sit in the legacy shared queue
+`labs64-audit-topic.labs64.io-auditflow.dlq`; the same endpoint covers both. Every operation requires
+a `{tenantId}` selector (use `_platform` for tenantless events); there is no un-scoped
+`/actuator/dlq` path. Check the DLQ for a tenant (`byReason` tells poison from outages):
 
 ```bash
 curl -s http://localhost:8080/actuator/dlq/<tenantId> | python3 -m json.tool
 ```
 
-Retry all of that tenant's DLQ messages:
+Once the cause is fixed, replay that tenant's entries (or one pipeline's):
 ```bash
 curl -X POST http://localhost:8080/actuator/dlq/<tenantId> | python3 -m json.tool
+curl -X POST http://localhost:8080/actuator/dlq/<tenantId> -H 'Content-Type: application/json' \
+     -d '{"pipeline":"archive"}' | python3 -m json.tool
 ```
 
-Purge (discard, don't replay) all of that tenant's DLQ messages — **irreversible**:
+Purge (discard, don't replay) that tenant's entries, or one pipeline's — **irreversible**; every
+discarded entry is logged with its event id:
 ```bash
 curl -X DELETE http://localhost:8080/actuator/dlq/<tenantId> | python3 -m json.tool
+curl -X DELETE "http://localhost:8080/actuator/dlq/<tenantId>?pipeline=archive" | python3 -m json.tool
 ```
 
 ### Container healthcheck failing

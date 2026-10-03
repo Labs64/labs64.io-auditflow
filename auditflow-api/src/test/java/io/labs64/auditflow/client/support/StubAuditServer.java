@@ -62,6 +62,7 @@ public final class StubAuditServer implements AutoCloseable {
     private final Deque<CannedResponse> responses = new ArrayDeque<>();
     private final AtomicInteger requestCount = new AtomicInteger();
     private volatile CapturedRequest lastRequest;
+    private final List<CapturedRequest> requests = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     public StubAuditServer() throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -76,6 +77,7 @@ public final class StubAuditServer implements AutoCloseable {
                 exchange.getRequestURI().getPath(),
                 Map.copyOf(exchange.getRequestHeaders()),
                 body);
+        requests.add(lastRequest);
         requestCount.incrementAndGet();
 
         CannedResponse response = responses.isEmpty()
@@ -102,6 +104,10 @@ public final class StubAuditServer implements AutoCloseable {
 
     public CapturedRequest lastRequest() {
         return lastRequest;
+    }
+
+    public List<CapturedRequest> requests() {
+        return List.copyOf(requests);
     }
 
     public int requestCount() {

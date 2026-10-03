@@ -11,8 +11,8 @@ For codebase questions, run `graphify query "<question>"` when graphify-out/grap
 | Path | Service | Stack | Port |
 |------|---------|-------|------|
 | `auditflow-be/` | Backend | Java 25, Spring Boot 4.1, Maven | 8080 |
-| `auditflow-transformer/` | Transformer | Python 3.13, FastAPI | 8081 |
-| `auditflow-sink/` | Sink | Python 3.13, FastAPI | 8082 |
+| `auditflow-transformer/` | Transformer | Python 3.14, FastAPI | 8081 |
+| `auditflow-sink/` | Sink | Python 3.14, FastAPI | 8082 |
 | `auditflow-api/` | API contract + client (shared, validated models) | Java 17, Maven | n/a |
 
 Root files: `justfile` (task runner), `docker-compose.yml` (local stack), `docker-compose-observability.yml` (observability overlay via `just up obs`).
@@ -28,10 +28,12 @@ POST /audit/publish  (direct; via gateway: /auditflow/api/v1/audit/publish — T
         SinkService → POST http://sink:8082/sink/{name}
 ```
 
-- **AuditFlow is a router/pipeline, NOT a system of record — settled decision, do not reopen.** It has **no database of its own**: no Postgres, no event store. Do not propose or add one. AuditFlow ingests → redacts → routes → delivers; the configured **sinks** (OpenSearch, ClickHouse, S3/GCS/Azure Blob, Splunk, Snowflake, Database, …) are the systems of record and own persistence/retention/query. Durability = broker buffering + retry/circuit-breaker + DLQ (`/actuator/dlq/<tenantId>`, replayable or purgeable) + the sink. Redis is dedup-only (idempotency TTL), not storage. "Store audit events in AuditFlow" is out of scope by design — point a pipeline at a durable sink instead.
-- Backend is both producer and consumer of the same topic.
-- Pipelines are independent — one failing does not stop others.
-- Consumer uses dead-letter queue (`autoBindDlq: true`).
+- **AuditFlow is a router/pipeline, NOT a system of record — settled decision, do not reopen.** It has **no database of its own**: no Postgres, no event store. Do not propose or add one. AuditFlow ingests → redacts → routes → delivers; the configured **sinks** (OpenSearch, ClickHouse, S3/GCS/Azure Blob, Splunk, Snowflake, Database, …) are the systems of record and own persistence/retention/query. Durability = confirmed broker buffering + per-pipeline retries over hours + per-tenant DLQ (`/actuator/dlq/<tenantId>`, replayable or purgeable) + the sink. Redis is dedup-only (idempotency TTL), not storage. "Store audit events in AuditFlow" is out of scope by design — point a pipeline at a durable sink instead.
+- Backend is both producer and consumer of the same topic. **RabbitMQ only** (Kafka is not supported).
+- Two stages (`delivery/BrokerTopology`): the router (`AuditService`) turns an event into one delivery message per matching pipeline on `labs64-audit-delivery`; `DeliveryWorker` delivers via `PipelineExecutor` and settles each message as delivered, deferred (backpressure, no attempt spent), retried (delay tiers 5s…3h, TTL + dead-letter exchange) or dead-lettered to `labs64-audit-dlq.<tenant>`.
+- Every publish waits for the broker confirm (`ConfirmingPublisher`); `/audit/publish` answers 200 only after it. Ack a consumed message only after its outcome is confirmed.
+- Per-pipeline `retry` (`maxAttempts`, `maxAge`) and `batch` (`enabled`, `maxSize`) in tenant files. Poison (4xx, malformed transformer output) is dead-lettered, never dropped.
+- Pipelines are independent — one failing never delays or repeats delivery to the others.
 
 ## Tenant model (silo isolation)
 
@@ -42,7 +44,7 @@ Multi-tenant by construction: every pipeline belongs to exactly one tenant, and 
 - **Ingest gate** (`TenantGate`, at `POST /audit/publish`): unprovisioned → `403 TENANT_NOT_PROVISIONED`, disabled → `403 TENANT_DISABLED`, over per-tenant quota → `429 TENANT_RATE_LIMITED` + `Retry-After`. Rate-limit backend: `tenants.ratelimit.backend` = `in-memory` (default, single replica) or `redis` (multi-replica, Lua token bucket; Helm sets it).
 - **Legacy `auditflow.pipelines` fails startup** by design — move pipelines into `tenants/_platform.yaml`.
 - **Sink credentials**: `${secretRef:<key>}` in sink properties, resolved at delivery from the tenant's own store — `secretRef.resolver` = `env` (default, `AUDITFLOW_TENANT_<ID>_<KEY>`) or `k8s-secret` (Secret `auditflow-tenant-<id>-creds`). Missing key ⇒ retryable failure → DLQ, never a blank or another tenant's credential.
-- **Tenant-scoped DLQ**: `/actuator/dlq/<tenantId>` — GET to inspect, POST to replay, **DELETE to purge (irreversible — discards matching messages instead of replaying them)**; only that tenant's messages are touched, and there is no un-scoped DLQ operation.
+- **Tenant-scoped DLQ**: one queue per tenant (`labs64-audit-dlq.<tenant>`, one entry per failed pipeline) plus the legacy shared ingest DLQ filtered by tenant. `/actuator/dlq/<tenantId>` — GET to inspect (by pipeline and reason), POST to replay, **DELETE to purge (irreversible — discards entries instead of replaying them)**, both optionally for one `pipeline`; only that tenant's messages are touched, and there is no un-scoped DLQ operation.
 - **Telemetry**: `auditflow.tenant.events{tenant,provider,outcome}` counter (outcomes: routed/delivered/quarantined/rejected:*) + Grafana `tenant` variable in the overview dashboard.
 - Core stays a router: it is read-only on tenant config in every profile and still has no database (see the settled decision above).
 
@@ -50,7 +52,8 @@ Multi-tenant by construction: every pipeline belongs to exactly one tenant, and 
 
 - **OpenAPI-first**: canonical spec at `auditflow-api/src/main/resources/openapi/openapi-audit-v1.yaml`. Never edit generated Java under `target/`.
 - **Pipelines are configuration**, not code — per tenant (see "Tenant model" above). Each = name, enabled, condition, transformer.name, sink.name, sink.properties.
-- **Conditions**: `ConditionEvaluator` with operators `eq, neq, contains, startsWith, endsWith, in, notIn, exists, notExists, regex, gt, gte, lt, lte, eqIgnoreCase`. Field paths support dot notation.
+- **Conditions**: `ConditionEvaluator` with operators `eq, neq, contains, startsWith, endsWith, in, notIn, exists, notExists, regex, gt, gte, lt, lte, eqIgnoreCase, cidr, notCidr, wildcard, notWildcard`; a rule with `match` + `rules` is a nested group (max depth 8). Field paths support dot notation. `cidr` parses literals only (never DNS) and `wildcard` is a non-backtracking glob, so neither can be abused for slow matching.
+- **Pipeline dry run**: `GET /actuator/pipelines/<tenantId>` (deployed pipelines, effective retry/batch, warnings) and `POST /actuator/pipelines/<tenantId>/dry-run` (`PipelineDryRunController`; events or fixture `cases`, optional inline tenant document). Repository tenants have fixtures in `tenants/fixtures/`, checked by `TenantFixturesTest`.
 - **Service discovery**: pluggable via `*.discovery.mode` (`local` | `kubernetes`).
 - **HTTP to Python**: reactive `WebClient` (5s connect / 10s response), cached per base URL.
 - Cross-cutting: `CorrelationIdFilter`, `GlobalExceptionHandler`, `JacksonConfig`, `OpenAPIConfig`.
@@ -61,7 +64,16 @@ Both use the same plugin pattern — keep symmetric when editing one.
 
 - `POST /transform/{id}` or `/sink/{id}` → `importlib.import_module(id)` → call function.
 - Transformer: `transform(input_data: dict) -> dict`
-- Sink: `process(event_data: dict, properties: dict) -> dict`
+- Sink: `process(event_data: dict, properties: dict) -> dict`; optionally
+  `process_batch(events: list, properties: dict) -> list` for pipelines with `batch.enabled`: one
+  outcome per event in input order (a dict, or an Exception; a `ValueError` is poison, anything else
+  is retried). Without it the service sends the events through `process`, up to 8 at a time. Shared
+  helpers live in `auditflow-sink/auditflow_sdk.py` (`deliver_each`, `chunk_indexes`,
+  `batch_object_name`, `jsonl_body`, `RejectedEvent`). Eleven shipped sinks have it; `GET /registry`
+  reports `batch: true|false`.
+- A sink that puts a table, column or database name into SQL text validates it with
+  `auditflow_sdk.sql_identifier` (plain identifiers only; `postgres_sink`, `clickhouse_sink`,
+  `snowflake_sink` do). Event data is always a bound parameter or the request body.
 - ID validated against `^[a-zA-Z0-9_]+$` — **keep this regex consistent** with Java `TransformationService`/`SinkService`.
 - Module resolution: `transformers/` / `sinks/` (shipped), `transformers_bootstrap/` / `sinks_bootstrap/` (mounted at runtime, git-ignored).
 - `GET /registry` lists available modules (also Docker healthcheck).
@@ -163,7 +175,7 @@ stack has no gateway in front of it.
 | `smoke.robot` | Happy path + 400 validation |
 | `authz.robot` | Auth/authz scope matrix |
 | `tenant_isolation.robot` | Gateway-derived tenant is authoritative; unprovisioned tenants rejected |
-| `pipeline_routing.robot` | Non-matching events produce no delivery attempt; fan-out dead-letters exactly once |
+| `pipeline_routing.robot` | Non-matching events produce no delivery attempt; fan-out dead-letters once per failed pipeline |
 | `condition_operators.robot` | Every `ConditionEvaluator` operator branch + match:all/any |
 | `redaction.robot` | PII masking before publish (baseline + local-k8s content corroboration) |
 | `dlq_replay.robot` | DLQ inspect is non-destructive; replay drains and is tenant-scoped |
@@ -174,11 +186,10 @@ The last six use a dedicated `t_regression`/`t_regression_quota` tenant pair (mo
 `auditflow-regression`/`auditflow-regression-quota`, provisioned in
 `overrides/auditflow/values.local.yaml` in `labs64.io-helm-charts`) — deliberately aggressive
 fixtures (tiny quotas, pipelines that always fail via an unresolvable secretRef) that must never
-touch `t_mock`, which every other suite shares. A DLQ entry is per **event**, not per failing
-pipeline (`AuditService.dispatchToPipelines` fans one event out to all matching pipelines but
-dead-letters the whole event once on redelivery exhaustion) — every conditional probe pipeline is
-therefore ANDed with a unique `extra.op` discriminator so at most one probe can ever match a given
-test event.
+touch `t_mock`, which every other suite shares. A DLQ entry is per **failed pipeline** of an event
+(one delivery message each), and the failing probe pipelines set `retry.maxAttempts: 1` so they
+dead-letter at once instead of retrying for 24 h; every conditional probe pipeline is still ANDed with
+a unique `extra.op` discriminator so at most one probe can ever match a given test event.
 
 ## Conventions
 

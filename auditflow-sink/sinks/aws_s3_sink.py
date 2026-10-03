@@ -12,6 +12,8 @@ import threading
 from datetime import datetime, timezone
 import uuid
 
+from auditflow_sdk import batch_object_name, event_datetime, jsonl_body
+
 __version__ = "1.0.0"
 
 PROPERTIES = {
@@ -28,9 +30,18 @@ PROPERTIES = {
                         "[A-Za-z0-9._-] and a missing value becomes 'unknown'",
     "file-format": "File format: json or jsonl (default: json)",
     "endpoint-url": "Custom S3-compatible endpoint URL (optional)",
+    "checksum": "Integrity checksum S3 verifies on upload and stores with the object: sha256 (default) or "
+                "none (for S3-compatible stores without checksum support)",
+    "digest": "Tamper-evidence: true writes a signed, hash-chained digest record per object under "
+              "<prefix>tenant=<id>/_digests/ (default: false). Verify with scripts/verify_s3_digests.py",
+    "digest-signing-key": "Ed25519 private key for digest records (base64 32-byte seed or PEM); required "
+                          "with digest=true. Use ${secretRef:...}, never a literal",
 }
 
 logger = logging.getLogger(__name__)
+
+# Digest chains live for the life of the sink process (see integrity.py).
+_DIGESTS = None
 
 try:
     import boto3
@@ -80,6 +91,8 @@ def process(event_data: dict, properties: dict) -> dict:
     file_format = properties.get('file-format', 'json').lower()
     endpoint_url = properties.get('endpoint-url')
 
+    signing_key = _digest_signing_key(properties)  # fail before writing anything
+    _checksum_args(properties)
     s3_client = _get_s3_client(region, access_key_id, secret_access_key, endpoint_url)
 
     # Build object key
@@ -115,6 +128,7 @@ def process(event_data: dict, properties: dict) -> dict:
             Key=object_key,
             Body=content_bytes,
             ContentType=content_type,
+            **_checksum_args(properties),
             Metadata={
                 'timestamp': event_data.get('timestamp', datetime.now(timezone.utc).isoformat()),
                 'event-id': event_data.get('eventId', 'unknown'),
@@ -125,6 +139,8 @@ def process(event_data: dict, properties: dict) -> dict:
         )
 
         logger.info("Event uploaded to S3 successfully. ETag: %s", response.get('ETag'))
+        digest_key = _write_digest(s3_client, bucket, prefix, object_key, content_bytes, [event_data], properties,
+                                   signing_key)
 
         # Strip quotes from ETag (AWS returns ETags wrapped in quotes)
         etag = response.get('ETag', '').strip('"')
@@ -138,7 +154,8 @@ def process(event_data: dict, properties: dict) -> dict:
             "compressed": compress,
             "size_bytes": len(content_bytes),
             "etag": etag,
-            "version_id": response.get('VersionId')
+            "version_id": response.get('VersionId'),
+            "digest_key": digest_key,
         }
 
     except ClientError as e:
@@ -149,6 +166,74 @@ def process(event_data: dict, properties: dict) -> dict:
     except Exception as e:
         logger.error("Unexpected error uploading to S3: %s", e)
         raise RuntimeError(f"Unexpected error: {e}")
+
+
+def process_batch(events: list, properties: dict) -> list:
+    """Write a batch of events as one JSON Lines object per key prefix.
+
+    Events whose keys share a prefix (same tenant and partition folders) go into ONE object, so a
+    batch costs one PUT per partition instead of one per event. The object name is the first event's
+    timestamp plus a hash of the group's event ids: re-delivering exactly the same group overwrites
+    the same object instead of adding a copy. A different grouping on redelivery can repeat an event
+    in a second object, so readers should de-duplicate by ``eventId`` (at-least-once).
+
+    Returns one outcome per event, in order: a result dict, or the Exception of its group's PUT.
+    """
+    if boto3 is None:
+        raise RuntimeError("boto3 library is required. Install with: pip install boto3")
+    bucket = properties.get('bucket')
+    if not bucket:
+        raise ValueError("Missing required property: 'bucket'")
+    prefix = properties.get('prefix', 'auditflow/')
+    region = properties.get('region', 'us-east-1')
+    compress = properties.get('compress', 'false').lower() == 'true'
+    partition_by_date = properties.get('partition-by-date', 'true').lower() == 'true'
+    partition_format = properties.get('partition-format', 'year=%Y/month=%m/day=%d/')
+    signing_key = _digest_signing_key(properties)  # fail before writing anything
+    _checksum_args(properties)
+    s3_client = _get_s3_client(region, properties.get('access-key-id'), properties.get('secret-access-key'),
+                               properties.get('endpoint-url'))
+
+    groups = {}
+    for index, event in enumerate(events):
+        key = build_object_key(prefix, partition_by_date, partition_format, 'jsonl', compress, event)
+        groups.setdefault(key.rsplit('/', 1)[0], []).append(index)
+
+    outcomes = [None] * len(events)
+    for key_prefix, indexes in groups.items():
+        group = [events[i] for i in indexes]
+        object_key = batch_object_key(key_prefix, group, compress)
+        body = jsonl_body(group, compress)
+        try:
+            s3_client.put_object(
+                Bucket=bucket,
+                Key=object_key,
+                Body=body,
+                ContentType='application/gzip' if compress else 'application/x-ndjson',
+                **_checksum_args(properties),
+                Metadata={'event-count': str(len(group)),
+                          'tenant-id': str(group[0].get('tenantId', 'unknown'))},
+            )
+            logger.info("Uploaded batch of %d event(s) to s3://%s/%s", len(group), bucket, object_key)
+            digest_key = _write_digest(s3_client, bucket, prefix, object_key, body, group, properties, signing_key)
+            for i in indexes:
+                outcomes[i] = {"sent": True, "destination": "s3", "bucket": bucket, "key": object_key,
+                               "digest_key": digest_key}
+        except Exception as e:  # noqa: BLE001 - the group's PUT failed: every event in it failed
+            logger.error("Failed to upload batch object s3://%s/%s: %s", bucket, object_key, e)
+            for i in indexes:
+                outcomes[i] = RuntimeError(f"Failed to upload to S3 bucket '{bucket}': {e}")
+    return outcomes
+
+
+def batch_object_key(key_prefix: str, group: list, compress: bool) -> str:
+    """Deterministic name of a batch object: earliest event time plus a hash of the sorted event ids."""
+    return f"{key_prefix}/{batch_object_name(group, compress)}"
+
+
+def _event_datetime(event_data: dict) -> datetime:
+    """The event's server receipt time (``timestamp``); now when absent or unparseable."""
+    return event_datetime(event_data)
 
 
 def build_object_key(
@@ -167,18 +252,7 @@ def build_object_key(
     if tenant_id:
         key_parts.append(f"tenant={tenant_id}")
 
-    # Parse timestamp from event_data if exists, otherwise use current timestamp
-    event_timestamp = event_data.get('timestamp')
-    if event_timestamp:
-        try:
-            if isinstance(event_timestamp, str):
-                dt = datetime.fromisoformat(event_timestamp.replace('Z', '+00:00'))
-            else:
-                dt = datetime.now(timezone.utc)
-        except (ValueError, AttributeError):
-            dt = datetime.now(timezone.utc)
-    else:
-        dt = datetime.now(timezone.utc)
+    dt = _event_datetime(event_data)
 
     # Add date partition using the event timestamp
     if partition_by_date:
@@ -267,3 +341,43 @@ def _get_s3_client(region, access_key_id, secret_access_key, endpoint_url):
                 _CLIENTS.clear()
             client = _CLIENTS[key] = boto3.client('s3', **kwargs)
     return client
+
+
+def _checksum_args(properties: dict) -> dict:
+    """S3 computes and verifies a SHA-256 of the upload and stores it with the object."""
+    mode = str(properties.get('checksum', 'sha256')).lower()
+    if mode == 'none':
+        return {}
+    if mode != 'sha256':
+        raise ValueError(f"Unsupported checksum '{mode}' (use sha256 or none)")
+    return {'ChecksumAlgorithm': 'SHA256'}
+
+
+def _digest_signing_key(properties: dict):
+    """The Ed25519 signing key when digest=true, else None. A ValueError is a configuration error."""
+    if str(properties.get('digest', 'false')).lower() != 'true':
+        return None
+    import integrity  # local import: only deployments that sign digests need the cryptography library
+    signing_value = properties.get('digest-signing-key')
+    if not signing_value:
+        raise ValueError("digest=true requires 'digest-signing-key' (use ${secretRef:...})")
+    return integrity.load_signing_key(signing_value)
+
+
+def _write_digest(s3_client, bucket, prefix, object_key, body, events, properties, signing_key):
+    """Signed digest record for a stored object (digest=true); returns its key, or None."""
+    if signing_key is None:
+        return None
+    import integrity
+    global _DIGESTS
+    if _DIGESTS is None:
+        _DIGESTS = integrity.DigestChains()
+    tenant_id = events[0].get('tenantId') if events else None
+    digest_prefix = prefix.rstrip('/') + (f"/tenant={tenant_id}" if tenant_id else '') + '/_digests'
+
+    def put(key, data):
+        s3_client.put_object(Bucket=bucket, Key=key, Body=data, ContentType='application/json',
+                             **_checksum_args(properties))
+
+    return _DIGESTS.record(bucket=bucket, digest_prefix=digest_prefix, object_key=object_key, body=body,
+                           event_ids=[str(e.get('eventId', '')) for e in events], signing_key=signing_key, put=put)

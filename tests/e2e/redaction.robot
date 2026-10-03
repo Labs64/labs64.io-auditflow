@@ -44,8 +44,21 @@ Redaction masks the configured field before delivery (local-k8s)
     ${response}=    Publish Audit Event    ${event}
     Response Status Should Be    ${response}    200
     AuditFlow Backend Logs Should Contain Correlation Id    ${correlation_id}
+    # Delivery to the sink is asynchronous (broker -> router -> sink, ~1s behind the backend's
+    # "published" line), so poll until THIS event's masked copy is logged rather than reading the
+    # logs once.
+    Wait Until Keyword Succeeds    30s    1s
+    ...    Sink Logs Should Show Masked Event    ${correlation_id}    ${raw_value}
+
+*** Keywords ***
+Sink Logs Should Show Masked Event
+    [Documentation]    Single-attempt helper: the logging_sink output for ``${correlation_id}``
+    ...                carries the configured mask in `extra.redact_target`, and the raw value
+    ...                appears nowhere in the pod logs. Anchored on the correlation id so a masked
+    ...                event left over from an earlier run cannot satisfy it.
+    [Arguments]    ${correlation_id}    ${raw_value}
     ${logs}=    Fetch Recent Pod Logs    ${LABS64IO_K8S_NAMESPACE}    ${AUDITFLOW_K8S_DEPLOYMENT}    90s
     Should Not Contain    ${logs}    ${raw_value}
     ...    msg=Raw redaction-target value '${raw_value}' appeared in pod logs — redaction did not mask it before delivery.
-    Should Contain    ${logs}    "redact_target": "***"
-    ...    msg=Expected the configured mask '***' in place of extra.redact_target; not found in pod logs.
+    Should Match Regexp    ${logs}    (?s)"correlationId": "${correlation_id}",[^}]*"redact_target": "\\*\\*\\*"
+    ...    msg=Expected the configured mask '***' in place of extra.redact_target for correlationId '${correlation_id}'; not found in pod logs.

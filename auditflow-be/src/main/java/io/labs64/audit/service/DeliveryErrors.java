@@ -3,6 +3,7 @@ package io.labs64.audit.service;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.labs64.audit.exception.PoisonDeliveryException;
 import io.labs64.audit.exception.RetryableDeliveryException;
+import io.labs64.audit.exception.ThrottledDeliveryException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 /**
@@ -33,6 +34,9 @@ final class DeliveryErrors {
         }
 
         // Open circuit (target deemed down) and everything else (5xx, transport, timeout) → retryable.
+        if (e instanceof io.github.resilience4j.bulkhead.BulkheadFullException) {
+            return new ThrottledDeliveryException(context + ": local concurrency limit reached (bulkhead full)", e);
+        }
         if (e instanceof CallNotPermittedException) {
             return new RetryableDeliveryException(context + ": circuit open (downstream unavailable)", e);
         }

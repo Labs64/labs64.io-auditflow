@@ -202,6 +202,110 @@ paths:
                 code: "INTERNAL_ERROR"
                 message: "An internal error occurred while processing your request"
                 timestamp: "2025-11-30T10:15:30Z"
+  /audit/publish/batch:
+    post:
+      summary: Publish a batch of audit events
+      operationId: publishEvents
+      tags:
+        - AuditEvent
+      description: >-
+        Publishes up to 100 audit events in one call. Each event is validated, quota-checked and
+        published on its own, so one bad event does not block the others: the response carries one
+        result per event, in request order. An `ACCEPTED` event is stored by the message broker (the
+        broker confirmed it) and will be routed like an event sent to `/audit/publish`. A `REJECTED`
+        event was not stored; its `error.code` says why. Retry rejected events with
+        `TENANT_RATE_LIMITED` or `PUBLISH_FAILED` after the `Retry-After` delay, keeping their
+        `eventId` so a retry never creates a duplicate. Events without an `eventId` get a
+        server-generated one, returned in their result. The whole request is rejected (no per-event
+        results) only when the request itself is invalid, unauthorized or too large, or the tenant is
+        not provisioned.
+      x-labs64:
+        auth:
+          tenant: true
+          scopes:
+            - audit-event:write
+          resourceType: AuditEvent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuditEventBatch"
+            example:
+              events:
+                - eventType: "api.call"
+                  sourceSystem: "netlicensing/core"
+                  eventId: "fedcba98-7654-3210-fedc-ba9876543210"
+                  extra:
+                    actionName: "licensee/validate"
+                    actionStatus: "SUCCESS"
+                - eventType: "api.call"
+                  sourceSystem: "netlicensing/core"
+      responses:
+        "200":
+          description: >-
+            Per-event results. Present when the batch was processed, even if every event was rejected.
+          headers:
+            Retry-After:
+              description: >-
+                Seconds to wait before retrying the rejected events; present when at least one event
+                was rejected with `TENANT_RATE_LIMITED` or `PUBLISH_FAILED`.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BatchPublishResult"
+              example:
+                acceptedCount: 1
+                rejectedCount: 1
+                results:
+                  - index: 0
+                    eventId: "fedcba98-7654-3210-fedc-ba9876543210"
+                    status: "ACCEPTED"
+                  - index: 1
+                    eventId: "0b6a2f1e-3c4d-4e5f-8a9b-1c2d3e4f5a6b"
+                    status: "REJECTED"
+                    error:
+                      code: "TENANT_RATE_LIMITED"
+                      message: "Tenant 'acme' exceeded its ingest rate limit"
+                      timestamp: "2025-11-30T10:15:30Z"
+        "400":
+          description: The request is not a valid batch (not JSON, no `events`, empty or more than 100 events).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Tenant is not provisioned or is disabled — the whole batch is rejected.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: Request body exceeds the limit.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "415":
+          description: Unsupported Content-Type — this operation accepts application/json only.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 components:
   schemas:
     AuditEvent:
@@ -366,6 +470,62 @@ components:
           actionMessage: "User logged in successfully"
           invoiceRef: "INV-1"
 
+    AuditEventBatch:
+      type: object
+      description: A batch of audit events for `/audit/publish/batch`.
+      required:
+        - events
+      properties:
+        events:
+          type: array
+          minItems: 1
+          maxItems: 100
+          description: >-
+            The events, 1 to 100. Each is validated on its own against `AuditEvent`; an invalid event
+            is rejected in its result without affecting the others.
+          items:
+            type: object
+            additionalProperties: true
+            description: An `AuditEvent` (validated per entry, see `AuditEvent`).
+    BatchPublishResult:
+      type: object
+      required:
+        - acceptedCount
+        - rejectedCount
+        - results
+      properties:
+        acceptedCount:
+          type: integer
+          minimum: 0
+        rejectedCount:
+          type: integer
+          minimum: 0
+        results:
+          type: array
+          description: One result per submitted event, in request order.
+          items:
+            $ref: "#/components/schemas/BatchPublishEntryResult"
+    BatchPublishEntryResult:
+      type: object
+      required:
+        - index
+        - status
+      properties:
+        index:
+          type: integer
+          minimum: 0
+          description: Position of the event in the request.
+        eventId:
+          type: string
+          format: uuid
+          description: The event's id (client-supplied or server-generated); absent if the entry could not be read.
+        status:
+          type: string
+          enum:
+            - ACCEPTED
+            - REJECTED
+        error:
+          $ref: "#/components/schemas/ErrorResponse"
     ErrorCode:
       type: string
       description: Unique error code identifying the type of error.

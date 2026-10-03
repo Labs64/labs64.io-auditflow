@@ -1,0 +1,10 @@
+# Fixture cases for ../_platform.yaml: each event must be routed to exactly the `expect` pipelines.
+# Checked by auditflow-be TenantFixturesTest (mvn test) and, against a running backend, by
+# POST /actuator/pipelines/_platform {"cases": [...]} (see DEVELOPERS.md, "Pipeline dry run").
+cases:
+  - name: an ordinary event goes to logging and analytics
+    event: {eventType: api.call, sourceSystem: netlicensing/core}
+    expect: [e2e-logging, clickhouse-analytics]
+  - name: a security alert also goes to the alert pipeline
+    event: {eventType: security.alert, sourceSystem: auth-service}
+    expect: [e2e-logging, security-alerts, clickhouse-analytics]

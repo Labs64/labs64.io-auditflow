@@ -1,6 +1,6 @@
 {
   "uid": "auditflow-overview",
-  "title": "AuditFlow \u2014 Overview",
+  "title": "AuditFlow — Overview",
   "description": "Focused operational view: submission rate, failure signal, queue depth, per-stage latency, and essential JVM health. Four rows, twelve panels.",
   "tags": [
     "auditflow"
@@ -100,7 +100,7 @@
     {
       "id": 2,
       "title": "Pipeline success",
-      "description": "Fraction of pipeline executions that completed with outcome=SUCCESS. SLO: \u226599 % green, \u226595 % yellow, below red (auditflow_pipeline_outcomes_total).",
+      "description": "Fraction of pipeline deliveries that reached their sink rather than the DLQ (delivered / (delivered + dead-lettered)); retries and backpressure deferrals do not count as failures. SLO: ≥99 % green, ≥95 % yellow, below red.",
       "type": "stat",
       "gridPos": {
         "h": 4,
@@ -115,7 +115,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(auditflow_pipeline_outcomes_total{job=\"auditflow-backend\",outcome=\"SUCCESS\"}[$__rate_interval])) / clamp_min(sum(rate(auditflow_pipeline_outcomes_total{job=\"auditflow-backend\",outcome!=\"SKIPPED\"}[$__rate_interval])), 0.001) * 100",
+          "expr": "sum(rate(auditflow_delivery_outcomes_total{job=\"auditflow-backend\",outcome=\"delivered\"}[$__rate_interval])) / clamp_min(sum(rate(auditflow_delivery_outcomes_total{job=\"auditflow-backend\",outcome=\"delivered\"}[$__rate_interval])) + (sum(rate(auditflow_delivery_deadlettered_total{job=\"auditflow-backend\"}[$__rate_interval])) or vector(0)), 1e-9)",
           "legendFormat": ""
         }
       ],
@@ -162,8 +162,8 @@
     },
     {
       "id": 3,
-      "title": "Events failed",
-      "description": "Total number of failed events (POISON or RETRYABLE_FAILURE) in the selected time range.",
+      "title": "Deliveries dead-lettered",
+      "description": "Pipeline deliveries dead-lettered (poison, attempts used up, max age passed, pipeline removed) since the backend started. Inspect per tenant with /actuator/dlq/<tenantId>.",
       "type": "stat",
       "gridPos": {
         "h": 4,
@@ -178,8 +178,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(auditflow_pipeline_outcomes_total{job=\"auditflow-backend\",outcome=~\"POISON|RETRYABLE_FAILURE\"}) or vector(0)",
-          "legendFormat": "Failed",
+          "expr": "sum(auditflow_delivery_deadlettered_total{job=\"auditflow-backend\"}) or vector(0)",
+          "legendFormat": "Dead-lettered",
           "format": "time_series",
           "instant": false
         }
@@ -224,7 +224,7 @@
     {
       "id": 4,
       "title": "Queue depth",
-      "description": "RabbitMQ messages waiting to be consumed (rabbitmq_queue_messages_ready \u2014 requires the RabbitMQ Prometheus plugin enabled on the broker, or Spring Boot actuator RabbitMQ metrics).",
+      "description": "RabbitMQ messages waiting to be consumed (rabbitmq_queue_messages_ready — requires the RabbitMQ Prometheus plugin enabled on the broker, or Spring Boot actuator RabbitMQ metrics).",
       "type": "stat",
       "gridPos": {
         "h": 4,
@@ -239,7 +239,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "rabbitmq_queue_messages_ready{queue=\"labs64-audit-topic.labs64.io-auditflow\"}",
+          "expr": "sum(rabbitmq_queue_messages_ready{queue=~\"labs64-audit-topic.labs64.io-auditflow|labs64-audit-delivery\"})",
           "legendFormat": ""
         }
       ],
@@ -502,18 +502,30 @@
         },
         {
           "refId": "B",
-          "expr": "sum(rate(auditflow_pipeline_outcomes_total{job=\"auditflow-backend\",outcome=\"SUCCESS\"}[$__rate_interval]))",
+          "expr": "sum(rate(auditflow_delivery_outcomes_total{job=\"auditflow-backend\",outcome=\"delivered\"}[$__rate_interval]))",
           "legendFormat": "Delivered"
         },
         {
           "refId": "C",
-          "expr": "sum(rate(auditflow_pipeline_outcomes_total{job=\"auditflow-backend\",outcome=~\"POISON|RETRYABLE_FAILURE\"}[$__rate_interval]))",
-          "legendFormat": "Failed"
+          "expr": "sum(rate(auditflow_delivery_deadlettered_total{job=\"auditflow-backend\"}[$__rate_interval]))",
+          "legendFormat": "Dead-lettered"
         },
         {
           "refId": "D",
           "expr": "sum(rate(auditflow_pipeline_outcomes_total{job=\"auditflow-backend\",outcome=\"SKIPPED\"}[$__rate_interval]))",
           "legendFormat": "Skipped"
+        },
+        {
+          "datasource": null,
+          "expr": "sum(rate(auditflow_delivery_outcomes_total{job=\"auditflow-backend\",outcome=\"retried\"}[$__rate_interval]))",
+          "legendFormat": "Retried",
+          "refId": "E"
+        },
+        {
+          "datasource": null,
+          "expr": "sum(rate(auditflow_delivery_outcomes_total{job=\"auditflow-backend\",outcome=\"deferred\"}[$__rate_interval]))",
+          "legendFormat": "Deferred (backpressure)",
+          "refId": "F"
         }
       ],
       "options": {
@@ -638,7 +650,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "rabbitmq_queue_messages_ready{queue=\"labs64-audit-topic.labs64.io-auditflow\"}",
+          "expr": "sum(rabbitmq_queue_messages_ready{queue=~\"labs64-audit-topic.labs64.io-auditflow|labs64-audit-delivery\"})",
           "legendFormat": "Pending"
         }
       ],
@@ -849,7 +861,7 @@
     },
     {
       "id": 7,
-      "title": "Backend \u2014 publish latency",
+      "title": "Backend — publish latency",
       "description": "Spring Boot HTTP server latency for the audit publish endpoint (http_server_requests_seconds histogram). P95 and P50 in milliseconds. Excludes actuator and OpenAPI paths.",
       "type": "timeseries",
       "gridPos": {
@@ -1426,7 +1438,7 @@
         {
           "refId": "A",
           "expr": "sum by (tenant, outcome) (rate(auditflow_tenant_events_total{job=\"auditflow-backend\", tenant=~\"$tenant\", outcome=~\"routed|delivered|quarantined\"}[$__rate_interval]))",
-          "legendFormat": "{{tenant}} \u2014 {{outcome}}"
+          "legendFormat": "{{tenant}} — {{outcome}}"
         }
       ],
       "options": {
@@ -1475,7 +1487,7 @@
         {
           "refId": "A",
           "expr": "sum by (tenant, outcome) (rate(auditflow_tenant_events_total{job=\"auditflow-backend\", tenant=~\"$tenant\", outcome=~\"rejected:.*\"}[$__rate_interval]))",
-          "legendFormat": "{{tenant}} \u2014 {{outcome}}"
+          "legendFormat": "{{tenant}} — {{outcome}}"
         }
       ],
       "options": {

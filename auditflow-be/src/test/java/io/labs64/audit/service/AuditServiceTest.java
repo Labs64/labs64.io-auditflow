@@ -1,21 +1,23 @@
 package io.labs64.audit.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import io.labs64.audit.config.AuditFlowConfiguration;
-import io.labs64.audit.config.AuditFlowConfiguration.ConditionProperties;
-import io.labs64.audit.config.AuditFlowConfiguration.PipelineProperties;
-import io.labs64.audit.config.AuditFlowConfiguration.SinkProperties;
-import io.labs64.audit.config.AuditFlowConfiguration.TransformerProperties;
-import io.labs64.audit.config.ConsumerHealthIndicator;
-import io.labs64.audit.config.PipelineRateLimiterRegistry;
-import io.labs64.audit.exception.RetryableDeliveryException;
-import io.labs64.audit.telemetry.NoopBusinessTelemetry;
-import io.labs64.audit.tenant.TenantConfig;
-import io.labs64.audit.tenant.TenantIds;
-import io.labs64.audit.tenant.TenantPipelineRegistry;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import reactor.core.publisher.Mono;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+
+import java.util.List;
+import java.util.Map;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -24,43 +26,41 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import io.labs64.audit.config.AuditFlowConfiguration;
+import io.labs64.audit.config.AuditFlowConfiguration.PipelineProperties;
+import io.labs64.audit.config.AuditFlowConfiguration.SinkProperties;
+import io.labs64.audit.config.ConsumerHealthIndicator;
+import io.labs64.audit.delivery.BrokerPublishException;
+import io.labs64.audit.delivery.DeliveryQueue;
+import io.labs64.audit.telemetry.NoopBusinessTelemetry;
+import io.labs64.audit.tenant.TenantConfig;
+import io.labs64.audit.tenant.TenantIds;
+import io.labs64.audit.tenant.TenantPipelineRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
+/** The router: one ingest event becomes one confirmed delivery message per matching pipeline. */
 @ExtendWith(MockitoExtension.class)
 class AuditServiceTest {
 
     @Mock
     private AuditFlowConfiguration auditFlowConfiguration;
-
-    @Mock
-    private TransformationService transformationService;
-
-    @Mock
-    private SinkService sinkService;
-
     @Mock
     private ConditionEvaluator conditionEvaluator;
-
     @Mock
     private IdempotencyService idempotencyService;
-
     @Mock
     private QuarantineService quarantineService;
-
-    private AuditService auditService;
+    @Mock
+    private DeliveryQueue deliveryQueue;
 
     private TenantPipelineRegistry registry;
+    private AuditService auditService;
 
     private static final String VALID_MESSAGE =
             "{\"eventId\":\"11111111-1111-1111-1111-111111111111\",\"eventType\":\"api.call\",\"sourceSystem\":\"test\"}";
-
     private static final String ACME_EVENT =
             "{\"eventId\":\"22222222-2222-2222-2222-222222222222\",\"eventType\":\"security.login\",\"sourceSystem\":\"t\",\"tenantId\":\"acme\"}";
 
@@ -68,409 +68,144 @@ class AuditServiceTest {
     void setUp() {
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
         registry = new TenantPipelineRegistry();
-        auditService = new AuditService(
-                auditFlowConfiguration,
-                transformationService,
-                sinkService,
-                conditionEvaluator,
-                idempotencyService,
-                quarantineService,
-                new ObjectMapper(),
-                meterRegistry,
-                new ConsumerHealthIndicator(meterRegistry),
-                new PipelineRateLimiterRegistry(
-                        new io.labs64.audit.config.RateLimitProperties(),
-                        io.github.resilience4j.ratelimiter.RateLimiterRegistry.ofDefaults(),
-                        meterRegistry
-                ),
-                new NoopBusinessTelemetry(),
-                registry,
-                new io.labs64.audit.tenant.TenantConcurrencyLimiter(4),
-                // Hermetic env resolver: no AUDITFLOW_TENANT_* vars exist, so plain properties
-                // pass through untouched and any ${secretRef:...} fails retryable.
-                new io.labs64.audit.tenant.EnvSecretRefResolver()
-        );
+        auditService = new AuditService(auditFlowConfiguration, conditionEvaluator, idempotencyService,
+                quarantineService, new ObjectMapper(), meterRegistry, new ConsumerHealthIndicator(meterRegistry),
+                new NoopBusinessTelemetry(), registry, deliveryQueue);
+        lenient().when(idempotencyService.claim(anyString())).thenReturn(true);
+        lenient().when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
     }
 
-    /** Seed the registry so the tenantless VALID_MESSAGE routes via the _platform tenant. */
-    private void providePlatformPipelines(PipelineProperties... pipelines) {
-        registry.upsert(new TenantConfig(TenantIds.PLATFORM, true, TenantConfig.Quota.DEFAULT,
-                List.of(pipelines)), "test");
-    }
-
-    private static TenantConfig tenant(String id, String sinkName) {
+    private static PipelineProperties pipeline(String name, boolean enabled) {
         PipelineProperties p = new PipelineProperties();
-        p.setName(id + "-pipe");
-        p.setEnabled(true);
+        p.setName(name);
+        p.setEnabled(enabled);
         SinkProperties s = new SinkProperties();
-        s.setName(sinkName);
+        s.setName("logging_sink");
         s.setProperties(Map.of());
         p.setSink(s);
-        return new TenantConfig(id, true, TenantConfig.Quota.DEFAULT, List.of(p));
+        return p;
     }
 
-    // -------------------------------------------------------------------------
-    // Null / empty message guard
-    // -------------------------------------------------------------------------
+    private void tenant(String id, PipelineProperties... pipelines) {
+        registry.upsert(new TenantConfig(id, true, TenantConfig.Quota.DEFAULT, List.of(pipelines)), "test");
+    }
 
     @Test
-    @DisplayName("processAuditEvent(null) logs warning and does not throw")
-    void shouldSkipNullMessage() {
+    void nullEmptyAndBlankMessagesAreSkipped() {
         assertDoesNotThrow(() -> auditService.processAuditEvent(null));
-        verifyNoInteractions(transformationService, sinkService, conditionEvaluator);
-    }
-
-    @Test
-    @DisplayName("processAuditEvent(\"\") logs warning and does not throw")
-    void shouldSkipEmptyMessage() {
         assertDoesNotThrow(() -> auditService.processAuditEvent(""));
-        verifyNoInteractions(transformationService, sinkService, conditionEvaluator);
-    }
-
-    @Test
-    @DisplayName("processAuditEvent with blank message logs warning and does not throw")
-    void shouldSkipBlankMessage() {
         assertDoesNotThrow(() -> auditService.processAuditEvent("   "));
-        verifyNoInteractions(transformationService, sinkService, conditionEvaluator);
+        verifyNoInteractions(deliveryQueue, conditionEvaluator);
     }
 
-    // -------------------------------------------------------------------------
-    // Structural tenant isolation (spec §5)
-    // -------------------------------------------------------------------------
-
     @Test
-    @DisplayName("event for tenant A only runs tenant A's pipeline, never tenant B's sink")
-    void routesOnlyToOwningTenantPipelines() {
-        registry.upsert(tenant("acme", "acme_sink"), "test");
-        registry.upsert(tenant("globex", "globex_sink"), "test");
-        when(idempotencyService.claim(anyString())).thenReturn(true);
-        when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
-        when(sinkService.sendToSink(any(JsonNode.class), anyString(), any())).thenReturn(Mono.just("ok"));
+    @DisplayName("one delivery message per matching pipeline, enqueued in one confirmed call")
+    void enqueuesOneDeliveryPerMatchingPipeline() {
+        tenant("acme", pipeline("archive", true), pipeline("siem", true));
 
         auditService.processAuditEvent(ACME_EVENT);
 
-        ArgumentCaptor<String> sinkNames = ArgumentCaptor.forClass(String.class);
-        verify(sinkService).sendToSink(any(JsonNode.class), sinkNames.capture(), any());
-        org.junit.jupiter.api.Assertions.assertEquals("acme_sink", sinkNames.getValue());
+        verify(deliveryQueue).enqueue(eq(ACME_EVENT), eq("acme"), eq(List.of("archive", "siem")),
+                eq("22222222-2222-2222-2222-222222222222"));
+        verify(idempotencyService).markProcessed("22222222-2222-2222-2222-222222222222");
     }
 
     @Test
-    @DisplayName("event for an unprovisioned tenant is quarantined, no sink call")
-    void unprovisionedTenantIsQuarantined() {
-        when(idempotencyService.claim(anyString())).thenReturn(true);
+    void disabledAndNonMatchingPipelinesAreNotEnqueued() {
+        PipelineProperties failedOnly = pipeline("failed-only", true);
+        AuditFlowConfiguration.ConditionProperties neverMatches = new AuditFlowConfiguration.ConditionProperties();
+        failedOnly.setCondition(neverMatches);
+        tenant("acme", pipeline("archive", true), pipeline("off", false), failedOnly);
+        when(conditionEvaluator.evaluate(any(JsonNode.class), eq(neverMatches))).thenReturn(false);
 
-        auditService.processAuditEvent(ACME_EVENT); // registry empty -> unprovisioned
+        auditService.processAuditEvent(ACME_EVENT);
 
-        verify(quarantineService).quarantine(eq(ACME_EVENT), contains("TENANT_UNRESOLVED"));
-        verifyNoInteractions(sinkService, transformationService);
+        ArgumentCaptor<List<String>> names = ArgumentCaptor.forClass(List.class);
+        verify(deliveryQueue).enqueue(anyString(), eq("acme"), names.capture(), anyString());
+        assertEquals(List.of("archive"), names.getValue());
     }
 
     @Test
-    @DisplayName("provisioned tenant with an empty pipeline set does nothing (no quarantine)")
-    void emptyPipelineSetIsNoOp() {
-        registry.upsert(new TenantConfig(TenantIds.PLATFORM, true, TenantConfig.Quota.DEFAULT,
-                Collections.emptyList()), "test");
-        when(idempotencyService.claim(anyString())).thenReturn(true);
+    void routesOnlyToTheOwningTenantsPipelines() {
+        tenant("acme", pipeline("acme-pipe", true));
+        tenant("globex", pipeline("globex-pipe", true));
 
-        assertDoesNotThrow(() -> auditService.processAuditEvent(VALID_MESSAGE));
-        verifyNoInteractions(transformationService, sinkService, conditionEvaluator, quarantineService);
+        auditService.processAuditEvent(ACME_EVENT);
+
+        verify(deliveryQueue).enqueue(anyString(), eq("acme"), eq(List.of("acme-pipe")), anyString());
     }
 
     @Test
-    @DisplayName("non-empty legacy auditflow.pipelines fails startup with a migration error")
-    void legacyGlobalPipelinesFailStartup() {
-        when(auditFlowConfiguration.getPipelines())
-                .thenReturn(List.of(buildPipeline("legacy", true, "t", "s")));
-        IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> auditService.validateConfiguration());
-        org.junit.jupiter.api.Assertions.assertTrue(ex.getMessage().contains("_platform"));
-    }
-
-    @Test
-    @DisplayName("empty legacy auditflow.pipelines passes the startup guard")
-    void emptyLegacyPipelinesPassStartupGuard() {
-        when(auditFlowConfiguration.getPipelines()).thenReturn(Collections.emptyList());
-        assertDoesNotThrow(() -> auditService.validateConfiguration());
-    }
-
-    @Test
-    @DisplayName("unresolvable ${secretRef:...} sink property fails delivery as retryable, no sink call")
-    void unresolvableSecretRefFailsDeliveryRetryable() {
-        PipelineProperties p = new PipelineProperties();
-        p.setName("secret-pipe");
-        p.setEnabled(true);
-        SinkProperties s = new SinkProperties();
-        s.setName("secure_sink");
-        s.setProperties(Map.of("password", "${secretRef:absent}"));
-        p.setSink(s);
-        registry.upsert(new TenantConfig("acme", true, TenantConfig.Quota.DEFAULT, List.of(p)), "test");
-        when(idempotencyService.claim(anyString())).thenReturn(true);
-        when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
-
-        assertThrows(RetryableDeliveryException.class,
-                () -> auditService.processAuditEvent(ACME_EVENT));
-        verifyNoInteractions(sinkService);
-    }
-
-    // -------------------------------------------------------------------------
-    // Enabled pipeline, condition matches → transformer + sink invoked
-    // -------------------------------------------------------------------------
-
-    @Test
-    @DisplayName("Enabled pipeline with matching condition invokes transformer and sink")
-    void shouldInvokeTransformerAndSinkWhenConditionMatches() {
-        PipelineProperties pipeline = buildPipeline("test-pipeline", true, "my_transformer", "my_sink");
-        providePlatformPipelines(pipeline);
-        when(idempotencyService.claim(anyString())).thenReturn(true);
-        when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
-        when(transformationService.transform(any(JsonNode.class), eq("my_transformer"))).thenReturn(Mono.just("{\"transformed\":true}"));
-        when(sinkService.sendToSink(any(JsonNode.class), eq("my_sink"), any())).thenReturn(Mono.just("ok"));
+    void tenantlessEventsRouteToThePlatformTenant() {
+        tenant(TenantIds.PLATFORM, pipeline("platform-logging", true));
 
         auditService.processAuditEvent(VALID_MESSAGE);
 
-        verify(transformationService).transform(any(JsonNode.class), eq("my_transformer"));
-        verify(sinkService).sendToSink(any(JsonNode.class), eq("my_sink"), eq(Map.of()));
+        verify(deliveryQueue).enqueue(anyString(), eq(TenantIds.PLATFORM), eq(List.of("platform-logging")), anyString());
     }
 
-    // -------------------------------------------------------------------------
-    // Enabled pipeline, condition does NOT match → transformer + sink NOT invoked
-    // -------------------------------------------------------------------------
-
     @Test
-    @DisplayName("Enabled pipeline with non-matching condition skips transformer and sink")
-    void shouldSkipTransformerAndSinkWhenConditionDoesNotMatch() {
-        PipelineProperties pipeline = buildPipeline("test-pipeline", true, "my_transformer", "my_sink");
-        providePlatformPipelines(pipeline);
-        when(idempotencyService.claim(anyString())).thenReturn(true);
-        when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(false);
+    void anUnprovisionedTenantIsQuarantinedAndNothingIsEnqueued() {
+        auditService.processAuditEvent(ACME_EVENT);
 
-        auditService.processAuditEvent(VALID_MESSAGE);
-
-        verifyNoInteractions(transformationService, sinkService);
+        verify(quarantineService).quarantine(eq(ACME_EVENT), contains(AuditService.TENANT_UNRESOLVED));
+        verify(deliveryQueue, never()).enqueue(anyString(), anyString(), anyList(), anyString());
     }
 
-    // -------------------------------------------------------------------------
-    // Disabled pipeline → transformer + sink NOT invoked
-    // -------------------------------------------------------------------------
-
     @Test
-    @DisplayName("Disabled pipeline is skipped entirely")
-    void shouldSkipDisabledPipeline() {
-        PipelineProperties pipeline = buildPipeline("disabled-pipeline", false, "my_transformer", "my_sink");
-        providePlatformPipelines(pipeline);
-        when(idempotencyService.claim(anyString())).thenReturn(true);
+    void anEmptyPipelineSetIsANoOp() {
+        tenant("acme");
 
-        auditService.processAuditEvent(VALID_MESSAGE);
+        auditService.processAuditEvent(ACME_EVENT);
 
-        verifyNoInteractions(transformationService, sinkService, conditionEvaluator);
+        verifyNoInteractions(deliveryQueue);
+        verify(idempotencyService).markProcessed(anyString());
     }
 
-    // -------------------------------------------------------------------------
-    // Retryable failure propagates (for DLQ); other pipelines still run; poison does not
-    // -------------------------------------------------------------------------
+    @Test
+    @DisplayName("a redelivered event does not re-enqueue a pipeline that already delivered")
+    void alreadyDeliveredPipelinesAreNotEnqueuedAgain() {
+        tenant("acme", pipeline("archive", true), pipeline("siem", true));
+        when(idempotencyService.isPipelineDone(anyString(), eq("archive"))).thenReturn(true);
+
+        auditService.processAuditEvent(ACME_EVENT);
+
+        verify(deliveryQueue).enqueue(anyString(), eq("acme"), eq(List.of("siem")), anyString());
+    }
 
     @Test
-    @DisplayName("Retryable failure in one pipeline propagates (for DLQ) while others still run")
-    void shouldPropagateRetryableFailureButStillRunOtherPipelines() {
-        PipelineProperties failingPipeline = buildPipeline("failing-pipeline", true, "bad_transformer", "my_sink");
-        PipelineProperties goodPipeline = buildPipeline("good-pipeline", true, "good_transformer", "my_sink");
+    @DisplayName("a failed enqueue releases the claim and rethrows so the binder redelivers the event")
+    void failedEnqueueReleasesAndRethrows() {
+        tenant("acme", pipeline("archive", true));
+        doThrow(new BrokerPublishException("no broker confirm within timeout"))
+                .when(deliveryQueue).enqueue(anyString(), anyString(), anyList(), anyString());
 
-        providePlatformPipelines(failingPipeline, goodPipeline);
-        when(idempotencyService.claim(anyString())).thenReturn(true);
-        when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
-        when(transformationService.transform(any(JsonNode.class), eq("bad_transformer")))
-                .thenReturn(Mono.error(new RuntimeException("transformer unavailable")));
-        when(transformationService.transform(any(JsonNode.class), eq("good_transformer"))).thenReturn(Mono.just("{\"ok\":true}"));
-        when(sinkService.sendToSink(any(JsonNode.class), eq("my_sink"), any())).thenReturn(Mono.just("ok"));
-
-        // Retryable failure must propagate so the broker redelivers / DLQs the event.
-        assertThrows(RetryableDeliveryException.class, () -> auditService.processAuditEvent(VALID_MESSAGE));
-
-        // Good pipeline must still be processed
-        verify(transformationService).transform(any(JsonNode.class), eq("good_transformer"));
-        verify(sinkService).sendToSink(any(JsonNode.class), eq("my_sink"), eq(Map.of()));
-        // Claim released for redelivery; event NOT marked processed.
-        verify(idempotencyService).release("11111111-1111-1111-1111-111111111111");
+        assertThrows(BrokerPublishException.class, () -> auditService.processAuditEvent(ACME_EVENT));
+        verify(idempotencyService).release("22222222-2222-2222-2222-222222222222");
         verify(idempotencyService, never()).markProcessed(anyString());
     }
 
     @Test
-    @DisplayName("Poison failure (malformed transform output) does not fail the event")
-    void shouldNotFailEventOnPoison() {
-        PipelineProperties pipeline = buildPipeline("test-pipeline", true, "my_transformer", "my_sink");
-        providePlatformPipelines(pipeline);
-        when(idempotencyService.claim(anyString())).thenReturn(true);
-        when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
-        when(transformationService.transform(any(JsonNode.class), eq("my_transformer")))
-                .thenReturn(Mono.just("<<not valid json>>"));
+    void unparseableMessagesAreQuarantined() {
+        auditService.processAuditEvent("{not json");
 
-        // Poison is logged/counted but the event succeeds — retrying could never parse it.
-        assertDoesNotThrow(() -> auditService.processAuditEvent(VALID_MESSAGE));
-
-        verify(sinkService, never()).sendToSink(any(JsonNode.class), anyString(), any());
-        verify(idempotencyService).markProcessed("11111111-1111-1111-1111-111111111111");
-        verify(idempotencyService, never()).release(anyString());
+        verify(quarantineService).quarantine(eq("{not json"), contains("Unparseable JSON"));
+        verifyNoInteractions(deliveryQueue);
     }
 
     @Test
-    @DisplayName("Pipeline already delivered on a prior attempt is skipped (no duplicate delivery)")
-    void shouldSkipAlreadyDeliveredPipelineOnRedelivery() {
-        PipelineProperties pipeline = buildPipeline("test-pipeline", true, "my_transformer", "my_sink");
-        providePlatformPipelines(pipeline);
-        when(idempotencyService.claim(anyString())).thenReturn(true);
-        when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
-        when(idempotencyService.isPipelineDone("11111111-1111-1111-1111-111111111111", "test-pipeline"))
-                .thenReturn(true);
-
-        auditService.processAuditEvent(VALID_MESSAGE);
-
-        // Already delivered → transformer/sink not called again.
-        verifyNoInteractions(transformationService, sinkService);
-        verify(idempotencyService).markProcessed("11111111-1111-1111-1111-111111111111");
-    }
-
-    // -------------------------------------------------------------------------
-    // No transformer configured → sink invoked with original message
-    // -------------------------------------------------------------------------
-
-    @Test
-    @DisplayName("Pipeline with no transformer sends original message to sink")
-    void shouldSendOriginalMessageWhenNoTransformerConfigured() {
-        PipelineProperties pipeline = buildPipelineNoTransformer("no-transformer-pipeline", "my_sink");
-        providePlatformPipelines(pipeline);
-        when(idempotencyService.claim(anyString())).thenReturn(true);
-        when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
-        when(sinkService.sendToSink(any(JsonNode.class), eq("my_sink"), any())).thenReturn(Mono.just("ok"));
-
-        auditService.processAuditEvent(VALID_MESSAGE);
-
-        verifyNoInteractions(transformationService);
-        verify(sinkService).sendToSink(any(JsonNode.class), eq("my_sink"), eq(Map.of()));
-    }
-
-    // -------------------------------------------------------------------------
-    // Fail-closed quarantine + dedup
-    // -------------------------------------------------------------------------
-
-    @Test
-    @DisplayName("Unparseable message is quarantined and never reaches pipelines")
-    void shouldQuarantineUnparseableMessage() {
-        auditService.processAuditEvent("{not valid json");
-
-        verify(quarantineService).quarantine(eq("{not valid json"), anyString());
-        verifyNoInteractions(transformationService, sinkService, conditionEvaluator, idempotencyService);
-    }
-
-    @Test
-    @DisplayName("Duplicate eventId (claim refused) is dropped before any pipeline runs")
-    void shouldDropDuplicateEvent() {
+    void duplicatesAreDropped() {
+        tenant("acme", pipeline("archive", true));
         when(idempotencyService.claim(anyString())).thenReturn(false);
 
-        auditService.processAuditEvent(VALID_MESSAGE);
+        auditService.processAuditEvent(ACME_EVENT);
 
-        verifyNoInteractions(transformationService, sinkService, conditionEvaluator);
-        verify(idempotencyService, never()).markProcessed(anyString());
-    }
-
-    // -------------------------------------------------------------------------
-    // Declarative routing: multi-stage transforms + fallback sink
-    // -------------------------------------------------------------------------
-
-    @Test
-    @DisplayName("Multi-stage transformers are chained in order, feeding each stage's output forward")
-    void shouldChainMultipleTransformersInOrder() {
-        PipelineProperties pipeline = new PipelineProperties();
-        pipeline.setName("multi");
-        pipeline.setEnabled(true);
-        pipeline.setCondition(new ConditionProperties());
-        TransformerProperties t1 = new TransformerProperties();
-        t1.setName("t1");
-        TransformerProperties t2 = new TransformerProperties();
-        t2.setName("t2");
-        pipeline.setTransformers(List.of(t1, t2));
-        SinkProperties sink = new SinkProperties();
-        sink.setName("my_sink");
-        sink.setProperties(Map.of());
-        pipeline.setSink(sink);
-
-        providePlatformPipelines(pipeline);
-        when(idempotencyService.claim(anyString())).thenReturn(true);
-        when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
-        when(transformationService.transform(any(JsonNode.class), eq("t1"))).thenReturn(Mono.just("{\"stage\":1}"));
-        when(transformationService.transform(any(JsonNode.class), eq("t2"))).thenReturn(Mono.just("{\"stage\":2}"));
-        when(sinkService.sendToSink(any(JsonNode.class), eq("my_sink"), any())).thenReturn(Mono.just("ok"));
-
-        auditService.processAuditEvent(VALID_MESSAGE);
-
-        // Stage 2 must receive stage 1's output.
-        ArgumentCaptor<JsonNode> stage2Input = ArgumentCaptor.forClass(JsonNode.class);
-        verify(transformationService).transform(stage2Input.capture(), eq("t2"));
-        org.junit.jupiter.api.Assertions.assertEquals(1, stage2Input.getValue().path("stage").asInt());
-        // Sink receives stage 2's output.
-        ArgumentCaptor<JsonNode> sinkInput = ArgumentCaptor.forClass(JsonNode.class);
-        verify(sinkService).sendToSink(sinkInput.capture(), eq("my_sink"), any());
-        org.junit.jupiter.api.Assertions.assertEquals(2, sinkInput.getValue().path("stage").asInt());
+        verifyNoInteractions(deliveryQueue);
     }
 
     @Test
-    @DisplayName("Retryable primary-sink failure falls back to the configured fallback sink")
-    void shouldUseFallbackSinkOnRetryableFailure() {
-        PipelineProperties pipeline = buildPipeline("fb", true, "my_transformer", "primary_sink");
-        SinkProperties fallback = new SinkProperties();
-        fallback.setName("fallback_sink");
-        fallback.setProperties(Map.of());
-        pipeline.getSink().setFallback(fallback);
-
-        providePlatformPipelines(pipeline);
-        when(idempotencyService.claim(anyString())).thenReturn(true);
-        when(conditionEvaluator.evaluate(any(JsonNode.class), any())).thenReturn(true);
-        when(transformationService.transform(any(JsonNode.class), eq("my_transformer"))).thenReturn(Mono.just("{\"x\":1}"));
-        when(sinkService.sendToSink(any(JsonNode.class), eq("primary_sink"), any()))
-                .thenReturn(Mono.error(new RetryableDeliveryException("primary down")));
-        when(sinkService.sendToSink(any(JsonNode.class), eq("fallback_sink"), any())).thenReturn(Mono.just("ok-fallback"));
-
-        // Fallback succeeds → event is processed, not failed.
-        assertDoesNotThrow(() -> auditService.processAuditEvent(VALID_MESSAGE));
-
-        verify(sinkService).sendToSink(any(JsonNode.class), eq("primary_sink"), any());
-        verify(sinkService).sendToSink(any(JsonNode.class), eq("fallback_sink"), any());
-        verify(idempotencyService).markProcessed("11111111-1111-1111-1111-111111111111");
-    }
-
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
-    private PipelineProperties buildPipeline(String name, boolean enabled, String transformerName, String sinkName) {
-        PipelineProperties pipeline = new PipelineProperties();
-        pipeline.setName(name);
-        pipeline.setEnabled(enabled);
-        pipeline.setCondition(new ConditionProperties());
-
-        TransformerProperties transformer = new TransformerProperties();
-        transformer.setName(transformerName);
-        pipeline.setTransformer(transformer);
-
-        SinkProperties sink = new SinkProperties();
-        sink.setName(sinkName);
-        sink.setProperties(Map.of());
-        pipeline.setSink(sink);
-
-        return pipeline;
-    }
-
-    private PipelineProperties buildPipelineNoTransformer(String name, String sinkName) {
-        PipelineProperties pipeline = new PipelineProperties();
-        pipeline.setName(name);
-        pipeline.setEnabled(true);
-        pipeline.setCondition(new ConditionProperties());
-        pipeline.setTransformer(null);
-
-        SinkProperties sink = new SinkProperties();
-        sink.setName(sinkName);
-        sink.setProperties(Map.of());
-        pipeline.setSink(sink);
-
-        return pipeline;
+    void legacyGlobalPipelinesFailStartup() {
+        when(auditFlowConfiguration.getPipelines()).thenReturn(List.of(pipeline("legacy", true)));
+        assertThrows(IllegalStateException.class, auditService::validateConfiguration);
     }
 }

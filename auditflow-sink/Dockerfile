@@ -44,6 +44,8 @@ RUN chmod 755 entrypoint.sh
 COPY --chown=${USER_NAME}:${GROUP_NAME} plugin_registry.py .
 COPY --chown=${USER_NAME}:${GROUP_NAME} auditflow_sdk.py .
 COPY --chown=${USER_NAME}:${GROUP_NAME} health.py .
+COPY --chown=${USER_NAME}:${GROUP_NAME} integrity.py .
+COPY --chown=${USER_NAME}:${GROUP_NAME} scripts/ /home/${USER_NAME}/scripts/
 COPY --chown=${USER_NAME}:${GROUP_NAME} sinks/ /home/${USER_NAME}/sinks/
 
 # sinks_bootstrap is intended to be mounted as a Kubernetes volume at runtime.

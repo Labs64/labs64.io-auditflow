@@ -1,0 +1,5 @@
+# Fixture cases for ../demo.yaml (see _platform.yaml for how they are checked).
+cases:
+  - name: every event goes to analytics and logging
+    event: {eventType: api.call, sourceSystem: netlicensing/core, tenantId: demo}
+    expect: [clickhouse-analytics, e2e-logging]

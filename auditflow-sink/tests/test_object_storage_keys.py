@@ -41,8 +41,10 @@ def test_name_carries_the_full_event_id(sink):
     assert name.endswith(f"-{SAME_SECOND_IDS[0]}.json.gz")
 
 
-def test_s3_redelivery_rewrites_the_same_object():
-    # The S3 name uses the event's own timestamp, so a redelivered message rewrites its object
-    # instead of adding a copy. (GCS and Azure name objects by upload time.)
-    build = BUILDERS["aws_s3_sink"]
+@pytest.mark.parametrize("sink", BUILDERS)
+def test_redelivery_rewrites_the_same_object(sink):
+    # The name uses the event's own timestamp, not the upload time, so a redelivered message
+    # rewrites its object instead of adding a copy.
+    build = BUILDERS[sink]
     assert build(event(SAME_SECOND_IDS[0])) == build(event(SAME_SECOND_IDS[0]))
+    assert "/year=2026/month=10/day=12/20261012-091502-" in build(event(SAME_SECOND_IDS[0]))

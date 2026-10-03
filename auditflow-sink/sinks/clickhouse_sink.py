@@ -4,10 +4,15 @@ Expects a row-shaped dict whose keys are the target table's column names. Pair t
 ``audit_clickhouse`` transformer, which produces exactly that shape; the canonical DDL lives in
 ``examples/clickhouse/schema.sql``. Paired with ``zero`` instead, every delivery will fail.
 
-Rows arrive one at a time because AuditFlow delivers one event per HTTP request, and single-row
-INSERTs into MergeTree create one part per row (the road to TOO_MANY_PARTS). This sink therefore
-relies on ClickHouse's server-side ``async_insert`` to batch them rather than buffering in the
-sink, which would make it stateful and lose events on restart.
+Enable ``batch`` on the pipeline (``batch.enabled: true``): the sink then gets up to ``batch.maxSize``
+rows in one call and writes them with ONE INSERT, which is what MergeTree wants.
+
+Without it rows arrive one at a time, one event per HTTP request, and single-row INSERTs into
+MergeTree create one part per row (the road to TOO_MANY_PARTS). For that case this sink relies on
+ClickHouse's server-side ``async_insert`` to batch them rather than buffering in the sink, which
+would make it stateful and lose events on restart. ``async_insert`` stays on for batches too: the
+server then merges batches that arrive close together. The rest of this note is about that
+row-at-a-time mode.
 
 ``wait_for_async_insert=1`` (the default here) means the response only arrives once the part is
 flushed. That costs latency — up to the busy-timeout window per delivery — but keeps the success
@@ -52,14 +57,14 @@ import logging
 
 import requests
 
-from auditflow_sdk import require_properties
+from auditflow_sdk import deliver_each, require_properties, sql_identifier
 
-__version__ = "1.1.0"
+__version__ = "1.3.0"
 
 PROPERTIES = {
     "service-url": "ClickHouse HTTP endpoint, e.g. http://clickhouse:8123 (required)",
-    "database": "Target database (default: default)",
-    "table": "Target table (required)",
+    "database": "Target database: letters, digits and underscores only (default: default)",
+    "table": "Target table: letters, digits and underscores only (required)",
     "username": "Basic auth username (optional)",
     "password": "Basic auth password (optional; supports ${secretRef:<key>})",
     "verify-ssl": "Verify TLS certificates: true/false (default: true)",
@@ -88,15 +93,49 @@ def _is_true(properties: dict, key: str, default: str = "true") -> bool:
 
 def process(event_data: dict, properties: dict) -> dict:
     """Insert a single pre-shaped row into a ClickHouse table."""
+    return _insert([event_data], properties)
+
+
+def process_batch(events: list, properties: dict) -> list:
+    """Insert a batch of pre-shaped rows with ONE ``INSERT ... FORMAT JSONEachRow``.
+
+    This is what ClickHouse is built for: one part per batch instead of one per row. If ClickHouse
+    answers 400 (it could not read one of the rows), the rows are inserted one by one instead, so the
+    others are stored and only the unreadable one fails. Any other failure fails the whole batch,
+    which the backend retries; with the documented ``ReplacingMergeTree`` on ``event_id`` a repeated
+    row is merged away.
+    """
+    try:
+        result = _insert(events, properties)
+    except _InsertFailed as e:
+        if e.status_code == 400 and len(events) > 1:
+            logger.warning("ClickHouse refused a batch of %d row(s) (%s); inserting them one by one",
+                           len(events), e)
+            return deliver_each(events, properties, process)
+        return [e] * len(events)
+    return [result] * len(events)
+
+
+class _InsertFailed(RuntimeError):
+    """An insert ClickHouse answered with an error, or could not be sent (``status_code`` None)."""
+
+    def __init__(self, message: str, status_code=None):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def _insert(rows: list, properties: dict) -> dict:
+    """One INSERT with a JSONEachRow body of the given rows."""
     require_properties(properties, "service-url", "table")
 
     service_url = properties["service-url"].rstrip("/")
-    database = properties.get("database", "default")
-    table = properties["table"]
+    # The names are part of the query text, so only plain identifiers are accepted (a ValueError
+    # otherwise, before anything is sent). The event payload never touches the SQL text — it is the
+    # request body. Same boundary as snowflake_sink and postgres_sink.
+    database = sql_identifier(properties.get("database", "default"), "database name")
+    table = sql_identifier(properties["table"], "table name")
     timeout = float(properties.get("timeout", 10))
 
-    # Identifiers are operator-configured (trusted) and interpolated into the query; the event
-    # payload never touches the SQL text — it is the request body. Same boundary as snowflake_sink.
     params = {
         "query": f"INSERT INTO {database}.{table} FORMAT JSONEachRow",
         # AuditFlow emits ISO-8601 with a trailing Z; best_effort is what lets DateTime64 read it.
@@ -126,7 +165,8 @@ def process(event_data: dict, properties: dict) -> dict:
     username = properties.get("username")
     auth = (username, properties.get("password") or "") if username else None
 
-    body = json.dumps(event_data, separators=(",", ":")).encode("utf-8")
+    # JSONEachRow: one JSON object per line.
+    body = "\n".join(json.dumps(row, separators=(",", ":")) for row in rows).encode("utf-8")
 
     try:
         response = requests.post(
@@ -144,15 +184,16 @@ def process(event_data: dict, properties: dict) -> dict:
         detail = e.response.text.strip()[:500]
         logger.error("ClickHouse rejected the insert into %s.%s (exception code %s): %s",
                      database, table, code, detail)
-        raise RuntimeError(
+        raise _InsertFailed(
             f"ClickHouse insert into {database}.{table} failed with HTTP "
-            f"{e.response.status_code}, exception code {code}: {detail}"
+            f"{e.response.status_code}, exception code {code}: {detail}",
+            e.response.status_code,
         ) from e
     except requests.exceptions.RequestException as e:
         logger.error("Failed to reach ClickHouse at %s: %s", service_url, e)
-        raise RuntimeError(f"Failed to reach ClickHouse at {service_url}: {e}") from e
+        raise _InsertFailed(f"Failed to reach ClickHouse at {service_url}: {e}") from e
 
-    logger.info("Inserted audit event into ClickHouse table '%s.%s'", database, table)
+    logger.info("Inserted %d audit event(s) into ClickHouse table '%s.%s'", len(rows), database, table)
     return {
         "delivered": True,
         "destination": "clickhouse",
