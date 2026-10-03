@@ -35,7 +35,7 @@ services:
       - auditflow-net
 
   redis:
-    image: redis:7-alpine
+    image: valkey/valkey:9.1-alpine
     container_name: auditflow-redis
     ports:
       - "6379:6379"
@@ -57,7 +57,7 @@ services:
   # Query it with `just ch-events` / `just ch "<SQL>"`; the end-to-end round trip with
   # assertions is section 6 of examples/getting-started.ipynb.
   clickhouse:
-    image: clickhouse/clickhouse-server:26.7-alpine
+    image: clickhouse/clickhouse-server:26.9-alpine
     container_name: auditflow-clickhouse
     ports:
       - "8123:8123"    # HTTP interface  →  http://localhost:8123/play
@@ -146,7 +146,7 @@ services:
   # exec-plugin (--cerbos-output); mounted here read-only.
   # ─────────────────────────────────────────────────────────────────────────────
   cerbos:
-    image: ghcr.io/cerbos/cerbos:0.51.0
+    image: ghcr.io/cerbos/cerbos:0.56.0
     container_name: auditflow-cerbos
     command: ["server"]
     hostname: cerbos
@@ -198,20 +198,11 @@ services:
       # that the "active sessions per product" KPI counts. Redacting a reporting dimension makes
       # the dashboard wrong in a way that looks like no data rather than like an error.
       #
-      # max-in-flight-per-tenant is the Layer-2 fairness cap: a per-tenant semaphore that stops one
-      # flooding tenant from monopolizing the shared consumer. Raised here from the shipped default
-      # of 4 to match `spring.cloud.stream.bindings.audit-in-0.consumer.concurrency` (8), because
-      # the local stack is single-tenant and a bulk publisher is the *expected* load, not abuse:
-      # `just ch-seed` pushes ~3000 events as fast as it can, and at 4 the other four consumer
-      # threads were rejected on arrival, exhausted their redeliveries and dead-lettered ~9% of the
-      # seed — a partial dataset and a full DLQ on a demo command.
-      # The invariant is `cap >= consumer.concurrency`: the consumer thread blocks for the whole
-      # event, so in-flight per replica can never exceed concurrency, and at 8 the semaphore is
-      # unreachable. That is the point *here* and exactly why the default is left at 4 for real
-      # multi-tenant deployments — raise concurrency and this must move with it.
+      # The per-tenant in-flight cap (tenants.consumer.max-in-flight-per-tenant) keeps its shipped
+      # default (32): a delivery over it is deferred for a few seconds, never dead-lettered, so a
+      # bulk seed such as `just ch-seed` completes in full.
       JAVA_OPTS: >-
         -Dauditflow.idempotency.store=memory
-        -Dtenants.consumer.max-in-flight-per-tenant=8
         -Dspring.autoconfigure.exclude=org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration,org.springframework.boot.data.redis.autoconfigure.DataRedisReactiveAutoConfiguration,org.springframework.boot.data.redis.autoconfigure.health.DataRedisHealthContributorAutoConfiguration,org.springframework.boot.data.redis.autoconfigure.health.DataRedisReactiveHealthContributorAutoConfiguration
         -Dauditflow.redaction.enabled=true
         -Dauditflow.redaction.rules[0].field=extra.userId

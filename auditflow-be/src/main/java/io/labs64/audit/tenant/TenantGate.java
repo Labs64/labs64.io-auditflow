@@ -31,6 +31,21 @@ public class TenantGate {
     }
 
     public void check(String rawTenantId) {
+        TenantConfig.Quota quota = checkProvisioned(rawTenantId);
+        String tenantId = TenantIds.resolve(rawTenantId);
+        if (!rateLimiter.tryAcquire(tenantId, quota.rateLimitPerSec(), quota.burst())) {
+            emit(tenantId, "rejected:rate_limited");
+            throw new TenantRateLimitedException(
+                    "Tenant '" + tenantId + "' exceeded its ingest rate limit", RETRY_AFTER_SECONDS);
+        }
+    }
+
+    /**
+     * Provisioning only (no quota consumed): throws for an unprovisioned or disabled tenant, else
+     * returns its quota. Used by the batch endpoint, which then spends quota per event via
+     * {@link #tryAcquireQuota(String)}.
+     */
+    public TenantConfig.Quota checkProvisioned(String rawTenantId) {
         String tenantId = TenantIds.resolve(rawTenantId);
         var set = registry.pipelinesFor(tenantId);
         if (set.isEmpty()) {
@@ -45,12 +60,22 @@ public class TenantGate {
                 }
             }
         }
-        TenantConfig.Quota quota = set.get().quota();
-        if (!rateLimiter.tryAcquire(tenantId, quota.rateLimitPerSec(), quota.burst())) {
-            emit(tenantId, "rejected:rate_limited");
-            throw new TenantRateLimitedException(
-                    "Tenant '" + tenantId + "' exceeded its ingest rate limit", RETRY_AFTER_SECONDS);
+        return set.get().quota();
+    }
+
+    /** One event's worth of quota; false (and counted) when the tenant is over its rate limit. */
+    public boolean tryAcquireQuota(String rawTenantId) {
+        String tenantId = TenantIds.resolve(rawTenantId);
+        TenantConfig.Quota quota = checkProvisioned(tenantId);
+        if (rateLimiter.tryAcquire(tenantId, quota.rateLimitPerSec(), quota.burst())) {
+            return true;
         }
+        emit(tenantId, "rejected:rate_limited");
+        return false;
+    }
+
+    public static long retryAfterSeconds() {
+        return RETRY_AFTER_SECONDS;
     }
 
     private void emit(String tenantId, String outcome) {

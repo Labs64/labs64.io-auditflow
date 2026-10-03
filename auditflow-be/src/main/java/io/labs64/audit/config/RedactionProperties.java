@@ -20,7 +20,23 @@ public class RedactionProperties {
     /** Replacement value used by the MASK action. */
     private String mask = "***";
 
+    /**
+     * Secret key of the HASH action (HMAC-SHA256), at least 32 characters. Required as soon as an
+     * enabled rule uses HASH: without it the application does not start. It is a secret: supply it
+     * through the environment ({@code AUDITFLOW_REDACTION_HASH_KEY}, from a Kubernetes Secret), never
+     * in a values file or a ConfigMap.
+     */
+    private String hashKey;
+
     private List<Rule> rules = new ArrayList<>();
+
+    public String getHashKey() {
+        return hashKey;
+    }
+
+    public void setHashKey(String hashKey) {
+        this.hashKey = hashKey;
+    }
 
     public boolean isEnabled() {
         return enabled;
@@ -50,7 +66,12 @@ public class RedactionProperties {
     public enum Action {
         /** Replace the value with the configured mask string. */
         MASK,
-        /** Replace the value with its SHA-256 hex digest (preserves correlatability, hides the value). */
+        /**
+         * Replace the value with its HMAC-SHA256 under {@code auditflow.redaction.hash-key}, as hex.
+         * Equal values still give equal results, so events can be correlated, but without the key a
+         * value cannot be recovered by hashing candidates (which a plain SHA-256 allows for an
+         * e-mail address, an IP address or a user id).
+         */
         HASH,
         /** Remove the field entirely. */
         DROP

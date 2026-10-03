@@ -168,31 +168,43 @@ Everything below ships in the box and works today — this is a description of t
 Define where events go — and under what conditions — entirely in YAML or environment variables. Multiple pipelines evaluate independently for each event; one failing pipeline never stops the others. No backend code changes, no rebuilds, no restarts required to add or reroute a destination.
 
 ### Intelligent event routing
-Route events selectively using rich field-level condition rules on any JSON field, including nested paths (`extra.userId`) and array indices (`items[0].name`). Combine rules with AND / OR logic. Supported operators: `eq`, `neq`, `eqIgnoreCase`, `contains`, `startsWith`, `endsWith`, `in`, `notIn`, `exists`, `notExists`, `regex`, `gt`, `gte`, `lt`, `lte`. Unrelated traffic never reaches sinks that don't need it.
+Route events selectively using rich field-level condition rules on any JSON field, including nested paths (`extra.userId`) and array indices (`items[0].name`). Combine rules with AND / OR logic and nest groups, e.g. "A and (B or C)". Supported operators: `eq`, `neq`, `eqIgnoreCase`, `contains`, `startsWith`, `endsWith`, `in`, `notIn`, `exists`, `notExists`, `regex`, `gt`, `gte`, `lt`, `lte`, `cidr`, `notCidr`, `wildcard`, `notWildcard` (IP ranges and glob patterns included). Unrelated traffic never reaches sinks that don't need it. A **dry run** shows which pipelines a sample event would reach and why, and fixture files test a tenant's pipelines before they are deployed.
 
 ### Asynchronous, decoupled processing
 Every audit event is buffered on the message broker before processing. Your calling service gets an immediate acknowledgement and continues — the pipeline runs on a separate consumer thread. API latency stays flat under burst load, and the broker absorbs traffic spikes without back-pressure reaching upstream services.
 
-### Broker-agnostic transport
-The event backbone is built on Spring Cloud Stream, so the message broker is a configuration choice rather than a baked-in dependency. RabbitMQ is the default and Kafka ships on the classpath — switch with a single `default-binder` property, or plug in any other Spring Cloud Stream binder. Your pipelines, conditions, sinks, and transformers behave identically no matter what's moving the events underneath.
+### RabbitMQ transport, self-hosted or managed
+The event backbone is RabbitMQ (AMQP 0-9-1, 4.x): the in-cluster broker of the Helm chart, Amazon MQ for RabbitMQ, CloudAMQP or any other RabbitMQ service. AuditFlow relies on standard AMQP features only (publisher confirms, durable queues, per-queue TTL with dead-letter exchanges), so no broker plugin is required. Kafka is not supported: delayed redelivery and per-tenant dead-lettering would need a different design there.
 
 ### Multi-destination fan-out
 A single event can be delivered to multiple sinks simultaneously — log it to Loki, archive it to S3, and alert via webhook, all from one publish call. Each pipeline is independent: different conditions, different transformers, different destinations, evaluated in parallel.
 
 ### Rich sink catalogue
-Deliver audit events without writing glue code. Destinations include: log output (for local dev), HTTP webhook, RFC 5424 syslog, Grafana Loki, OpenSearch / Elasticsearch, Amazon S3, Amazon CloudWatch Logs, Google Cloud Storage, Azure Blob Storage, Datadog Logs API, Splunk HEC, Snowflake, and Labs64 NetLicensing. Sink properties (URLs, API keys, bucket names) are declared per-pipeline and resolved from environment variables — no credentials in configuration files.
+Deliver audit events without writing glue code. Destinations include: log output (for local dev), HTTP webhook, RFC 5424 syslog, Grafana Loki, OpenSearch / Elasticsearch, Amazon S3, Amazon CloudWatch Logs, Google Cloud Storage, Azure Blob Storage, Datadog Logs API, Splunk HEC, Snowflake, ClickHouse, PostgreSQL, and Labs64 NetLicensing. Sink properties (URLs, API keys, bucket names) are declared per-pipeline and resolved from environment variables — no credentials in configuration files.
 
 ### Transformer pipeline with chaining
 Shape or enrich an event before delivery. Transformers are Python modules loaded dynamically at runtime. The built-in set covers pass-through, Loki-optimised labels, and OpenSearch indexing conventions. Chain multiple transformers in sequence within a single pipeline to compose richer transformations without coupling them together.
 
 ### PII and sensitive data redaction
-Declare which fields to mask (`***`) or drop entirely. Redaction runs at ingest — before the event is published to the broker — so sensitive values never reach the message broker, never appear in broker logs, and are never forwarded to any downstream sink. Rules are fine-grained, per field, with independent strategies per rule.
+Declare which fields to mask (`***`), hash or drop entirely. A hashed value is an HMAC-SHA256 under a secret key: equal values still give equal hashes, so events stay correlatable, but the value cannot be recovered by hashing guesses. Redaction runs at ingest — before the event is published to the broker — so sensitive values never reach the message broker, never appear in broker logs, and are never forwarded to any downstream sink. Rules are fine-grained, per field, with an independent action per rule.
 
 ### Idempotent event processing
 Each event carries an `eventId`. The consumer checks a deduplication store before processing: duplicate deliveries from broker redelivery, network retries, or at-least-once producers are silently suppressed. Uses Redis in production for distributed dedup; an in-memory store for single-process development. Claim TTL and completion TTL are independently configurable.
 
 ### Resilience and fault tolerance
-Every outbound HTTP call to a transformer or sink service is guarded by a **circuit breaker** and **retry with backoff**. Events that exhaust all retries land in a **dead-letter queue** with full payload preservation — nothing is silently discarded. The DLQ is queryable and replayable via the tenant-scoped `/actuator/dlq/<tenantId>` endpoint (GET to inspect, POST to replay), and can also be purged (`DELETE` — **irreversible**, discards matching messages instead of replaying them). **Per-pipeline rate limiting** throttles inbound event volume without affecting other pipelines. **Graceful shutdown** drains in-flight events (configurable timeout) before the process exits, preventing data loss during rolling restarts.
+- **End-to-end acknowledgement.** `/audit/publish` answers 200 only after the broker has confirmed it stored the event (publisher confirms, durable queue, persistent message). If the broker cannot confirm, the client gets 503 and retries with the same `eventId`.
+- **Per-pipeline delivery.** Each event becomes one delivery per matching pipeline, so a slow or failing destination never holds up the others or causes duplicates in them.
+- **Retries over hours, per pipeline.** A failed delivery comes back after growing delays (5 s, 30 s, 2 min, 10 min, 30 min, 1 h, then every 3 h) until it succeeds, the pipeline's `retry.maxAttempts` is used up, or `retry.maxAge` (default 24 h) has passed. A ten-minute sink outage is ridden out without operator action.
+- **Backpressure, not failure.** Throttling (pipeline rate limit, a tenant's in-flight cap, a full bulkhead) defers a delivery for a few seconds without spending an attempt.
+- **Nothing silently dropped.** Exhausted, expired and poison deliveries (a 4xx or malformed transformer output) go to the **tenant's own DLQ**, one entry per failed pipeline with the reason and last error. `/actuator/dlq/<tenantId>` inspects (GET, counts by pipeline and reason), replays (POST, optionally one pipeline) or purges (DELETE, **irreversible**, optionally one pipeline).
+- **Circuit breakers** and short in-call HTTP retries guard every transformer and sink call. **Graceful shutdown** drains in-flight work before the process exits.
+
+### Tamper-evidence for the archive
+The S3 sink stores an S3-verified SHA-256 with every object and, with `digest: "true"`, writes a signed (Ed25519), hash-chained digest record per object. An auditor with the public key can prove that no archived object was altered and no record removed, using `auditflow-sink/scripts/verify_s3_digests.py`. Combine it with S3 Object Lock for a write-once archive.
+
+### Batching
+- **Batch publish:** `POST /audit/publish/batch` takes up to 100 events and answers with a result per event; one invalid or over-quota event never blocks the others.
+- **Sink batching:** with `batch.enabled` a pipeline hands its sink up to `batch.maxSize` events in one call. Eleven sinks write the batch with one request to the destination: one object per partition folder (S3, GCS, Azure Blob), one multi-row insert (ClickHouse, Snowflake, PostgreSQL), one `_bulk` request (OpenSearch), one multi-record call (CloudWatch Logs, Datadog, Splunk HEC, Loki). The other sinks get the events of a batch a few at a time. Each event still gets its own outcome, so one refused event never fails the rest.
 
 ### Sink fallback routing
 Designate a fallback sink per pipeline. If the primary sink returns a retryable error (network failure, timeout, 5xx), AuditFlow automatically routes the event to the fallback rather than the DLQ — keeping delivery continuity during planned maintenance windows or transient dependency outages.
@@ -237,13 +249,14 @@ POST /audit/publish  (direct; via gateway: /auditflow/api/v1/audit/publish)
   Backend  (Java · Spring Boot · :8080)
         │  redact PII → publish to broker topic
         ▼
-  Message broker  labs64-audit-topic        (RabbitMQ by default · Kafka-ready)
+  RabbitMQ  labs64-audit-topic             (200 only after the broker confirms)
         │
-        ▼  consumer (same backend, separate thread)
-  AuditService.processAuditEvent()
-        │  for each ENABLED pipeline whose condition matches:
+        ▼  router (same backend): one delivery per matching pipeline
+  RabbitMQ  labs64-audit-delivery ◄── delay tiers 5s … 3h (retry, backpressure)
+        │                          ──► labs64-audit-dlq.<tenant> (exhausted, poison)
+        ▼  delivery worker (same backend, batched)
         ├─► Transformer  (Python · FastAPI · :8081)   POST /transform/{name}
-        └─► Sink         (Python · FastAPI · :8082)   POST /sink/{name}
+        └─► Sink         (Python · FastAPI · :8082)   POST /sink/{name}[/batch]
 ```
 
 Three independently deployable services:
@@ -251,19 +264,19 @@ Three independently deployable services:
 | Service | Stack | Port | Role |
 |---------|-------|------|------|
 | `auditflow-be` | Java 25, Spring Boot 4, Maven | 8080 | REST API, broker, pipeline orchestration |
-| `auditflow-transformer` | Python 3.13, FastAPI | 8081 | Dynamically-loaded transform modules |
-| `auditflow-sink` | Python 3.13, FastAPI | 8082 | Dynamically-loaded sink/delivery modules |
+| `auditflow-transformer` | Python 3.14, FastAPI | 8081 | Dynamically-loaded transform modules |
+| `auditflow-sink` | Python 3.14, FastAPI | 8082 | Dynamically-loaded sink/delivery modules |
 
 ![AuditFlow architecture diagram](https://github.com/user-attachments/assets/ca5f0c0e-81dc-439d-a855-95ebc2fc50ed)
 
 Key design decisions:
 
-- **AuditFlow is a router, not a system of record.** It has **no database of its own** — there is no Postgres or event store, and adding one is an explicit non-goal. AuditFlow ingests, redacts, routes, and delivers; the **sinks** (OpenSearch, S3/GCS/Azure Blob, Splunk, Snowflake, Database, …) *are* the systems of record and own retention, immutability, and query. Durability is provided by the broker (in-flight buffering), the retry + circuit breaker, the dead-letter queue (exhausted events, replayable or purgeable via `/actuator/dlq/<tenantId>`), and the destination sink — not by AuditFlow persisting events itself. Redis is a **deduplication** store (idempotency keys with TTL), not storage. Treat "persist audit events in AuditFlow" as out of scope by design: if you need a queryable record, point a pipeline at a durable sink.
+- **AuditFlow is a router, not a system of record.** It has **no database of its own** — there is no Postgres or event store, and adding one is an explicit non-goal. AuditFlow ingests, redacts, routes, and delivers; the **sinks** (OpenSearch, S3/GCS/Azure Blob, Splunk, Snowflake, Database, …) *are* the systems of record and own retention, immutability, and query. Durability is provided by the broker (confirmed, persistent buffering), per-pipeline retries over hours, the per-tenant dead-letter queue (exhausted and poison deliveries, replayable or purgeable via `/actuator/dlq/<tenantId>`), and the destination sink — not by AuditFlow persisting events itself. Redis is a **deduplication** store (idempotency keys with TTL), not storage. Treat "persist audit events in AuditFlow" as out of scope by design: if you need a queryable record, point a pipeline at a durable sink.
 - The backend is **both producer and consumer** of the same broker topic, providing decoupling and buffering without a separate ingestion service.
-- The broker is reached through **Spring Cloud Stream binders** — RabbitMQ by default, Kafka on the classpath — so the transport can change without touching pipeline logic.
-- **Pipelines are independent** — a failure in one pipeline (e.g., an unreachable sink) is logged and skipped; other pipelines for the same event continue normally.
+- The broker is **RabbitMQ**: ingest through a Spring Cloud Stream binding, the delivery stage (delivery queue, delay tiers, per-tenant DLQs) declared by the backend itself.
+- **Pipelines are independent** — each pipeline gets its own delivery message, retries and DLQ entry; a failure in one (e.g., an unreachable sink) never delays or repeats delivery to the others.
 - **Python services are stateless plugins** — they do not hold broker connections or pipeline state; they receive a request, run a module function, and return a result.
-- A **dead-letter queue** captures events that exhaust retries, with a management API for inspection and replay.
+- A **per-tenant dead-letter queue** captures deliveries that exhaust their retries or are poison, one entry per failed pipeline, with a management API for inspection, replay and purge.
 
 ---
 
@@ -501,7 +514,7 @@ Swap any self-hosted component for a managed cloud service — pipeline behaviou
 
 | Component | Cloud alternatives |
 |-----------|--------------------|
-| Message broker (RabbitMQ / Kafka) | Amazon MQ, CloudAMQP, Confluent Cloud, Amazon MSK, Azure Service Bus |
+| Message broker (RabbitMQ) | Amazon MQ for RabbitMQ, CloudAMQP |
 | Redis (idempotency) | ElastiCache, Azure Cache for Redis, Memorystore |
 | Log storage | Amazon OpenSearch Service, Grafana Cloud Loki |
 | Archive storage | Amazon S3, Google Cloud Storage, Azure Blob Storage |
@@ -583,7 +596,7 @@ pipelines:
           url: "https://hooks.example.com/auditflow"
 ```
 
-**Available condition operators:** `eq`, `neq`, `eqIgnoreCase`, `contains`, `startsWith`, `endsWith`, `in`, `notIn`, `exists`, `notExists`, `regex`, `gt`, `gte`, `lt`, `lte`
+**Available condition operators:** `eq`, `neq`, `eqIgnoreCase`, `contains`, `startsWith`, `endsWith`, `in`, `notIn`, `exists`, `notExists`, `regex`, `gt`, `gte`, `lt`, `lte`, `cidr`, `notCidr`, `wildcard`, `notWildcard`. A rule with `match` + `rules` instead of `field`/`operator` is a nested group.
 
 Field paths support dot notation (`extra.userId`) and array indices (`items[0].name`).
 
@@ -595,12 +608,30 @@ auditflow:
     enabled: true
     rules:
       - field: extra.userId
-        strategy: mask       # replace with ***
+        action: mask         # replace with ***
+      - field: extra.email
+        action: hash         # replace with a keyed hash (needs the key below)
       - field: extra.sessionId
-        strategy: drop       # remove field entirely
+        action: drop         # remove the field entirely
 ```
 
 Redaction runs at ingest, before the event is published to the broker — sensitive values never reach it or any downstream sink.
+
+The key of a rule is `action` (`mask`, `hash` or `drop`); a rule without it masks.
+
+**`hash` needs a secret key.** The hash is an HMAC-SHA256 of the value, written as 64 hex characters. A plain, unkeyed hash of an e-mail address, an IP address or a user id can be reversed by hashing candidates; with a key that only AuditFlow holds it cannot.
+
+```bash
+openssl rand -base64 32      # generate a key (at least 32 characters)
+```
+
+Supply it as the environment variable `AUDITFLOW_REDACTION_HASH_KEY`, from a secret and never in a values file: with the Helm chart as `secrets.data.AUDITFLOW_REDACTION_HASH_KEY`, or as a key of the module's external secret.
+
+- If an enabled rule uses `hash` and the key is missing or shorter than 32 characters, the backend does not start. It never falls back to an unkeyed hash.
+- Every replica must have the same key, or the same value gets different hashes.
+- Changing the key changes every hash from then on: values hashed before and after cannot be matched. Keep the key for as long as the hashes must stay comparable.
+- Whoever holds the key can test a guess against a hash. Treat it like a credential; it gives pseudonymisation, not anonymisation.
+- The key is one per deployment and the same for every tenant, like the redaction rules themselves.
 
 ---
 
@@ -608,21 +639,27 @@ Redaction runs at ingest, before the event is published to the broker — sensit
 
 ### Sinks
 
-| Sink | Destination |
-|------|-------------|
-| `logging_sink` | Log output (dev/testing) |
-| `webhook_sink` | HTTP POST to any URL |
-| `syslog_sink` | RFC 5424 syslog |
-| `loki_sink` | Grafana Loki |
-| `opensearch_sink` | OpenSearch / Elasticsearch |
-| `aws_s3_sink` | Amazon S3 |
-| `aws_cloudwatch_sink` | Amazon CloudWatch Logs |
-| `gcs_sink` | Google Cloud Storage |
-| `azure_blob_sink` | Azure Blob Storage |
-| `datadog_sink` | Datadog Logs API |
-| `splunk_sink` | Splunk HTTP Event Collector |
-| `snowflake_sink` | Snowflake (via REST) |
-| `netlicensing_sink` | Labs64 NetLicensing |
+| Sink | Destination | A batch is written as |
+|------|-------------|-----------------------|
+| `logging_sink` | Log output (dev/testing) | one event at a time |
+| `webhook_sink` | HTTP POST to any URL | one event at a time |
+| `syslog_sink` | RFC 5424 syslog | one event at a time |
+| `loki_sink` | Grafana Loki | one push, equal label sets merged |
+| `opensearch_sink` | OpenSearch / Elasticsearch | one `_bulk` request |
+| `aws_s3_sink` | Amazon S3 | one JSON Lines object per partition folder |
+| `aws_cloudwatch_sink` | Amazon CloudWatch Logs | one `PutLogEvents` call |
+| `gcs_sink` | Google Cloud Storage | one JSON Lines object per partition folder |
+| `azure_blob_sink` | Azure Blob Storage | one JSON Lines blob per partition folder |
+| `datadog_sink` | Datadog Logs API | one request, up to 1000 entries |
+| `splunk_sink` | Splunk HTTP Event Collector | one request |
+| `snowflake_sink` | Snowflake (via the Python connector, not bundled) | one connection and one multi-row insert |
+| `clickhouse_sink` | ClickHouse table over the HTTP interface; pair it with the `audit_clickhouse` transformer | one multi-row insert |
+| `postgres_sink` | PostgreSQL table; the event is stored as JSON in an `event_data` column | one multi-row insert in one transaction |
+| `netlicensing_sink` | Labs64 NetLicensing | one event at a time |
+
+The last column applies to pipelines with `batch.enabled: true`. `GET /registry` on the sink service reports the same per sink as `batch: true|false`.
+
+On Kubernetes with the chart's NetworkPolicy enabled, the pod may only reach HTTPS (port 443) outside the platform services. A sink whose destination listens on another port (ClickHouse 8123 or 8443, PostgreSQL 5432, syslog, Splunk HEC 8088, Loki 3100, OpenSearch 9200) needs a matching `networkPolicy.extraEgress` rule in the chart values.
 
 ### Transformers
 
@@ -680,7 +717,7 @@ The [DEVELOPERS.md](DEVELOPERS.md) covers everything for working on AuditFlow lo
 |------|----------------|
 | Java (Temurin) | 25 |
 | Maven | 3.6.3+ |
-| Python | 3.13 |
+| Python | 3.14 |
 | Docker Engine | 24+ |
 | Docker Compose | v2 |
 | `just` | any |

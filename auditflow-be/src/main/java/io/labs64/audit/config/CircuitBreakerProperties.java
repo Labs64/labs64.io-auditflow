@@ -38,6 +38,22 @@ public class CircuitBreakerProperties {
     /** Timeout for the time limiter (should be higher than WebClient timeout). */
     private Duration timeLimiterTimeout = Duration.ofSeconds(15);
 
+    /**
+     * Concurrent calls allowed per transformer/sink target (the Resilience4j bulkhead Spring Cloud
+     * CircuitBreaker wraps every call in; its own default is 25). Keep it at or above the delivery
+     * concurrency ({@code auditflow.delivery.concurrency} x {@code unit-concurrency}); a full bulkhead
+     * defers deliveries without spending an attempt.
+     */
+    private int bulkheadMaxConcurrentCalls = 128;
+
+    public int getBulkheadMaxConcurrentCalls() {
+        return bulkheadMaxConcurrentCalls;
+    }
+
+    public void setBulkheadMaxConcurrentCalls(int bulkheadMaxConcurrentCalls) {
+        this.bulkheadMaxConcurrentCalls = bulkheadMaxConcurrentCalls;
+    }
+
     public boolean isEnabled() {
         return enabled;
     }

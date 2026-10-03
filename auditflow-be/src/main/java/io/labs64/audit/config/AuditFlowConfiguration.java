@@ -41,6 +41,10 @@ public class AuditFlowConfiguration {
         private TransformerProperties transformer;
         private List<TransformerProperties> transformers = new ArrayList<>();
         private SinkProperties sink;
+        /** Per-pipeline delivery retry policy; unset fields take the {@code auditflow.delivery.retry} defaults. */
+        private RetryProperties retry;
+        /** Sink-side batching; off unless {@code batch.enabled}. */
+        private BatchProperties batch;
 
         public String getName() {
             return name;
@@ -104,6 +108,123 @@ public class AuditFlowConfiguration {
         public void setSink(SinkProperties sink) {
             this.sink = sink;
         }
+
+        public RetryProperties getRetry() {
+            return retry;
+        }
+
+        public void setRetry(RetryProperties retry) {
+            this.retry = retry;
+        }
+
+        public BatchProperties getBatch() {
+            return batch;
+        }
+
+        public void setBatch(BatchProperties batch) {
+            this.batch = batch;
+        }
+
+        public boolean isBatchEnabled() {
+            return batch != null && batch.isEnabled();
+        }
+    }
+
+    /**
+     * Delivery retry policy of one pipeline. A delivery is retried with growing delays (seconds up to
+     * hours) until it succeeds, {@code maxAttempts} failed attempts are used up, or {@code maxAge} has
+     * passed since the router first enqueued it; then it is dead-lettered. Backpressure (rate limit,
+     * concurrency cap) defers a delivery without spending an attempt.
+     */
+    public static class RetryProperties {
+        private Integer maxAttempts;
+        /** ISO-8601 ({@code PT24H}) or a short form: {@code 90s}, {@code 30m}, {@code 24h}, {@code 2d}. */
+        private String maxAge;
+
+        public Integer getMaxAttempts() {
+            return maxAttempts;
+        }
+
+        public void setMaxAttempts(Integer maxAttempts) {
+            if (maxAttempts != null && maxAttempts < 1) {
+                throw new IllegalArgumentException("retry.maxAttempts must be at least 1, got " + maxAttempts);
+            }
+            this.maxAttempts = maxAttempts;
+        }
+
+        public String getMaxAge() {
+            return maxAge;
+        }
+
+        public void setMaxAge(String maxAge) {
+            if (maxAge != null) {
+                parseDuration(maxAge); // validate at config load, not on the first failure
+            }
+            this.maxAge = maxAge;
+        }
+
+        public java.time.Duration maxAgeDuration() {
+            return maxAge == null ? null : parseDuration(maxAge);
+        }
+
+        static java.time.Duration parseDuration(String value) {
+            String v = value.trim();
+            java.time.Duration d;
+            try {
+                if (v.toUpperCase().startsWith("P")) {
+                    d = java.time.Duration.parse(v.toUpperCase());
+                } else {
+                    var m = java.util.regex.Pattern.compile("^(\\d+)([smhd])$").matcher(v.toLowerCase());
+                    if (!m.matches()) {
+                        throw new IllegalArgumentException();
+                    }
+                    long n = Long.parseLong(m.group(1));
+                    d = switch (m.group(2)) {
+                        case "s" -> java.time.Duration.ofSeconds(n);
+                        case "m" -> java.time.Duration.ofMinutes(n);
+                        case "h" -> java.time.Duration.ofHours(n);
+                        default -> java.time.Duration.ofDays(n);
+                    };
+                }
+            } catch (RuntimeException e) {
+                throw new IllegalArgumentException("retry.maxAge '" + value
+                        + "' is not a duration (use PT24H, 90s, 30m, 24h or 2d)");
+            }
+            if (d.isNegative() || d.isZero()) {
+                throw new IllegalArgumentException("retry.maxAge must be positive, got '" + value + "'");
+            }
+            return d;
+        }
+    }
+
+    /**
+     * Sink-side batching of one pipeline: the delivery worker hands the sink up to {@code maxSize}
+     * events of this pipeline in one call (sink {@code /sink/<id>/batch}). A batch closes when it is
+     * full or when the worker's receive window ends ({@code auditflow.delivery.batch-receive-timeout}),
+     * so latency stays bounded under light load.
+     */
+    public static class BatchProperties {
+        private boolean enabled;
+        private int maxSize = 100;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public int getMaxSize() {
+            return maxSize;
+        }
+
+        public void setMaxSize(int maxSize) {
+            if (maxSize < 1 || maxSize > 1000) {
+                throw new IllegalArgumentException("batch.maxSize must be between 1 and 1000, got " + maxSize);
+            }
+            this.maxSize = maxSize;
+        }
     }
 
     /**
@@ -148,14 +269,46 @@ public class AuditFlowConfiguration {
         private String field;
 
         /**
-         * Comparison operator: eq, neq, gt, gte, lt, lte, contains, startsWith, endsWith, in, notIn, exists, regex
+         * Comparison operator: eq, neq, gt, gte, lt, lte, contains, startsWith, endsWith, in, notIn,
+         * exists, notExists, regex, eqIgnoreCase, cidr, notCidr, wildcard, notWildcard
          */
         private String operator;
 
         /**
-         * Value(s) to compare against. For 'in' and 'notIn' operators, use comma-separated values.
+         * Value(s) to compare against. For 'in', 'notIn', 'cidr', 'notCidr', 'wildcard' and
+         * 'notWildcard', use comma-separated values.
          */
         private String value;
+
+        /** Nested group: how {@link #rules} combine ("all" default, or "any"). Set together with rules. */
+        private String match;
+
+        /**
+         * Nested group: when non-empty this rule is a group of rules instead of a comparison, and
+         * field/operator/value are ignored (e.g. {@code A and (B or C)}).
+         */
+        private List<ConditionRule> rules;
+
+        public String getMatch() {
+            return match;
+        }
+
+        public void setMatch(String match) {
+            this.match = match;
+        }
+
+        public List<ConditionRule> getRules() {
+            return rules;
+        }
+
+        public void setRules(List<ConditionRule> rules) {
+            this.rules = rules;
+        }
+
+        @com.fasterxml.jackson.annotation.JsonIgnore
+        public boolean isGroup() {
+            return rules != null && !rules.isEmpty();
+        }
 
         public String getField() {
             return field;

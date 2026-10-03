@@ -9,7 +9,9 @@ import gzip
 from datetime import datetime, timezone
 import uuid
 
-__version__ = "1.0.0"
+from auditflow_sdk import batch_object_name, event_datetime, jsonl_body
+
+__version__ = "1.1.0"
 
 PROPERTIES = {
     "container": "Azure Blob Storage container name (required)",
@@ -159,6 +161,72 @@ def process(event_data: dict, properties: dict) -> dict:
         raise RuntimeError(f"Unexpected error: {e}")
 
 
+def process_batch(events: list, properties: dict) -> list:
+    """Write a batch of events as one JSON Lines blob per folder.
+
+    Events that share a folder (the same date partition) go into ONE blob, so a batch costs one
+    upload instead of one per event. The blob name is the earliest event time plus a hash of the
+    group's event ids: re-delivering the same group overwrites the same blob. A different grouping
+    on redelivery can repeat an event in a second blob, so readers de-duplicate by ``eventId``.
+    """
+    if BlobServiceClient is None:
+        raise RuntimeError("azure-storage-blob library is required. Install with: pip install azure-storage-blob")
+    container_name = properties.get('container')
+    if not container_name:
+        raise ValueError("Missing required property: 'container'")
+    connection_string = properties.get('connection-string')
+    account_name = properties.get('account-name')
+    account_key = properties.get('account-key')
+    if not connection_string and not (account_name and account_key):
+        raise ValueError("Either 'connection-string' or both 'account-name' and 'account-key' are required")
+    prefix = properties.get('prefix', 'auditflow/')
+    compress = properties.get('compress', 'false').lower() == 'true'
+    partition_by_date = properties.get('partition-by-date', 'true').lower() == 'true'
+    partition_format = properties.get('partition-format', 'year=%Y/month=%m/day=%d/')
+
+    try:
+        if connection_string:
+            blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+        else:
+            blob_service_client = BlobServiceClient(
+                account_url=f"https://{account_name}.blob.core.windows.net", credential=account_key)
+        container_client = blob_service_client.get_container_client(container_name)
+        if not container_client.exists():
+            logger.info("Creating container: %s", container_name)
+            container_client.create_container()
+    except Exception as e:  # noqa: BLE001 - nothing was written: every event failed
+        logger.error("Failed to open Azure container '%s': %s", container_name, e)
+        return [RuntimeError(f"Failed to upload to Azure Blob Storage container '{container_name}': {e}")] * len(events)
+
+    groups = {}
+    for index, event in enumerate(events):
+        name = build_blob_name(prefix, partition_by_date, partition_format, compress, event)
+        groups.setdefault(name.rsplit('/', 1)[0], []).append(index)
+
+    outcomes = [None] * len(events)
+    for folder, indexes in groups.items():
+        group = [events[i] for i in indexes]
+        blob_name = f"{folder}/{batch_object_name(group, compress)}"
+        body = jsonl_body(group, compress)
+        try:
+            container_client.get_blob_client(blob_name).upload_blob(
+                body,
+                overwrite=True,
+                content_settings=ContentSettings(
+                    content_type='application/gzip' if compress else 'application/x-ndjson'),
+                metadata={'event_count': str(len(group))},
+            )
+            logger.info("Uploaded batch of %d event(s) to Azure Blob Storage: %s/%s",
+                        len(group), container_name, blob_name)
+            result = {"sent": True, "destination": "azure_blob", "container": container_name, "blob": blob_name}
+        except Exception as e:  # noqa: BLE001 - the group's upload failed: every event in it failed
+            logger.error("Failed to upload batch blob %s/%s: %s", container_name, blob_name, e)
+            result = RuntimeError(f"Failed to upload to Azure Blob Storage container '{container_name}': {e}")
+        for i in indexes:
+            outcomes[i] = result
+    return outcomes
+
+
 def build_blob_name(
     prefix: str,
     partition_by_date: bool,
@@ -169,15 +237,19 @@ def build_blob_name(
     """Build blob name with optional date partitioning."""
     name_parts = [prefix.rstrip('/')]
 
+    # The event's own receipt time, not the upload time: a redelivered event then gets the same
+    # name and rewrites its blob instead of adding a copy.
+    now = event_datetime(event_data)
+
     # Add date partition
     if partition_by_date:
-        date_part = datetime.now(timezone.utc).strftime(partition_format)
+        date_part = now.strftime(partition_format)
         name_parts.append(date_part.rstrip('/'))
 
     # One object per event: the full eventId makes the name unique. A shortened id is not: with
     # time-ordered ids (UUIDv7) every event of the same second shares its first characters.
     event_id = event_data.get('eventId', str(uuid.uuid4()))
-    timestamp = datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')
+    timestamp = now.strftime('%Y%m%d-%H%M%S')
 
     extension = 'json'
     if compress:

@@ -1,17 +1,18 @@
-fastapi==0.141.1
+fastapi==0.142.2
 uvicorn==0.54.0
 
 requests==2.34.2
 python-multipart==0.0.32
 
 # AWS sinks
-boto3==1.43.98
+boto3==1.43.108
 
 # Google Cloud sinks
-google-cloud-storage==3.14.1
+google-cloud-storage==3.16.0
 
 # Azure sinks
-azure-storage-blob==12.30.3
+azure-storage-blob==12.31.0
 
 # Database sinks
 psycopg[binary]==3.3.6
+cryptography==50.0.2  # Ed25519 signatures of archive digest records (integrity.py)

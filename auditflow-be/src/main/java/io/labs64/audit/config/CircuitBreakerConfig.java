@@ -51,4 +51,20 @@ public class CircuitBreakerConfig {
                         .build())
                 .build());
     }
+
+    /** Bulkhead per transformer/sink target, sized to the delivery concurrency (see CircuitBreakerProperties). */
+    @Bean
+    @ConditionalOnProperty(prefix = "auditflow.circuitbreaker", name = "enabled", havingValue = "true", matchIfMissing = true)
+    public Customizer<org.springframework.cloud.circuitbreaker.resilience4j.ReactiveResilience4jBulkheadProvider> defaultBulkheadCustomizer(
+            CircuitBreakerProperties properties) {
+        log.info("Bulkhead configured — maxConcurrentCalls per target: {}", properties.getBulkheadMaxConcurrentCalls());
+        return provider -> provider.configureDefault(id ->
+                new org.springframework.cloud.circuitbreaker.resilience4j.Resilience4jBulkheadConfigurationBuilder()
+                        .bulkheadConfig(io.github.resilience4j.bulkhead.BulkheadConfig.custom()
+                                .maxConcurrentCalls(properties.getBulkheadMaxConcurrentCalls())
+                                .maxWaitDuration(java.time.Duration.ZERO)
+                                .build())
+                        .threadPoolBulkheadConfig(io.github.resilience4j.bulkhead.ThreadPoolBulkheadConfig.ofDefaults())
+                        .build());
+    }
 }

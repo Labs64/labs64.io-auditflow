@@ -5,11 +5,10 @@ Documentation    Pipeline condition-operator correctness (item 12), asserted ent
 ...              Mechanism: every ``probe_*`` pipeline in the dedicated ``t_regression`` tenant
 ...              (see ``overrides/auditflow/values.local.yaml`` in labs64.io-helm-charts) is
 ...              deliberately broken via a ``${secretRef:...}`` that never resolves, so a probe
-...              whose condition matches an event fails that event's delivery — and because a
-...              DLQ entry is per EVENT (not per failing pipeline; AuditService fans one event
-...              out to every matching pipeline and dead-letters the whole event once if any of
-...              them fails retryably), a match is observable as the tenant's DLQ count rising by
-...              exactly one, and a non-match leaves it unchanged. Each probe is ANDed with a
+...              whose condition matches an event fails that pipeline's delivery — and because
+...              each failed pipeline delivery is one DLQ entry (the probes set
+...              retry.maxAttempts: 1, so it is written at once), a match is observable as the
+...              tenant's DLQ count rising by exactly one, and a non-match leaves it unchanged. Each probe is ANDed with a
 ...              unique ``extra.op`` value so at most one probe can ever match a given test
 ...              event — cross-talk between operators is structurally impossible, not just
 ...              unlikely.

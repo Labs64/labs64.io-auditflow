@@ -24,10 +24,9 @@ spring:
           group: labs64.io-auditflow
           content-type: application/json
           consumer:
-            # Consumer threads per pod. An event mostly waits on transformer/sink I/O (an S3 PUT is
-            # ~100-150 ms), so threads, not CPU, bound the rate: ~threads / 0.2 s events/s per pod.
-            # Keep tenants.consumer.max-in-flight-per-tenant at or above it for a single tenant to
-            # use them all.
+            # Router threads per pod (ingest queue). Routing only evaluates conditions and enqueues
+            # delivery messages; the transformer/sink work runs in the delivery stage
+            # (auditflow.delivery.*), so a few threads go a long way.
             concurrency: ${AUDITFLOW_CONSUMER_CONCURRENCY:8}
         quarantine-out-0:
           destination: labs64-audit-quarantine
@@ -61,11 +60,17 @@ spring:
     username: ${RABBITMQ_USERNAME}
     password: ${RABBITMQ_PASSWORD}
     connection-timeout: 10s
+    # End-to-end acknowledgement: every publish waits for the broker's confirm, and an unroutable
+    # message comes back (mandatory) instead of being dropped. A 200 from /audit/publish therefore
+    # means the broker stored the event (ConfirmingPublisher).
+    publisher-confirm-type: correlated
+    publisher-returns: true
     listener:
       simple:
         observation-enabled: true
     template:
       observation-enabled: true
+      mandatory: true
 
   # Redis (idempotency / dedup)
   data:
@@ -100,7 +105,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus,dlq
+        include: health,info,metrics,prometheus,dlq,pipelines
   endpoint:
     health:
       probes:
@@ -183,7 +188,10 @@ tenants:
   ratelimit:
     backend: in-memory       # in-memory (default, single replica) | redis (multi-replica) | none
   consumer:
-    max-in-flight-per-tenant: 4
+    # Deliveries of ONE tenant processed at once per pod (fairness): half of the delivery units
+    # (delivery.concurrency x delivery.unit-concurrency = 64), so a busy tenant can never take a pod
+    # over. A delivery over the cap waits up to max-wait-millis, then is deferred (no attempt spent).
+    max-in-flight-per-tenant: 32
     # A consumer thread over the cap waits this long for a slot before the event is redelivered
     # (each redelivery counts towards the DLQ). Bounded so the thread returns to other tenants.
     max-wait-millis: 2000
@@ -201,7 +209,32 @@ auditflow:
     # stack — see docker-compose.yml — so no external Redis is required).
     store: redis
     claim-ttl: PT5M
-    done-ttl: PT24H
+    # Must outlive the longest delivery retry window (delivery.retry.max-age), or a late duplicate
+    # of a delivery could be delivered twice.
+    done-ttl: PT48H
+  # Broker topology of the two-stage delivery model (delivery/BrokerTopology).
+  broker:
+    # classic (default) or quorum (replicated; for multi-node brokers such as an Amazon MQ cluster).
+    # Applies to the delivery, delay and DLQ queues; changing it needs the queues deleted first.
+    queue-type: ${AUDITFLOW_BROKER_QUEUE_TYPE:classic}
+    # How long a publish waits for the broker's confirm before it counts as failed (503 at ingest).
+    confirm-timeout: PT5S
+  # Delivery stage (delivery/DeliveryWorker): one message per event and pipeline.
+  delivery:
+    enabled: true
+    # Consumers on the delivery queue per pod; each takes up to batch-size messages at a time.
+    concurrency: ${AUDITFLOW_DELIVERY_CONCURRENCY:4}
+    batch-size: ${AUDITFLOW_DELIVERY_BATCH_SIZE:50}
+    # A consumer closes its batch after this long without new messages (latency bound when idle).
+    batch-receive-timeout: PT1S
+    # Deliveries of one received batch run concurrently up to this bound.
+    unit-concurrency: 16
+    # Defaults of the per-pipeline `retry` block in tenant files: retried with growing delays
+    # (5s, 30s, 2m, 10m, 30m, 1h, then every 3h) until delivered, max-attempts failures, or max-age
+    # since routing; then dead-lettered to the tenant's DLQ. Backpressure does not spend attempts.
+    retry:
+      max-attempts: 20
+      max-age: PT24H
   # Retry/backoff for outbound transformer & sink HTTP calls.
   # Only transient failures (5xx, connection/timeout) are retried; 4xx is never retried.
   http:
@@ -211,6 +244,10 @@ auditflow:
       min-backoff: PT0.2S    # grows exponentially with jitter on each subsequent retry
   # PII de-identification applied at ingest, BEFORE publish, so raw PII never enters the broker.
   # Global (not per-pipeline). Field paths use dot/array notation. Disabled by default.
+  # The 'hash' action is an HMAC-SHA256 under a secret key (equal values still give equal hashes).
+  # A rule that uses it needs AUDITFLOW_REDACTION_HASH_KEY (auditflow.redaction.hash-key), at least
+  # 32 characters, from a secret: without it the application does not start. Changing the key
+  # changes every hash from then on.
   redaction:
     enabled: false
     mask: "***"
@@ -239,6 +276,8 @@ auditflow:
     slow-call-rate-threshold: 100.0
     slow-call-duration-threshold: PT2S
     time-limiter-timeout: PT15S
+    # Concurrent calls per transformer/sink target; >= delivery concurrency x unit-concurrency.
+    bulkhead-max-concurrent-calls: 128
 
 # Pipeline examples (uncomment and adjust):
 #  pipelines:

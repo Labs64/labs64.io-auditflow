@@ -39,9 +39,10 @@ class GlobalExceptionHandlerTest {
 
     @BeforeEach
     void setup() {
-        AuditEventController controller = new AuditEventController(publisherService, tenantGate);
         ObjectMapper mapper = new ObjectMapper();
         mapper.registerModule(new JavaTimeModule());
+        AuditEventController controller = new AuditEventController(publisherService, tenantGate, mapper,
+                jakarta.validation.Validation.buildDefaultValidatorFactory().getValidator());
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(mapper))

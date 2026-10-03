@@ -30,6 +30,24 @@ public interface AuditFlowClient {
     /** Publishes without blocking with options scoped to this request. */
     CompletableFuture<PublishResult> publishAsync(AuditEvent event, AuditFlowRequestOptions options);
 
+    /**
+     * Publishes many events through {@code POST /audit/publish/batch} (100 per request), blocking until
+     * every event is accepted or finally rejected. Events get their {@code eventId} before the first
+     * attempt, so retries never create duplicates. Transport errors and HTTP 503 retry the request;
+     * entries the server rejects with {@code TENANT_RATE_LIMITED} or {@code PUBLISH_FAILED} are sent
+     * again (after {@code Retry-After} or the policy's backoff, whichever is longer), up to the retry
+     * policy's attempts. Throws {@link io.labs64.auditflow.client.exception.AuditFlowException} only
+     * when a whole request is refused (e.g. 401, 403, 400) or keeps failing in transport.
+     */
+    default BatchResult publishBatch(java.util.List<AuditEvent> events) {
+        return publishBatch(events, AuditFlowRequestOptions.empty());
+    }
+
+    /** {@link #publishBatch(java.util.List)} with options scoped to its requests. */
+    default BatchResult publishBatch(java.util.List<AuditEvent> events, AuditFlowRequestOptions options) {
+        throw new UnsupportedOperationException("publishBatch is not supported by this client");
+    }
+
     /** Publishes without blocking and never throws into the caller; failures go to the configured error handler. */
     void fireAndForget(AuditEvent event);
 

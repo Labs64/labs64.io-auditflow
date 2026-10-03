@@ -10,6 +10,11 @@ Drop `mysink.py` into `sinks/` (or `sinks_bootstrap/` at runtime) implementing
 `process(event_data: dict, properties: dict) -> dict` — see
 [DEVELOPERS.md](../DEVELOPERS.md#adding-a-new-sink) for the full walkthrough.
 
+A sink whose destination takes many records per request can also define
+`process_batch(events: list, properties: dict) -> list`, used for pipelines with `batch.enabled`. It
+returns one outcome per event; see
+[Writing a batch in one call](../DEVELOPERS.md#writing-a-batch-in-one-call-optional).
+
 **`extra` is an open map — a sink must honour three invariants** (see e.g.
 `auditflow-sink/tests/test_syslog_sink.py`, which exercises exactly this for one sink; there is no
 single cross-module contract test on the sink side the way there is for transformers):

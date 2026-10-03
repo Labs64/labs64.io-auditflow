@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
+from concurrent.futures import ThreadPoolExecutor
 import sys
 import os
 import logging
@@ -143,11 +144,127 @@ async def sink(
         )
 
 
+MAX_BATCH_EVENTS = 1000
+
+
+def _resolve_sink(sink_id: str):
+    if not VALID_ID.fullmatch(sink_id):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid sink ID '{sink_id}'. Only alphanumeric characters and underscores are allowed."
+        )
+    try:
+        return registry.resolve(sink_id)
+    except PluginNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Sink '{sink_id}' is not available. See GET /sinks for the registered sinks."
+        )
+
+
+# A sink without process_batch gets the events of a batch through process(), a few at a time. One by
+# one, a batch of 100 events at 150 ms each would outlast the backend's timeout for the call: the
+# backend would then retry a batch the sink is still delivering.
+FALLBACK_BATCH_WORKERS = 8
+
+
+def _batch_function(process_function):
+    """The sink module's ``process_batch``, or None when it only has ``process``."""
+    module = sys.modules.get(getattr(process_function, "__module__", ""), None)
+    process_batch = getattr(module, "process_batch", None) if module else None
+    return process_batch if callable(process_batch) else None
+
+
+def _process_each(process_function, events, properties):
+    def one(event):
+        try:
+            return process_function(event, properties)
+        except Exception as e:  # noqa: BLE001 - reported per event
+            return e
+
+    if len(events) == 1:
+        return [one(events[0])]
+    with ThreadPoolExecutor(max_workers=min(FALLBACK_BATCH_WORKERS, len(events)),
+                            thread_name_prefix="sink-batch") as pool:
+        return list(pool.map(one, events))
+
+
+def _run_batch(process_function, events, properties):
+    """Deliver a batch, returning one result dict per event (same order).
+
+    A sink module may provide ``process_batch(events, properties)`` returning one entry per event:
+    ``None``/a result dict for success, or an ``Exception`` for that event's failure. Without it,
+    events go through ``process``, a few at a time. A failure is retryable unless it is a
+    ``ValueError`` (bad data or configuration: retrying the same input cannot succeed).
+    """
+    process_batch = _batch_function(process_function)
+    if process_batch is not None:
+        outcomes = process_batch(events, properties)
+        if not isinstance(outcomes, list) or len(outcomes) != len(events):
+            raise RuntimeError("process_batch must return one outcome per event")
+    else:
+        outcomes = _process_each(process_function, events, properties)
+    results = []
+    for i, outcome in enumerate(outcomes):
+        if isinstance(outcome, Exception):
+            app_logger.error("Batch event %d failed: %s", i, outcome)
+            results.append({"index": i, "status": "error", "retryable": not isinstance(outcome, ValueError),
+                            "error": str(outcome)[:500]})
+        else:
+            results.append({"index": i, "status": "success"})
+    return results
+
+
+@app.post('/sink/{sink_id}/batch')
+async def sink_batch(
+        sink_id: str,
+        request_body: dict
+):
+    """
+    Send several transformed events to a sink in one call, with a result per event.
+
+    Body: ``{"events": [...], "properties": {...}}``. A whole-call error (unknown sink, the sink
+    raising for the batch as a whole) is a 4xx/5xx like the single-event endpoint; per-event failures
+    are reported in ``results`` with ``retryable`` so the caller retries only what can succeed.
+    """
+    try:
+        process_function = _resolve_sink(sink_id)
+        events = request_body.get("events")
+        if not isinstance(events, list) or not events:
+            raise HTTPException(status_code=400, detail="'events' must be a non-empty list")
+        if len(events) > MAX_BATCH_EVENTS:
+            raise HTTPException(status_code=400, detail=f"At most {MAX_BATCH_EVENTS} events per batch")
+        properties = request_body.get("properties", {})
+        app_logger.info("Processing batch of %d event(s) through sink '%s'", len(events), sink_id)
+        # Blocking I/O: run in the thread pool, never on the event loop.
+        results = await run_in_threadpool(_run_batch, process_function, events, properties)
+        failed = sum(1 for r in results if r["status"] != "success")
+        business_telemetry.sink_completed(sink_id, failed == 0)
+        return JSONResponse(content={"status": "success" if failed == 0 else "partial", "sink": sink_id,
+                                     "results": results}, status_code=200)
+    except HTTPException:
+        raise
+    except Exception as e:
+        app_logger.error("An unexpected error occurred in sink batch endpoint: %s", e, exc_info=True)
+        business_telemetry.sink_completed(sink_id, False)
+        raise HTTPException(
+            status_code=500,
+            detail=f"An unexpected error occurred while processing a batch through sink '{sink_id}': {e}"
+        )
+
+
 @app.get('/registry')
 async def registry_details():
-    """Detailed registry view: per-sink version, description, and documented properties. Also doubles as the container healthcheck."""
+    """Detailed registry view: per-sink version, description, documented properties, and whether the
+    sink writes a batch in one call (``batch``). Also doubles as the container healthcheck."""
+    sinks = registry.details()
+    for entry in sinks:
+        try:
+            entry["batch"] = _batch_function(registry.resolve(entry["id"])) is not None
+        except PluginNotFoundError:
+            entry["batch"] = False
     return JSONResponse(
-        content={"sinks": registry.details(), "errors": registry.errors()},
+        content={"sinks": sinks, "errors": registry.errors()},
         status_code=200
     )
 

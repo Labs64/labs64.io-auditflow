@@ -49,4 +49,12 @@ class DeliveryErrorsTest {
         PoisonDeliveryException poison = new PoisonDeliveryException("already poison");
         assertSame(poison, DeliveryErrors.classify("ctx", poison));
     }
+
+    @org.junit.jupiter.api.Test
+    void aFullBulkheadIsThrottlingNotAFailure() {
+        var full = io.github.resilience4j.bulkhead.BulkheadFullException.createBulkheadFullException(
+                io.github.resilience4j.bulkhead.Bulkhead.ofDefaults("sink:x"));
+        RuntimeException mapped = DeliveryErrors.classify("Failed to send event to sink", full);
+        org.junit.jupiter.api.Assertions.assertInstanceOf(io.labs64.audit.exception.ThrottledDeliveryException.class, mapped);
+    }
 }

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.labs64.audit.config.HttpRetryProperties;
+import io.labs64.audit.exception.RetryableDeliveryException;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.netty.channel.ChannelOption;
 import org.slf4j.Logger;
@@ -19,6 +20,8 @@ import reactor.netty.resources.ConnectionProvider;
 import reactor.util.retry.Retry;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -113,7 +116,84 @@ public class SinkService {
 
         logger.trace("Sending event to sink '{}' at URL '{}'", sinkName, sinkUrl);
 
-        WebClient client = webClientCache.computeIfAbsent(sinkUrl, u -> {
+        WebClient client = client(sinkUrl);
+
+        Mono<String> response = client.post()
+                .uri("/sink/" + sinkName)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(requestBody.toString())
+                .retrieve()
+                .bodyToMono(String.class);
+        return guarded(response, sinkUrl, sinkName);
+    }
+
+    /** Outcome of one event in a batch sink call. */
+    public record EntryResult(boolean success, boolean retryable, String error) {
+        public static final EntryResult OK = new EntryResult(true, false, null);
+    }
+
+    /**
+     * Send several events to a sink in ONE call ({@code POST /sink/<name>/batch}). The sink answers
+     * per event; a whole-call failure (transport, 5xx, open circuit) is classified like a single send
+     * and surfaces as an error signal for the caller to apply to every entry.
+     */
+    public Mono<List<EntryResult>> sendBatchToSink(List<JsonNode> events, String sinkName, Map<String, String> properties) {
+        if (sinkName == null || !sinkName.matches("^[a-zA-Z0-9_]+$")) {
+            throw new IllegalArgumentException("Invalid sink name: '" + sinkName
+                    + "'. Only alphanumeric characters and underscores are allowed.");
+        }
+        String sinkUrl = sinkDiscovery.getSinkUrl();
+        if (sinkUrl == null || sinkUrl.isEmpty()) {
+            throw new IllegalStateException("Sink service URL is empty or null");
+        }
+        ObjectNode requestBody = objectMapper.createObjectNode();
+        var array = requestBody.putArray("events");
+        events.forEach(array::add);
+        ObjectNode propertiesNode = requestBody.putObject("properties");
+        if (properties != null) {
+            properties.forEach(propertiesNode::put);
+        }
+        Mono<String> response = client(sinkUrl).post()
+                .uri("/sink/" + sinkName + "/batch")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(requestBody.toString())
+                .retrieve()
+                .bodyToMono(String.class);
+        return guarded(response, sinkUrl, sinkName)
+                .map(body -> parseBatchResults(body, events.size()))
+                .doOnNext(results -> logger.info("Batch of {} event(s) sent to sink '{}'", events.size(), sinkName))
+                .onErrorMap(e -> {
+                    logger.error("Failed to send batch to sink '{}' at '{}': {}", sinkName, sinkUrl, e.getMessage());
+                    return DeliveryErrors.classify("Failed to send batch to sink", e);
+                });
+    }
+
+    private List<EntryResult> parseBatchResults(String body, int expected) {
+        JsonNode root;
+        try {
+            root = objectMapper.readTree(body);
+        } catch (Exception e) {
+            throw new RetryableDeliveryException("Sink batch response is not JSON: " + e.getMessage(), e);
+        }
+        JsonNode results = root.path("results");
+        if (!results.isArray() || results.size() != expected) {
+            // Without a result per event nothing can be marked delivered: retry the whole batch.
+            throw new RetryableDeliveryException("Sink batch response has " + results.size()
+                    + " result(s) for " + expected + " event(s)");
+        }
+        List<EntryResult> out = new ArrayList<>(expected);
+        for (JsonNode r : results) {
+            if ("success".equals(r.path("status").asText())) {
+                out.add(EntryResult.OK);
+            } else {
+                out.add(new EntryResult(false, r.path("retryable").asBoolean(true), r.path("error").asText("sink error")));
+            }
+        }
+        return out;
+    }
+
+    private WebClient client(String sinkUrl) {
+        return webClientCache.computeIfAbsent(sinkUrl, u -> {
             ConnectionProvider provider = ConnectionProvider.builder("sink-pool")
                     .maxConnections(500)
                     .pendingAcquireMaxCount(-1)
@@ -131,14 +211,9 @@ public class SinkService {
                     .baseUrl(u)
                     .build();
         });
+    }
 
-        Mono<String> response = client.post()
-                .uri("/sink/" + sinkName)
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(requestBody.toString())
-                .retrieve()
-                .bodyToMono(String.class);
-
+    private Mono<String> guarded(Mono<String> response, String sinkUrl, String sinkName) {
         // Retry transient failures (5xx, transport errors) before the error is mapped/wrapped,
         // so the retry filter can inspect the original WebClient exception type.
         Mono<String> withRetry = retrySpec != null ? response.retryWhen(retrySpec) : response;

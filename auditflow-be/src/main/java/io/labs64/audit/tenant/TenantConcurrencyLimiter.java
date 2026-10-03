@@ -25,7 +25,7 @@ public class TenantConcurrencyLimiter {
 
     @Autowired
     public TenantConcurrencyLimiter(
-            @Value("${tenants.consumer.max-in-flight-per-tenant:4}") int maxInFlight,
+            @Value("${tenants.consumer.max-in-flight-per-tenant:32}") int maxInFlight,
             @Value("${tenants.consumer.max-wait-millis:2000}") long maxWaitMillis) {
         this.maxInFlight = Math.max(1, maxInFlight);
         this.maxWaitMillis = Math.max(0, maxWaitMillis);
