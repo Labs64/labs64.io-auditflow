@@ -1,6 +1,8 @@
 FROM python:3.14-alpine
 
 ARG GIT_REVISION=unknown
+# Release version (the git tag) for a published image, "edge" for master builds, "dev" locally.
+ARG VERSION=dev
 
 LABEL org.opencontainers.image.title="Labs64.IO :: AuditFlow - Transformer Service" \
       org.opencontainers.image.description="Pluggable event transformer service for AuditFlow" \
@@ -8,6 +10,7 @@ LABEL org.opencontainers.image.title="Labs64.IO :: AuditFlow - Transformer Servi
       org.opencontainers.image.source="https://github.com/Labs64/labs64.io-auditflow" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.revision="${GIT_REVISION}" \
+      org.opencontainers.image.version="${VERSION}" \
       io.labs64.edition="ce"
 
 # Define build arguments

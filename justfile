@@ -109,9 +109,9 @@ test: test-api test-be test-transformer test-sink test-e2e
 test-api:
     mvn -B verify --file auditflow-api/pom.xml
 
-# Run Java backend unit tests
+# Run Java backend unit tests (reactor build: the API client comes from this checkout)
 test-be:
-    mvn -B verify --file auditflow-be/pom.xml
+    mvn -B verify -pl auditflow-be -am
 
 # Run Python transformer tests
 test-transformer:

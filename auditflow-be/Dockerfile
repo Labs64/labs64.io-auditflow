@@ -1,6 +1,8 @@
 FROM eclipse-temurin:25-jre
 
 ARG GIT_REVISION=unknown
+# Release version (the git tag) for a published image, "edge" for master builds, "dev" locally.
+ARG VERSION=dev
 
 LABEL org.opencontainers.image.title="Labs64.IO :: AuditFlow" \
       org.opencontainers.image.description="Scalable audit logging backend for modern microservices" \
@@ -8,6 +10,7 @@ LABEL org.opencontainers.image.title="Labs64.IO :: AuditFlow" \
       org.opencontainers.image.source="https://github.com/Labs64/labs64.io-auditflow" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.revision="${GIT_REVISION}" \
+      org.opencontainers.image.version="${VERSION}" \
       io.labs64.edition="ce"
 
 # Define build arguments
@@ -24,6 +27,7 @@ RUN apt-get update && apt-get install -y wget && rm -rf /var/lib/apt/lists/* && 
 # OpenTelemetry Java Agent — bundled but inert. Deployment config enables it via
 # JAVA_TOOL_OPTIONS=-javaagent:/otel/opentelemetry-javaagent.jar (observability is an
 # infrastructure concern; same image runs with and without it).
+# renovate: datasource=github-releases depName=open-telemetry/opentelemetry-java-instrumentation extractVersion=^v(?<version>.*)$
 ARG OTEL_JAVAAGENT_VERSION=2.32.0
 ADD https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${OTEL_JAVAAGENT_VERSION}/opentelemetry-javaagent.jar /otel/opentelemetry-javaagent.jar
 RUN chmod 444 /otel/opentelemetry-javaagent.jar
