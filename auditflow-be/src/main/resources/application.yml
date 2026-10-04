@@ -14,9 +14,8 @@ spring:
     stream:
       default-binder: rabbit
       bindings:
-        audit-out-0:
-          destination: labs64-audit-topic
-          content-type: application/json
+        # Ingest is published by AuditPublisherService through ConfirmingPublisher (broker confirm),
+        # not through a binder output binding; the consumer binding below declares the exchange.
         audit-in-0:
           destination: labs64-audit-topic
           # Named group → durable queue survives restarts; required for autoBindDlq / republishToDlq
@@ -31,15 +30,15 @@ spring:
         quarantine-out-0:
           destination: labs64-audit-quarantine
           content-type: application/json
+          producer:
+            # Durable queue labs64-audit-quarantine.quarantine, bound to the exchange. Without a
+            # bound queue the broker drops every quarantined event (the exchange routes nowhere).
+            required-groups: quarantine
       binders:
         rabbit:
           type: rabbit
       rabbit:
         bindings:
-          audit-out-0:
-            producer:
-              exchangeType: topic
-              routing-key-expression: headers['routingKey']
           audit-in-0:
             consumer:
               autoBindDlq: true
@@ -136,9 +135,6 @@ management:
       application: ${spring.application.name}
   prometheus:
     metrics:
-    distribution:
-      percentiles-histogram:
-        http.server.requests: true
       export:
         enabled: true
 
@@ -192,8 +188,8 @@ tenants:
     # (delivery.concurrency x delivery.unit-concurrency = 64), so a busy tenant can never take a pod
     # over. A delivery over the cap waits up to max-wait-millis, then is deferred (no attempt spent).
     max-in-flight-per-tenant: 32
-    # A consumer thread over the cap waits this long for a slot before the event is redelivered
-    # (each redelivery counts towards the DLQ). Bounded so the thread returns to other tenants.
+    # A delivery over the cap waits this long for a slot before it is deferred (parked for the
+    # shortest retry delay, no attempt spent). Bounded so the worker returns to other tenants.
     max-wait-millis: 2000
 secretRef:
   resolver: env              # env (default) | k8s-secret
