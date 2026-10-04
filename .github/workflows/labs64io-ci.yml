@@ -168,7 +168,9 @@ jobs:
   snapshot-api:
     name: Snapshot (io.labs64:auditflow-api)
     needs: [build-api, build-backend, build-transformer, build-sink]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    # A manual run on master publishes too (bootstrapping, or retrying a failed publish).
+    # Never from a branch or a pull request.
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/master'
     uses: Labs64/labs64.io-workspace/.github/workflows/maven-publish.yml@v1
     with:
       working-directory: auditflow-api
