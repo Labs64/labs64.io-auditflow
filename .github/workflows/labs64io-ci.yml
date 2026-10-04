@@ -51,7 +51,7 @@ jobs:
   build-api:
     permissions:
       contents: read
-    uses: Labs64/labs64.io-workspace/.github/workflows/java-ci.yml@master
+    uses: Labs64/labs64.io-workspace/.github/workflows/java-ci.yml@v1
     secrets:
       L64_PUB_CI_USERNAME: ${{ secrets.L64_PUB_CI_USERNAME }}
       L64_PUB_CI_PASSWORD: ${{ secrets.L64_PUB_CI_PASSWORD }}
@@ -66,13 +66,12 @@ jobs:
   build-backend:
     permissions:
       contents: write
-    uses: Labs64/labs64.io-workspace/.github/workflows/java-ci.yml@master
+    uses: Labs64/labs64.io-workspace/.github/workflows/java-ci.yml@v1
     secrets:
       L64_PUB_CI_USERNAME: ${{ secrets.L64_PUB_CI_USERNAME }}
       L64_PUB_CI_PASSWORD: ${{ secrets.L64_PUB_CI_PASSWORD }}
     with:
       working-directory: .
-      java-version: "25"
       maven-goals: -pl auditflow-be -am verify
       artifact-name: backend-test-results
       docker-build-context: auditflow-be
@@ -83,7 +82,7 @@ jobs:
   build-transformer:
     permissions:
       contents: read
-    uses: Labs64/labs64.io-workspace/.github/workflows/python-ci.yml@master
+    uses: Labs64/labs64.io-workspace/.github/workflows/python-ci.yml@v1
     with:
       working-directory: auditflow-transformer
       install-command: pip install -r requirements-dev.txt
@@ -99,7 +98,7 @@ jobs:
   build-sink:
     permissions:
       contents: read
-    uses: Labs64/labs64.io-workspace/.github/workflows/python-ci.yml@master
+    uses: Labs64/labs64.io-workspace/.github/workflows/python-ci.yml@v1
     with:
       working-directory: auditflow-sink
       install-command: pip install -r requirements-dev.txt
@@ -127,23 +126,22 @@ jobs:
     name: Edge image (labs64/auditflow)
     needs: [build-api, build-backend, build-transformer, build-sink]
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-    uses: Labs64/labs64.io-workspace/.github/workflows/docker-publish.yml@master
+    uses: Labs64/labs64.io-workspace/.github/workflows/docker-publish.yml@v1
     with:
       image: labs64/auditflow
       context: ./auditflow-be
       mode: edge
       # The auditflow-be Dockerfile copies target/*.jar, so build the jar first.
-      # Building from auditflow-be's own pom (not the reactor root) resolves
-      # auditflow-api from Nexus, the same way the released image does.
-      build-command: mvn -B -ntp -DskipTests package --file ./auditflow-be/pom.xml
-      java-version: "25"
+      # Reactor build (-am): auditflow-api comes from this same commit, exactly as
+      # the released image is built.
+      build-command: mvn -B -ntp -DskipTests -pl auditflow-be -am package
     secrets: inherit
 
   edge-image-transformer:
     name: Edge image (labs64/auditflow-transformer)
     needs: [build-api, build-backend, build-transformer, build-sink]
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-    uses: Labs64/labs64.io-workspace/.github/workflows/docker-publish.yml@master
+    uses: Labs64/labs64.io-workspace/.github/workflows/docker-publish.yml@v1
     with:
       image: labs64/auditflow-transformer
       context: ./auditflow-transformer
@@ -154,9 +152,26 @@ jobs:
     name: Edge image (labs64/auditflow-sink)
     needs: [build-api, build-backend, build-transformer, build-sink]
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-    uses: Labs64/labs64.io-workspace/.github/workflows/docker-publish.yml@master
+    uses: Labs64/labs64.io-workspace/.github/workflows/docker-publish.yml@v1
     with:
       image: labs64/auditflow-sink
       context: ./auditflow-sink
       mode: edge
+    secrets: inherit
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # auditflow-api snapshot — the Java client other modules resolve while they
+  # develop against unreleased AuditFlow. Published as 0.0.0-SNAPSHOT after a green
+  # master build; the released client is published by the release workflow
+  # (labs64io-docker-publish.yml) at the release tag's version.
+  # ─────────────────────────────────────────────────────────────────────────────
+  snapshot-api:
+    name: Snapshot (io.labs64:auditflow-api)
+    needs: [build-api, build-backend, build-transformer, build-sink]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    uses: Labs64/labs64.io-workspace/.github/workflows/maven-publish.yml@v1
+    with:
+      working-directory: auditflow-api
+      mode: snapshot
+      java-version: "17"
     secrets: inherit

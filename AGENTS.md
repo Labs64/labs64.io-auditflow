@@ -155,8 +155,8 @@ editing either. Invariants to preserve when touching any of this:
 
 Per-service:
 ```bash
-mvn -B clean package -DskipTests --file auditflow-be/pom.xml   # build JAR
-mvn -B verify --file auditflow-be/pom.xml                      # test backend
+mvn -B clean package -DskipTests -pl auditflow-be -am   # build JAR (api + backend from this checkout)
+mvn -B verify -pl auditflow-be -am                      # test backend
 cd auditflow-transformer && just run-local   # uvicorn :8081
 cd auditflow-sink        && just run-local   # uvicorn :8082
 ```
@@ -194,6 +194,8 @@ a unique `extra.op` discriminator so at most one probe can ever match a given te
 ## Conventions
 
 - **Java 25, Maven 3.6.3+** enforced by maven-enforcer-plugin.
+- **Versions and the build parent.** The backend inherits `io.labs64:labs64io-parent` (`labs64.io-commons`): the Spring Boot line, BOM security overrides, shared dependency/plugin versions and the commons libraries all come from that one parent version — never re-pin them here. No pom carries a version (`<version>${revision}</version>`, default `0.0.0-SNAPSHOT`): a release is a GitHub Release whose tag `X.Y.Z` becomes the jar, image and chart `appVersion`. A release build refuses `-SNAPSHOT` inputs, so the parent must point at a released version before tagging.
+  The same release publishes `io.labs64:auditflow-api` at that version (`labs64io-docker-publish.yml`); `auditflow-api` is a standalone pom on purpose (a plain client for Java 17 consumers).
 - **`timestamp` is server-assigned** (`readOnly`) — set in controller, never trust client input.
 - **Credentials from env vars only** — `RABBITMQ_USERNAME`/`RABBITMQ_PASSWORD` have no defaults.
 - Backend tests: JUnit 5 + Spring Boot Test in `auditflow-be/src/test/java/`.

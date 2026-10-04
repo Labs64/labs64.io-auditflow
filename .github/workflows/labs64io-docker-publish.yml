@@ -1,15 +1,20 @@
-name: Labs64.IO - AuditFlow - Publish Docker
+name: Labs64.IO - AuditFlow - Release
 
-# Publishes the three AuditFlow component images to Docker Hub on GitHub Release
-# (image names match the Helm chart repositories):
-#   * auditflow-be          -> labs64/auditflow
-#   * auditflow-transformer -> labs64/auditflow-transformer
-#   * auditflow-sink        -> labs64/auditflow-sink
+# One AuditFlow release = one version, the GitHub Release tag (X.Y.Z), carried by
+# everything this workflow publishes:
+#   * auditflow-be          -> labs64/auditflow               (Docker Hub)
+#   * auditflow-transformer -> labs64/auditflow-transformer   (Docker Hub)
+#   * auditflow-sink        -> labs64/auditflow-sink          (Docker Hub)
+#   * auditflow-api         -> io.labs64:auditflow-api        (Labs64 Nexus)
+# (image names match the Helm chart repositories).
 #
-# All three carry the same version. The chart's appVersion is a single scalar and
-# every image defaults its tag to it, so the three release as one set — if any
-# publish job fails the release is incomplete and must not be propagated to the
-# chart with a partial set of digests.
+# No pom carries a version: the backend jar and the API client are built from the
+# tagged commit with -Drevision=<tag>. That build refuses any -SNAPSHOT parent or
+# dependency, so pin a released io.labs64:labs64io-parent before releasing.
+#
+# The chart's appVersion is a single scalar and every image defaults its tag to it,
+# so the artifacts release as one set — if any publish job fails the release is
+# incomplete and must not be propagated to the chart with a partial set of digests.
 #
 # The test jobs are repeated here rather than assumed from labs64io-ci.yml: a
 # release can be cut from any tag, including a commit that never ran CI.
@@ -27,21 +32,19 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────────
   test-backend:
     name: Test backend (Java)
-    # working-directory is auditflow-be rather than the reactor root so the gate
-    # resolves auditflow-api exactly the way the published image does (from Nexus,
-    # not from a locally built sibling).
-    uses: Labs64/labs64.io-workspace/.github/workflows/java-ci.yml@master
+    # Reactor build (-am), exactly like the published image: auditflow-api comes
+    # from this same tagged commit, not from whatever snapshot Nexus holds.
+    uses: Labs64/labs64.io-workspace/.github/workflows/java-ci.yml@v1
     with:
-      working-directory: auditflow-be
-      java-version: "25"
-      maven-goals: verify
+      working-directory: .
+      maven-goals: -pl auditflow-be -am verify
     secrets:
       L64_PUB_CI_USERNAME: ${{ secrets.L64_PUB_CI_USERNAME }}
       L64_PUB_CI_PASSWORD: ${{ secrets.L64_PUB_CI_PASSWORD }}
 
   test-transformer:
     name: Test transformer (Python)
-    uses: Labs64/labs64.io-workspace/.github/workflows/python-ci.yml@master
+    uses: Labs64/labs64.io-workspace/.github/workflows/python-ci.yml@v1
     with:
       working-directory: auditflow-transformer
       cache-dependency-path: |
@@ -50,7 +53,7 @@ jobs:
 
   test-sink:
     name: Test sink (Python)
-    uses: Labs64/labs64.io-workspace/.github/workflows/python-ci.yml@master
+    uses: Labs64/labs64.io-workspace/.github/workflows/python-ci.yml@v1
     with:
       working-directory: auditflow-sink
       cache-dependency-path: |
@@ -63,22 +66,22 @@ jobs:
   publish-be:
     name: Build & Push Backend image (labs64/auditflow)
     needs: [test-backend, test-transformer, test-sink]
-    uses: Labs64/labs64.io-workspace/.github/workflows/docker-publish.yml@master
+    uses: Labs64/labs64.io-workspace/.github/workflows/docker-publish.yml@v1
     with:
       image: labs64/auditflow
       context: ./auditflow-be
       mode: release
       version: ${{ github.event.release.tag_name }}
       # The auditflow-be Dockerfile copies target/*.jar, so build the jar first.
-      build-command: mvn -B -ntp -DskipTests package --file ./auditflow-be/pom.xml
-      java-version: "25"
+      # docker-publish.yml adds -Drevision=<version>, so the jar carries the tag.
+      build-command: mvn -B -ntp -DskipTests -pl auditflow-be -am package
     secrets: inherit
 
   publish-transformer:
     name: Build & Push Transformer image (labs64/auditflow-transformer)
     needs: [test-backend, test-transformer, test-sink]
     # Self-contained Python image — no pre-build step needed.
-    uses: Labs64/labs64.io-workspace/.github/workflows/docker-publish.yml@master
+    uses: Labs64/labs64.io-workspace/.github/workflows/docker-publish.yml@v1
     with:
       image: labs64/auditflow-transformer
       context: ./auditflow-transformer
@@ -89,12 +92,25 @@ jobs:
   publish-sink:
     name: Build & Push Sink image (labs64/auditflow-sink)
     needs: [test-backend, test-transformer, test-sink]
-    uses: Labs64/labs64.io-workspace/.github/workflows/docker-publish.yml@master
+    uses: Labs64/labs64.io-workspace/.github/workflows/docker-publish.yml@v1
     with:
       image: labs64/auditflow-sink
       context: ./auditflow-sink
       mode: release
       version: ${{ github.event.release.tag_name }}
+    secrets: inherit
+
+  # The Java client other modules pin (payment-gateway's auditflow-api.version),
+  # at the same version as the images. JDK 17: the client targets Java 17 consumers.
+  publish-api:
+    name: Publish API client (io.labs64:auditflow-api)
+    needs: [test-backend, test-transformer, test-sink]
+    uses: Labs64/labs64.io-workspace/.github/workflows/maven-publish.yml@v1
+    with:
+      working-directory: auditflow-api
+      mode: release
+      version: ${{ github.event.release.tag_name }}
+      java-version: "17"
     secrets: inherit
 
   # ─────────────────────────────────────────────────────────────────────────────
@@ -138,8 +154,8 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────────
   propagate-to-chart:
     name: Pin digests in charts/auditflow
-    needs: [publish-be, publish-transformer, publish-sink, release-images]
-    uses: Labs64/labs64.io-workspace/.github/workflows/chart-update-dispatch.yml@master
+    needs: [publish-be, publish-transformer, publish-sink, publish-api, release-images]
+    uses: Labs64/labs64.io-workspace/.github/workflows/chart-update-dispatch.yml@v1
     with:
       chart: auditflow
       version: ${{ github.event.release.tag_name }}
