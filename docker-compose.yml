@@ -16,7 +16,7 @@ services:
   # Infrastructure
   # ─────────────────────────────────────────────────────────────────────────────
   rabbitmq:
-    image: rabbitmq:4-management-alpine
+    image: rabbitmq:4.3-management-alpine
     container_name: auditflow-rabbitmq
     command: /bin/sh -c "rabbitmq-plugins enable rabbitmq_prometheus && docker-entrypoint.sh rabbitmq-server"
     ports:
