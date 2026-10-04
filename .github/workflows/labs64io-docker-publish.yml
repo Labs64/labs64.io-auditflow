@@ -5,7 +5,8 @@ name: Labs64.IO - AuditFlow - Release
 #   * auditflow-be          -> labs64/auditflow               (Docker Hub)
 #   * auditflow-transformer -> labs64/auditflow-transformer   (Docker Hub)
 #   * auditflow-sink        -> labs64/auditflow-sink          (Docker Hub)
-#   * auditflow-api         -> io.labs64:auditflow-api        (Labs64 Nexus)
+#   * auditflow-api         -> io.labs64:auditflow-api        (Labs64 Nexus; Maven Central when
+#                                                              the variable PUBLISH_MAVEN_CENTRAL=true)
 # (image names match the Helm chart repositories).
 #
 # No pom carries a version: the backend jar and the API client are built from the
@@ -111,6 +112,8 @@ jobs:
       mode: release
       version: ${{ github.event.release.tag_name }}
       java-version: "17"
+      # Maven Central as well as Nexus, like the commons libraries (same repository variable).
+      publish-central: ${{ vars.PUBLISH_MAVEN_CENTRAL == 'true' }}
     secrets: inherit
 
   # ─────────────────────────────────────────────────────────────────────────────
