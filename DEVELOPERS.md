@@ -1083,6 +1083,7 @@ Two stages on RabbitMQ, both in the backend:
 | deferred | pipeline rate limit, tenant in-flight cap, full bulkhead | parked in the 5 s tier, **no attempt spent** |
 | retried | retryable failure (5xx, timeout, open circuit, missing secretRef) | parked in the next delay tier: 5 s, 30 s, 2 min, 10 min, 30 min, 1 h, then 3 h |
 | dead-lettered | poison (4xx, malformed transformer output), `maxAttempts` used up, `maxAge` passed, pipeline removed | one entry in `labs64-audit-dlq.<tenant>` with reason, attempts and last error |
+| quarantined | unparseable event, or the tenant was removed or disabled after ingest | kept in `labs64-audit-quarantine.quarantine` with an `x-quarantine-reason` header; never delivered to a sink, not replayed by the DLQ endpoint |
 
 Delays are queues with a fixed TTL that dead-letter back to the delivery exchange (`labs64-audit-delay.<seconds>s`),
 so no broker plugin is needed and it works the same on Amazon MQ. Per pipeline, in the tenant file:
