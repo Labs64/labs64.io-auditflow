@@ -56,7 +56,7 @@ Three independently deployable services:
 Key design decisions:
 - **Pipelines are configuration, not code.** Define them in `application.yml` or via `JAVA_OPTS` environment variables.
 - **Sink/transformer resolution is dynamic.** A request to `/sink/{name}` does `importlib.import_module(name)` — drop a `.py` file in `sinks/` and it becomes available immediately.
-- **Idempotency/dedup** prevents duplicate event processing. Default store is Redis; local stack uses in-memory via `JAVA_OPTS`.
+- **Idempotency/dedup** prevents duplicate event processing. Default store is Redis (Valkey); the local compose stack uses it too.
 - **Circuit breakers + retry** guard all outbound HTTP calls to transformer/sink services; delivery
   retries over hours, backpressure and the per-tenant DLQ are described in
   [Delivery model](#delivery-model-confirms-retries-backpressure-and-the-dlq).
@@ -149,7 +149,7 @@ labs64.io-auditflow/
 │   ├── sinks/               # Built-in sinks (13 available)
 │   ├── sinks_bootstrap/     # Mounted at runtime for custom sinks
 │   └── tests/
-├── docker-compose.yml              # Local stack (3 services + RabbitMQ)
+├── docker-compose.yml              # Local stack (3 services + RabbitMQ + Valkey + Cerbos + ClickHouse)
 ├── docker-compose-observability.yml # Observability overlay (OTel Collector + Tempo + Loki + Prometheus + Grafana)
 
 ├── examples/                       # Runnable examples, not part of any image
@@ -172,12 +172,11 @@ labs64.io-auditflow/
 
 ### Docker (recommended)
 
-All 3 services + RabbitMQ + Cerbos + ClickHouse, in-memory idempotency via `JAVA_OPTS`.
+All 3 services + RabbitMQ + Valkey + Cerbos + ClickHouse — the Kubernetes stack minus the gateway, with Redis-backed (Valkey) idempotency and rate limiting like the chart.
 
 ```bash
 just up        # build JAR + Docker images, start everything
 just up obs    # start with observability overlay
-just up full   # additionally start Redis
 just logs      # tail all service logs (Ctrl+C to stop)
 just down      # stop containers (keeps images)
 just clean     # stop + remove volumes (full reset)
@@ -299,10 +298,10 @@ Worth knowing when evaluating ClickHouse here:
 - The init scripts only run on an **empty data dir**. After editing either schema file, run
   `just clean && just up` — a plain restart keeps the old table.
 - **Truncating the table is not the same as a clean slate.** `TRUNCATE TABLE audit_events` empties
-  ClickHouse, but the backend's idempotency store (in-memory for the local stack) still remembers
+  ClickHouse, but the backend's idempotency store (Valkey) still remembers
   every event ID as already delivered. Republishing the same events (e.g. re-running `just
   ch-seed`) then reports success at the HTTP layer but silently delivers **zero** rows — the
-  consumer sees only duplicates. `docker compose restart backend` clears that state; `just clean
+  consumer sees only duplicates. `docker compose exec redis sh -c 'valkey-cli -a "$REDIS_PASSWORD" --no-auth-warning FLUSHALL'` clears that state; `just clean
   && just up` does both at once.
 
 ### Extending the `extra` vocabulary
@@ -366,8 +365,8 @@ just up obs         # stack + observability overlay
 Run infrastructure in Docker, services directly on your machine for faster iteration:
 
 ```bash
-# 1. Start only RabbitMQ + Redis
-docker compose --profile full up rabbitmq redis -d
+# 1. Start only RabbitMQ + Redis (Valkey)
+docker compose up rabbitmq redis -d
 
 # 2. In separate terminals, run each service with hot-reload:
 cd auditflow-transformer && just run-local   # http://localhost:8081
@@ -1338,7 +1337,6 @@ curl -s http://localhost:8080/actuator/metrics | grep deduplicated
 |---|---|
 | `just up` | Build and start the stack (default) |
 | `just up obs` | Stack + observability overlay |
-| `just up full` | Stack + Redis (multi-replica dedup / rate-limiting) |
 | `just log backend` | Tail backend (Java) logs |
 | `just log sink` | Tail sink (Python) logs |
 | `just log transformer` | Tail transformer (Python) logs |

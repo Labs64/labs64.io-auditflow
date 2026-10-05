@@ -1,7 +1,17 @@
 # AuditFlow — Local stack
 #
-# RabbitMQ + transformer + sink + backend — in-memory dedup.
-# Pipelines and redaction configured via JAVA_OPTS system properties.
+# RabbitMQ + Valkey + Cerbos + ClickHouse + transformer + sink + backend — the same stack the
+# Kubernetes install runs (labs64.io-helm-charts), minus the gateway, so AuditFlow can be tested
+# on its own. Dedup and per-tenant rate limiting are Redis-backed, as in the chart.
+#
+# Image pins mirror labs64.io-helm-charts (helmfile.yaml.gotmpl and the charts it deploys):
+#   rabbitmq   overrides/rabbitmq/chart/values.yaml   image.tag   (official image, 4.3.x line)
+#   valkey     bitnami/valkey chart 6.3.4             appVersion  9.1.x (official valkey image)
+#   cerbos     charts/authz-pdp/Chart.yaml            appVersion
+# Keep the tags in step when helm-charts moves them; the observability overlay lists the rest.
+#
+# Deliberate differences from Kubernetes: no Traefik/AuthProxy (so the auth-context filter and
+# authz are off), and tenants come from the mounted ./tenants dir, not labelled ConfigMaps.
 #
 # Usage:
 #   just up          # start stack
@@ -34,24 +44,28 @@ services:
     networks:
       - auditflow-net
 
+  # Valkey, not Redis OSS — the same engine as the bitnami/valkey release in helmfile.yaml.gotmpl
+  # and as AWS ElastiCache. Standalone with auth on, matching overrides/redis/values.local.yaml.
+  # Backs idempotency (dedup) and the per-tenant ingest rate limiter.
   redis:
     image: valkey/valkey:9.1-alpine
     container_name: auditflow-redis
+    command: ["valkey-server", "--requirepass", "${REDIS_PASSWORD:-labs64pw}"]
     ports:
       - "6379:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "valkey-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-labs64pw}
     networks:
       - auditflow-net
-    profiles:
-      - full
 
-  # ClickHouse is part of the default stack (not the `full` profile): the
-  # clickhouse-analytics pipeline is enabled in ./tenants/demo.yaml and
+  # ClickHouse (no counterpart in helmfile.yaml.gotmpl — it is a sink target, not platform
+  # infrastructure): the clickhouse-analytics pipeline is enabled in ./tenants/demo.yaml and
   # ./tenants/_platform.yaml, so `just up` gives a working publish → sink → query
   # round trip out of the box.
   # Query it with `just ch-events` / `just ch "<SQL>"`; the end-to-end round trip with
@@ -178,6 +192,12 @@ services:
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
       SPRING_RABBITMQ_HOST: rabbitmq
+      # Idempotency store and tenant rate limiter are both Redis-backed, as in the chart
+      # (charts/auditflow/values.yaml: idempotency.store / tenants.ratelimit.backend = redis).
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:-labs64pw}
+      AUDITFLOW_IDEMPOTENCY_STORE: redis
+      TENANTS_RATELIMIT_BACKEND: redis
       TRANSFORMER_LOCAL_URL: http://transformer:8081
       SINK_LOCAL_URL: http://sink:8082
       # Local compose runs without the Traefik gateway, so no trusted X-Auth-*
@@ -202,8 +222,6 @@ services:
       # default (32): a delivery over it is deferred for a few seconds, never dead-lettered, so a
       # bulk seed such as `just ch-seed` completes in full.
       JAVA_OPTS: >-
-        -Dauditflow.idempotency.store=memory
-        -Dspring.autoconfigure.exclude=org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration,org.springframework.boot.data.redis.autoconfigure.DataRedisReactiveAutoConfiguration,org.springframework.boot.data.redis.autoconfigure.health.DataRedisHealthContributorAutoConfiguration,org.springframework.boot.data.redis.autoconfigure.health.DataRedisReactiveHealthContributorAutoConfiguration
         -Dauditflow.redaction.enabled=true
         -Dauditflow.redaction.rules[0].field=extra.userId
         -Dauditflow.redaction.rules[0].action=mask
@@ -217,6 +235,8 @@ services:
       transformer:
         condition: service_healthy
       sink:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       cerbos:
         condition: service_healthy

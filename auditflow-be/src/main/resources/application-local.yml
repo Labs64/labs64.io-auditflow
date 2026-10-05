@@ -6,8 +6,12 @@ spring:
     # or set them in a local .env file that is NOT committed to source control.
     username: ${RABBITMQ_USERNAME:guest}
     password: ${RABBITMQ_PASSWORD:guest}
+  # Valkey from docker-compose.yml runs with auth, like the k8s release (overrides/redis/values.local.yaml).
+  data:
+    redis:
+      password: ${REDIS_PASSWORD:labs64pw}
 
-# When running outside Docker (docker compose --profile full up rabbitmq redis -d + just run), services are on localhost
+# When running outside Docker (docker compose up rabbitmq redis -d + just run), services are on localhost
 transformer:
   local:
     url: "http://localhost:8081"

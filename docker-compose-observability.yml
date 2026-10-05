@@ -1,6 +1,18 @@
 # AuditFlow — Observability overlay
 #
 # Adds OTel Collector, Tempo, Loki, Prometheus, and Grafana to the base stack.
+#
+# Same components, versions and registries as the monitoring layer in
+# labs64.io-helm-charts/helmfile.yaml.gotmpl. The image tag is the appVersion of the chart pinned
+# there (`helm show chart <chart> --version <pin>`); bump both in the same commit:
+#
+#   service         helmfile release (chart)                 chart    image
+#   otel-collector  opentelemetry-collector                  0.175.0  otel/opentelemetry-collector-contrib:0.161.0
+#   tempo           tempo (grafana-community/tempo)          3.1.0    grafana/tempo:3.1.0
+#   loki            loki (grafana-community/loki)            18.13.8  grafana/loki:3.7.8
+#   prometheus      prometheus (kube-prometheus-stack)       91.9.0   quay.io/prometheus/prometheus:v3.15.0-distroless
+#   grafana         grafana (grafana-community/grafana)      13.2.7   grafana/grafana:13.2.3
+#
 # Compose on top of the stack:
 #
 #   just up obs        # stack + observability
@@ -31,7 +43,7 @@ services:
     user: "0:0"
     volumes:
       - ./observability/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
-      - tempo-data:/tmp/tempo
+      - tempo-data:/var/tempo
     ports:
       - "3200:3200"   # HTTP query API (Grafana + direct curl for debugging)
     networks:
@@ -51,12 +63,16 @@ services:
       - auditflow-net
 
   prometheus:
-    image: prom/prometheus:v3.15.0
+    # quay.io, like the kube-prometheus-stack chart (not Docker Hub's prom/prometheus).
+    image: quay.io/prometheus/prometheus:v3.15.0-distroless
     container_name: auditflow-prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
       - "--web.enable-lifecycle"
+      # Tempo's metrics generator pushes span metrics and the service graph here; the k8s
+      # release sets prometheusSpec.enableRemoteWriteReceiver for the same reason.
+      - "--web.enable-remote-write-receiver"
     volumes:
       - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus

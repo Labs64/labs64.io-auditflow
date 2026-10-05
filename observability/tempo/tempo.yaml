@@ -1,3 +1,11 @@
+# Tempo 3.x, single process — same shape as the config the grafana-community/tempo chart renders
+# for overrides/tempo/values.local.yaml in labs64.io-helm-charts (pinned in helmfile.yaml.gotmpl).
+# Tempo 3 dropped `ingester` and `compactor`: block retention moved to `backend_scheduler`.
+# Check a change against the pinned image with
+#   docker run --rm --user 0:0 -v <file>:/t.yaml grafana/tempo:<tag> -config.file=/t.yaml -config.verify=true
+multitenancy_enabled: false
+stream_over_http_enabled: false
+
 server:
   http_listen_port: 3200
 
@@ -10,26 +18,30 @@ distributor:
         http:
           endpoint: 0.0.0.0:4318
 
-ingester:
-  trace_idle_period: 10s
-  max_block_bytes: 1_000_000
-  max_block_duration: 5m
-
-compactor:
-  compaction:
-    block_retention: 1h
+backend_scheduler:
+  provider:
+    compaction:
+      compaction:
+        block_retention: 24h
 
 storage:
   trace:
     backend: local
     wal:
-      path: /tmp/tempo/wal
+      path: /var/tempo/wal
     local:
-      path: /tmp/tempo/blocks
+      path: /var/tempo/traces
 
-query_frontend:
-  search:
-    duration_slo: 5s
-    throughput_bytes_slo: 1.073741824e+09
-  trace_by_id:
-    duration_slo: 5s
+# Span metrics + service graph, remote-written to Prometheus (which needs
+# --web.enable-remote-write-receiver) — the `tempo.metricsGenerator` block of the k8s override.
+# Unlike k8s, the processors are listed so the Grafana service map has data to draw.
+metrics_generator:
+  storage:
+    path: /var/tempo/generator
+    remote_write:
+      - url: http://prometheus:9090/api/v1/write
+
+overrides:
+  defaults:
+    metrics_generator:
+      processors: [service-graphs, span-metrics]

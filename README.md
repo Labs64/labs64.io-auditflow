@@ -152,7 +152,7 @@ Traces flow from the Java backend through the Python transformer and sink servic
 
 ### Developer sandbox and local integration testing
 
-You're building a service that publishes audit events and want to verify end-to-end behaviour locally without standing up a full production stack. The local stack (three services + RabbitMQ, in-memory dedup) starts in under a minute. Pipelines and redaction rules are configured via `JAVA_OPTS` in `docker-compose.yml`.
+You're building a service that publishes audit events and want to verify end-to-end behaviour locally without standing up a full production stack. The local stack (three services + RabbitMQ + Valkey + Cerbos + ClickHouse — the Kubernetes stack without the gateway) starts in under a minute. Tenant pipelines live in `tenants/`; redaction rules are configured via `JAVA_OPTS` in `docker-compose.yml`.
 
 **What to try:**
 - `just up` — starts the stack
@@ -189,7 +189,7 @@ Shape or enrich an event before delivery. Transformers are Python modules loaded
 Declare which fields to mask (`***`), hash or drop entirely. A hashed value is an HMAC-SHA256 under a secret key: equal values still give equal hashes, so events stay correlatable, but the value cannot be recovered by hashing guesses. Redaction runs at ingest — before the event is published to the broker — so sensitive values never reach the message broker, never appear in broker logs, and are never forwarded to any downstream sink. Rules are fine-grained, per field, with an independent action per rule.
 
 ### Idempotent event processing
-Each event carries an `eventId`. The consumer checks a deduplication store before processing: duplicate deliveries from broker redelivery, network retries, or at-least-once producers are silently suppressed. Uses Redis in production for distributed dedup; an in-memory store for single-process development. Claim TTL and completion TTL are independently configurable.
+Each event carries an `eventId`. The consumer checks a deduplication store before processing: duplicate deliveries from broker redelivery, network retries, or at-least-once producers are silently suppressed. Uses Redis (Valkey) for distributed dedup, in the local stack as in Kubernetes; an in-memory store is available for single-process runs without Redis. Claim TTL and completion TTL are independently configurable.
 
 ### Resilience and fault tolerance
 - **End-to-end acknowledgement.** `/audit/publish` answers 200 only after the broker has confirmed it stored the event (publisher confirms, durable queue, persistent message). If the broker cannot confirm, the client gets 503 and retries with the same `eventId`.
@@ -444,9 +444,8 @@ Two Compose profiles cover local iteration and observability:
 
 | Command | Stack | When to use |
 |---------|-------|-------------|
-| `just up` | 3 services + RabbitMQ + Cerbos + ClickHouse | Fastest start; in-memory dedup, queryable sink |
+| `just up` | 3 services + RabbitMQ + Valkey + Cerbos + ClickHouse | Same stack as Kubernetes minus the gateway; Redis-backed dedup, queryable sink |
 | `just up obs` | Stack + OTel Collector + Tempo + Loki + Prometheus + Grafana | Full telemetry, fast iteration |
-| `just up full` | Stack + Redis | Redis-backed dedup / rate limiting |
 
 ```bash
 cp .env.example .env   # optional — only needed for custom RabbitMQ credentials

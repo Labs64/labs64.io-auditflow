@@ -1,3 +1,13 @@
+# Mirrors overrides/opentelemetry/values-collector.local.yaml in labs64.io-helm-charts (same
+# processors, exporters and connector, same names), with two deliberate differences:
+#   * receivers: OTLP only. The k8s collector also tails container logs (filelog) and scrapes
+#     annotated pods; here Prometheus scrapes the backend and RabbitMQ itself, and logs arrive
+#     over OTLP only.
+#   * metrics leave through the `prometheus` exporter (scraped by Prometheus) rather than remote
+#     write: the Grafana dashboard queries the `auditflow_`-prefixed names it produces.
+# Pinned to the image in docker-compose-observability.yml — validate any change with
+#   docker run --rm -v "$PWD/observability/otel-collector/config.yaml:/c.yaml:ro" \
+#     otel/opentelemetry-collector-contrib:<tag> validate --config /c.yaml
 receivers:
   otlp:
     protocols:
@@ -7,19 +17,75 @@ receivers:
         endpoint: 0.0.0.0:4318
 
 processors:
+  # Drop kubelet-style probe traffic before it reaches Tempo (same filter as k8s): the Java agent
+  # emits stable semconv `url.path`, the Python distro may still emit `http.target`, the span name
+  # is the backstop for both. /actuator/dlq is deliberately kept — it is a real admin endpoint.
+  filter/drop_health_checks:
+    error_mode: ignore
+    traces:
+      span:
+        - >-
+          attributes["url.path"] != nil
+          and IsMatch(attributes["url.path"],
+          "^/(actuator/(health(/.*)?|info|metrics(/.*)?|prometheus)|health(/(ready|live))?|ready|live|info)$")
+        - >-
+          attributes["http.target"] != nil
+          and IsMatch(attributes["http.target"],
+          "^/(actuator/(health(/.*)?|info|metrics(/.*)?|prometheus)|health(/(ready|live))?|ready|live|info)([?].*)?$")
+        - >-
+          IsMatch(name,
+          "^(GET|HEAD) /(actuator/(health(/.*)?|info|metrics(/.*)?|prometheus)|health(/(ready|live))?|ready|live|info)$")
+  # host.name / os.* on every signal; detectors that need no extra permissions only.
+  resourcedetection:
+    detectors: [env, system]
+    timeout: 2s
+    override: false
+    system:
+      hostname_sources: [os]
+  # Same batch sizes as k8s; the flush timeout is 1s (k8s: 10s) so a local publish shows up in
+  # Grafana almost immediately.
   batch:
+    send_batch_size: 256
     timeout: 1s
-    send_batch_size: 1024
+  batch/traces:
+    send_batch_size: 256
+    timeout: 1s
+  memory_limiter:
+    check_interval: 5s
+    limit_percentage: 80
+    spike_limit_percentage: 25
 
 exporters:
-  otlp_grpc/tempo:
+  # Bounded in-memory queue plus retry, as in k8s (which backs the queue with file_storage so it
+  # also survives a collector restart — not worth a volume locally).
+  otlp/tempo:
     endpoint: tempo:4317
     tls:
       insecure: true
-  # loki exporter was removed in otel-collector-contrib >=0.114.0.
-  # Loki 3.x ingests OTLP natively at /otlp (/otlp/v1/logs).
-  otlp_http/loki:
+    sending_queue:
+      enabled: true
+      num_consumers: 4
+      queue_size: 1000
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
+  # Loki 3.x ingests OTLP natively at /otlp (/otlp/v1/logs); the loki exporter was removed in
+  # otel-collector-contrib >=0.114.0.
+  otlphttp/loki:
     endpoint: http://loki:3100/otlp
+    tls:
+      insecure: true
+    sending_queue:
+      enabled: true
+      num_consumers: 4
+      queue_size: 1000
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
   prometheus:
     endpoint: 0.0.0.0:8889
     namespace: auditflow
@@ -28,17 +94,33 @@ exporters:
     resource_to_telemetry_conversion:
       enabled: true
 
+connectors:
+  # RED metrics (rate / errors / duration) derived from spans — same buckets and dimensions as k8s.
+  # Sits at the end of the traces pipeline, so dropped probe spans never inflate them.
+  spanmetrics:
+    histogram:
+      explicit:
+        buckets: [5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2s, 5s, 10s]
+    dimensions:
+      - name: http.request.method
+      - name: http.response.status_code
+      - name: http.route
+    exemplars:
+      enabled: true
+    metrics_flush_interval: 30s
+
 service:
   pipelines:
+    # memory_limiter leads every pipeline so it can shed load before anything buffers.
     traces:
       receivers: [otlp]
-      processors: [batch]
-      exporters: [otlp_grpc/tempo]
+      processors: [memory_limiter, resourcedetection, filter/drop_health_checks, batch/traces]
+      exporters: [otlp/tempo, spanmetrics]
     logs:
       receivers: [otlp]
-      processors: [batch]
-      exporters: [otlp_http/loki]
+      processors: [memory_limiter, resourcedetection, batch]
+      exporters: [otlphttp/loki]
     metrics:
-      receivers: [otlp]
-      processors: [batch]
+      receivers: [otlp, spanmetrics]
+      processors: [memory_limiter, resourcedetection, batch]
       exporters: [prometheus]
