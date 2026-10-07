@@ -83,6 +83,26 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void backingStoreFailureReturns503WithRetryAfter() throws Exception {
+        doThrow(new org.springframework.data.redis.RedisConnectionFailureException("valkey down"))
+                .when(tenantGate).check(any());
+        String payload = """
+                {
+                  "sourceSystem": "test",
+                  "eventType": "test.event"
+                }
+                """;
+
+        mockMvc.perform(post("/audit/publish")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(header().string("Retry-After", "1"))
+                .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"))
+                .andExpect(jsonPath("$.message").value(not(containsString("valkey"))));
+    }
+
+    @Test
     void wrongMethodReturns405() throws Exception {
         mockMvc.perform(get("/audit/publish"))
                 .andExpect(status().isMethodNotAllowed())

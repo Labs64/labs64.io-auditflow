@@ -48,6 +48,7 @@ public class AuditService {
     private final ObjectMapper objectMapper;
     private final MeterRegistry meterRegistry;
     private final Counter deduplicatedCounter;
+    private final Counter claimTakeoverCounter;
     private final BusinessTelemetry businessTelemetry;
     private final ConsumerHealthIndicator consumerHealthIndicator;
     private final TenantPipelineRegistry tenantRegistry;
@@ -71,6 +72,7 @@ public class AuditService {
         this.objectMapper = objectMapper;
         this.meterRegistry = meterRegistry;
         this.deduplicatedCounter = meterRegistry.counter("auditflow.events.deduplicated");
+        this.claimTakeoverCounter = meterRegistry.counter("auditflow.events.claim.takeover");
         this.consumerHealthIndicator = consumerHealthIndicator;
         this.businessTelemetry = businessTelemetry;
         this.tenantRegistry = tenantRegistry;
@@ -90,12 +92,19 @@ public class AuditService {
         }
     }
 
+    /** Route one ingest message delivered for the first time (see the two-argument variant). */
+    public void processAuditEvent(String message) {
+        processAuditEvent(message, false);
+    }
+
     /**
      * Route one ingest message.
      *
      * @param message the audit event as JSON (already redacted at ingest)
+     * @param redelivered the broker's redelivered flag: an earlier delivery of this message was
+     *                    never acknowledged, so a claim still in progress is that attempt's leftover
      */
-    public void processAuditEvent(String message) {
+    public void processAuditEvent(String message, boolean redelivered) {
         if (!StringUtils.hasText(message)) {
             logger.warn("Received empty or null audit event message, skipping processing.");
             return;
@@ -116,15 +125,23 @@ public class AuditService {
             return;
         }
 
-        // Idempotency: claim by eventId. A duplicate (or an in-flight redelivery) is dropped.
+        // Idempotency: claim by eventId. A duplicate is dropped. A redelivered message whose claim
+        // is still in progress is NOT a duplicate: the attempt that held the claim never acked (pod
+        // killed, channel lost), and dropping the redelivery would lose an event the API accepted.
+        // It takes the claim over and routes again; pipelines already delivered are skipped below.
         String eventId = eventJson.path("eventId").asText(null);
         if (!StringUtils.hasText(eventId)) {
             logger.warn("Audit event has no eventId; processing without dedup guarantee.");
         } else if (!idempotencyService.claim(eventId)) {
-            logger.debug("Duplicate audit event eventId='{}', dropping.", eventId);
-            consumerHealthIndicator.recordEventFailed();
-            deduplicatedCounter.increment();
-            return;
+            if (redelivered && idempotencyService.takeOver(eventId)) {
+                logger.info("Redelivered audit event eventId='{}' took over an unfinished claim.", eventId);
+                claimTakeoverCounter.increment();
+            } else {
+                logger.debug("Duplicate audit event eventId='{}', dropping.", eventId);
+                consumerHealthIndicator.recordEventFailed();
+                deduplicatedCounter.increment();
+                return;
+            }
         }
 
         if (StringUtils.hasText(eventId)) {

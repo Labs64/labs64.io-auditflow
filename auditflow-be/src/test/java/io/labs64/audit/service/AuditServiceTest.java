@@ -204,6 +204,44 @@ class AuditServiceTest {
     }
 
     @Test
+    @DisplayName("a redelivered event whose claim is unfinished (pod killed mid-routing) is routed, not dropped")
+    void redeliveryTakesOverAnUnfinishedClaim() {
+        tenant("acme", pipeline("archive", true), pipeline("siem", true));
+        when(idempotencyService.claim(anyString())).thenReturn(false);
+        when(idempotencyService.takeOver(anyString())).thenReturn(true);
+        // "archive" was delivered by the attempt that died; only "siem" is enqueued again.
+        when(idempotencyService.isPipelineDone("22222222-2222-2222-2222-222222222222", "archive")).thenReturn(true);
+
+        auditService.processAuditEvent(ACME_EVENT, true);
+
+        verify(deliveryQueue).enqueue(eq(ACME_EVENT), eq("acme"), eq(List.of("siem")),
+                eq("22222222-2222-2222-2222-222222222222"));
+        verify(idempotencyService).markProcessed("22222222-2222-2222-2222-222222222222");
+    }
+
+    @Test
+    void redeliveryOfADoneEventIsDropped() {
+        tenant("acme", pipeline("archive", true));
+        when(idempotencyService.claim(anyString())).thenReturn(false);
+        when(idempotencyService.takeOver(anyString())).thenReturn(false);
+
+        auditService.processAuditEvent(ACME_EVENT, true);
+
+        verifyNoInteractions(deliveryQueue);
+    }
+
+    @Test
+    void aFirstDeliveryNeverTakesOverAClaim() {
+        tenant("acme", pipeline("archive", true));
+        when(idempotencyService.claim(anyString())).thenReturn(false);
+
+        auditService.processAuditEvent(ACME_EVENT, false);
+
+        verify(idempotencyService, never()).takeOver(anyString());
+        verifyNoInteractions(deliveryQueue);
+    }
+
+    @Test
     void legacyGlobalPipelinesFailStartup() {
         when(auditFlowConfiguration.getPipelines()).thenReturn(List.of(pipeline("legacy", true)));
         assertThrows(IllegalStateException.class, auditService::validateConfiguration);

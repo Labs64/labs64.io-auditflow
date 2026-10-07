@@ -15,7 +15,7 @@ pipelines:
     sink:
       name: logging_sink
       properties:
-        log-level: DEBUG
+        log-level: INFO
         format: json
   - name: security-alerts
     enabled: true

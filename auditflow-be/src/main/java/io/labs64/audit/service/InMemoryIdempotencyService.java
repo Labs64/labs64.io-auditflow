@@ -27,8 +27,11 @@ public class InMemoryIdempotencyService implements IdempotencyService {
     private static final String KEY_PREFIX = "evt:";
     private static final int PURGE_THRESHOLD = 100_000;
 
-    /** key → expiry epoch millis. */
-    private final ConcurrentHashMap<String, Long> store = new ConcurrentHashMap<>();
+    /** A claim or done marker with its expiry (epoch millis). */
+    private record Entry(long expiry, boolean done) {
+    }
+
+    private final ConcurrentHashMap<String, Entry> store = new ConcurrentHashMap<>();
     private final Duration claimTtl;
     private final Duration doneTtl;
 
@@ -47,9 +50,9 @@ public class InMemoryIdempotencyService implements IdempotencyService {
         long newExpiry = now + claimTtl.toMillis();
         AtomicBoolean acquired = new AtomicBoolean(false);
         store.compute(key(eventId), (k, existing) -> {
-            if (existing == null || existing <= now) {
+            if (existing == null || existing.expiry() <= now) {
                 acquired.set(true);
-                return newExpiry;
+                return new Entry(newExpiry, false);
             }
             return existing; // still live → claim refused
         });
@@ -60,8 +63,22 @@ public class InMemoryIdempotencyService implements IdempotencyService {
     }
 
     @Override
+    public boolean takeOver(String eventId) {
+        long now = System.currentTimeMillis();
+        AtomicBoolean taken = new AtomicBoolean(false);
+        store.compute(key(eventId), (k, existing) -> {
+            if (existing != null && existing.done() && existing.expiry() > now) {
+                return existing; // routed already → a true duplicate
+            }
+            taken.set(true);
+            return new Entry(now + claimTtl.toMillis(), false);
+        });
+        return taken.get();
+    }
+
+    @Override
     public void markProcessed(String eventId) {
-        store.put(key(eventId), System.currentTimeMillis() + doneTtl.toMillis());
+        store.put(key(eventId), new Entry(System.currentTimeMillis() + doneTtl.toMillis(), true));
     }
 
     @Override
@@ -71,19 +88,20 @@ public class InMemoryIdempotencyService implements IdempotencyService {
 
     @Override
     public void markPipelineDone(String eventId, String pipelineName) {
-        store.put(pipelineKey(eventId, pipelineName), System.currentTimeMillis() + doneTtl.toMillis());
+        store.put(pipelineKey(eventId, pipelineName),
+                new Entry(System.currentTimeMillis() + doneTtl.toMillis(), true));
     }
 
     @Override
     public boolean isPipelineDone(String eventId, String pipelineName) {
-        Long expiry = store.get(pipelineKey(eventId, pipelineName));
-        return expiry != null && expiry > System.currentTimeMillis();
+        Entry entry = store.get(pipelineKey(eventId, pipelineName));
+        return entry != null && entry.expiry() > System.currentTimeMillis();
     }
 
     /** Drop expired entries when the map has grown large, to bound memory for long-running dev sessions. */
     private void maybePurge(long now) {
         if (store.size() > PURGE_THRESHOLD) {
-            store.values().removeIf(expiry -> expiry <= now);
+            store.values().removeIf(entry -> entry.expiry() <= now);
         }
     }
 

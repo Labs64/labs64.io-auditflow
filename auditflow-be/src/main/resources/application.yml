@@ -27,13 +27,8 @@ spring:
             # delivery messages; the transformer/sink work runs in the delivery stage
             # (auditflow.delivery.*), so a few threads go a long way.
             concurrency: ${AUDITFLOW_CONSUMER_CONCURRENCY:8}
-        quarantine-out-0:
-          destination: labs64-audit-quarantine
-          content-type: application/json
-          producer:
-            # Durable queue labs64-audit-quarantine.quarantine, bound to the exchange. Without a
-            # bound queue the broker drops every quarantined event (the exchange routes nowhere).
-            required-groups: quarantine
+        # Quarantine (exchange labs64-audit-quarantine, queue labs64-audit-quarantine.quarantine) is
+        # declared by BrokerTopology and published by QuarantineService through ConfirmingPublisher.
       binders:
         rabbit:
           type: rabbit
@@ -46,9 +41,6 @@ spring:
               requeueRejected: false
               maxConcurrency: ${AUDITFLOW_CONSUMER_CONCURRENCY:8}
               prefetch: ${AUDITFLOW_CONSUMER_CONCURRENCY:8}
-          quarantine-out-0:
-            producer:
-              exchangeType: topic
 
   # RabbitMQ Configuration
   rabbitmq:
@@ -142,7 +134,7 @@ management:
 logging:
   level:
     root: INFO
-    io.labs64: DEBUG
+    io.labs64: INFO
     org.springframework.cloud.stream: INFO
     org.springframework.amqp: WARN
     # Suppress verbose stack traces from the framework when intentional DLQ redelivery is exhausted.
@@ -183,6 +175,12 @@ tenants:
       path: /config/tenants  # used only when mode=local-dir; missing dir = zero tenants, not an error
   ratelimit:
     backend: in-memory       # in-memory (default, single replica) | redis (multi-replica) | none
+    # backend=redis only. Ingest never waits on Redis for longer than `timeout`; when Redis fails
+    # or is too slow the pod limits each tenant with a local bucket (quota per pod instead of
+    # cluster-wide) and tries Redis again once per `fallback-cooldown`.
+    redis:
+      timeout: PT0.5S
+      fallback-cooldown: PT5S
   consumer:
     # Deliveries of ONE tenant processed at once per pod (fairness): half of the delivery units
     # (delivery.concurrency x delivery.unit-concurrency = 64), so a busy tenant can never take a pod

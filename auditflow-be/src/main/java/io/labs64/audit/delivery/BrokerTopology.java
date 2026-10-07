@@ -12,6 +12,7 @@ import org.springframework.amqp.core.Declarable;
 import org.springframework.amqp.core.Declarables;
 import org.springframework.amqp.core.DirectExchange;
 import org.springframework.amqp.core.Queue;
+import org.springframework.amqp.core.TopicExchange;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -28,6 +29,9 @@ import org.springframework.context.annotation.Configuration;
  *                     └──── TTL expiry (DLX) ◀── labs64-audit-delay.&lt;tier&gt; ◀──┘
  *                                                                             │ exhausted / poison
  *            labs64-audit-dlx (exchange) ─▶ labs64-audit-dlq.&lt;tenant&gt; ◀───────┘
+ *
+ * router / DeliveryWorker ─▶ labs64-audit-quarantine (exchange) ─▶ labs64-audit-quarantine.quarantine
+ *   (unparseable event, tenant not routable)
  * </pre>
  *
  * <p>Delays use one queue per tier with a fixed queue TTL that dead-letters back to the delivery
@@ -44,6 +48,9 @@ public class BrokerTopology {
     public static final String DELAY_QUEUE_PREFIX = "labs64-audit-delay.";
     public static final String DLX_EXCHANGE = "labs64-audit-dlx";
     public static final String DLQ_QUEUE_PREFIX = "labs64-audit-dlq.";
+    public static final String QUARANTINE_EXCHANGE = "labs64-audit-quarantine";
+    public static final String QUARANTINE_QUEUE = "labs64-audit-quarantine.quarantine";
+    public static final String QUARANTINE_ROUTING_KEY = "labs64-audit-quarantine";
 
     /** Redelivery delays, shortest first. Attempt n waits {@code TIERS[min(n-1, last)]}. */
     public static final List<Duration> TIERS = List.of(
@@ -91,6 +98,15 @@ public class BrokerTopology {
         }
 
         declarables.add(new DirectExchange(DLX_EXCHANGE, true, false));
+
+        // Same names and properties the stream binder declared for the former quarantine-out-0
+        // binding (topic exchange, durable queue without arguments, bound with "#"), so brokers that
+        // already have them accept the declaration; a queue-type argument here would not match.
+        TopicExchange quarantine = new TopicExchange(QUARANTINE_EXCHANGE, true, false);
+        Queue quarantineQueue = new Queue(QUARANTINE_QUEUE, true, false, false);
+        declarables.add(quarantine);
+        declarables.add(quarantineQueue);
+        declarables.add(BindingBuilder.bind(quarantineQueue).to(quarantine).with("#"));
         return new Declarables(declarables);
     }
 

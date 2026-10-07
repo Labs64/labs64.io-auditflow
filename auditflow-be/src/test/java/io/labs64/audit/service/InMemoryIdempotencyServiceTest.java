@@ -78,4 +78,15 @@ class InMemoryIdempotencyServiceTest {
             throw new RuntimeException(e);
         }
     }
+
+    @Test
+    @DisplayName("a redelivery takes over a claim still in progress, but never a done event")
+    void takeOverOnlyWhileUnfinished() {
+        assertTrue(service.claim("abc"));
+        assertTrue(service.takeOver("abc"), "the earlier attempt never finished");
+        assertFalse(service.claim("abc"), "the claim is held again after the takeover");
+
+        service.markProcessed("abc");
+        assertFalse(service.takeOver("abc"), "a routed event is a true duplicate");
+    }
 }

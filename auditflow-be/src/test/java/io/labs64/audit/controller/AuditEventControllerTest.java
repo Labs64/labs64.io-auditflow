@@ -140,7 +140,7 @@ class AuditEventControllerTest {
 
     @Test
     @WithAuthContext(user = "jdoe", tenant = "-")
-    void tenantlessContextPreservesClientSuppliedTenant() {
+    void tenantlessContextDropsClientSuppliedTenant() {
         when(publisherService.publishMessage(any())).thenReturn(true);
         AuditEventController controller = controller();
 
@@ -148,7 +148,9 @@ class AuditEventControllerTest {
         controller.publishEvent(newEvent().tenantId("t_client"));
         verify(publisherService).publishMessage(captor.capture());
 
-        assertEquals("t_client", captor.getValue().getTenantId());
+        // Null routes to the reserved _platform tenant; the gate must see the same value.
+        assertNull(captor.getValue().getTenantId());
+        verify(tenantGate).check(null);
     }
 
     @Test
@@ -263,6 +265,22 @@ class AuditEventControllerTest {
         verify(publisherService).publishMessages(published.capture());
         assertEquals(java.util.List.of("acme", "acme"),
                 published.getValue().stream().map(AuditEvent::getTenantId).toList());
+    }
+
+    @Test
+    @WithAuthContext(tenant = "-")
+    void batchFromATenantlessContextDropsTheClientSuppliedTenant() {
+        when(tenantGate.tryAcquireQuota(any())).thenReturn(true);
+        when(publisherService.publishMessages(any())).thenReturn(java.util.Collections.singletonList(null));
+        var spoofed = entry("a", null);
+        spoofed.put("tenantId", "globex");
+
+        controller().publishEvents(batch(spoofed));
+
+        ArgumentCaptor<java.util.List<AuditEvent>> published = ArgumentCaptor.forClass(java.util.List.class);
+        verify(publisherService).publishMessages(published.capture());
+        assertNull(published.getValue().get(0).getTenantId());
+        verify(tenantGate).tryAcquireQuota(null);
     }
 
     @Test

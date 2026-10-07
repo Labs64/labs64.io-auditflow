@@ -5,6 +5,7 @@ import io.labs64.auditflow.model.ErrorResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
@@ -129,6 +130,24 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(buildError(ErrorCode.PUBLISH_FAILED, ex.getMessage()));
+    }
+
+    // -------------------------------------------------------------------------
+    // Backing store (Redis/Valkey) failure
+    // -------------------------------------------------------------------------
+
+    /**
+     * Handle {@link DataAccessException} — the dedup/rate-limit store is unreachable or timed out.
+     * Nothing was accepted, and the condition is temporary (a failover, a restart), so the caller
+     * gets HTTP 503 with {@code Retry-After} instead of the generic 500.
+     */
+    @ExceptionHandler(DataAccessException.class)
+    public ResponseEntity<ErrorResponse> handleDataAccessException(DataAccessException ex) {
+        logger.error("Backing store unavailable: {}", ex.getMessage(), ex);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header("Retry-After", "1")
+                .body(buildError(ErrorCode.INTERNAL_ERROR,
+                        "The service is temporarily unavailable; retry the request"));
     }
 
     // -------------------------------------------------------------------------

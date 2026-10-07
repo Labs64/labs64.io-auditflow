@@ -181,13 +181,12 @@ public class AuditEventController implements AuditEventApi {
                 event.setCorrelationId(correlationId);
             }
         }
-        // The gateway-derived tenant is authoritative: a client-supplied tenantId in the
-        // payload never overrides the trusted X-Auth-Tenant context.
-        AuthContextHolder.get().ifPresent(context -> {
-            if (context.tenantId() != null) {
-                event.setTenantId(context.tenantId());
-            }
-        });
+        // The gateway-derived tenant is authoritative: a client-supplied tenantId in the payload
+        // never overrides the trusted X-Auth-Tenant context. That includes a tenantless caller: its
+        // payload value is cleared, so the event belongs to the reserved _platform tenant
+        // (TenantIds.resolve) and can never be routed into a tenant the caller named itself.
+        // Without a context (no gateway in front, e.g. docker-compose) the payload value stands.
+        AuthContextHolder.get().ifPresent(context -> event.setTenantId(context.tenantId()));
         event.setTimestamp(receivedAt);
     }
 

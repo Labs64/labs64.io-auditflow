@@ -11,9 +11,9 @@ import io.labs64.authcontext.core.AuthContext;
  * Supplies the {@code AuditEvent} resource for {@code @Authorize} on
  * {@code publishEvent}. The event under publication is not yet
  * persisted and its tenant is authoritative from the trusted context (the
- * controller overrides any client-supplied tenantId with X-Auth-Tenant), so
- * the resource is built from the AuthContext alone — no repository lookup,
- * no resource reference.
+ * controller overrides any client-supplied tenantId with X-Auth-Tenant, and
+ * clears it for a tenantless caller), so the resource is built from the
+ * AuthContext alone — no repository lookup, no resource reference.
  */
 @Component
 public class AuditEventResourceResolver implements ResourceResolver {

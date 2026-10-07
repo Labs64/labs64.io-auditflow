@@ -10,6 +10,9 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
 import java.time.Duration;
+import java.util.List;
+
+import org.springframework.data.redis.core.script.RedisScript;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -49,6 +52,23 @@ class RedisIdempotencyServiceTest {
         when(valueOps.setIfAbsent(eq("evt:abc"), eq("processing"), any(Duration.class))).thenReturn(false);
 
         assertFalse(service.claim("abc"));
+    }
+
+    @Test
+    @DisplayName("takeOver succeeds for a claim that is not done, with the claim TTL")
+    void takeOverOfUnfinishedClaim() {
+        when(redisTemplate.execute(any(RedisScript.class), eq(List.of("evt:abc")),
+                eq("done"), eq("processing"), eq("300000"))).thenReturn(1L);
+
+        assertTrue(service.takeOver("abc"));
+    }
+
+    @Test
+    @DisplayName("takeOver is refused for a done event")
+    void takeOverOfDoneEventIsRefused() {
+        when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class))).thenReturn(0L);
+
+        assertFalse(service.takeOver("abc"));
     }
 
     @Test

@@ -4,7 +4,9 @@ import io.labs64.audit.service.AuditService;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.amqp.support.AmqpHeaders;
 import org.springframework.context.annotation.Bean;
+import org.springframework.messaging.Message;
 import org.springframework.stereotype.Component;
 
 import java.util.function.Consumer;
@@ -25,9 +27,14 @@ public class AuditSubscriberService {
         logger.info("AuditSubscriberService initialized. Ready to receive audit messages");
     }
 
+    /**
+     * The broker's redelivered flag travels with the message: it tells the router that an earlier
+     * delivery was never acknowledged (see {@link AuditService#processAuditEvent(String, boolean)}).
+     */
     @Bean
-    public Consumer<String> audit() {
-        return auditService::processAuditEvent;
+    public Consumer<Message<String>> audit() {
+        return message -> auditService.processAuditEvent(message.getPayload(),
+                Boolean.TRUE.equals(message.getHeaders().get(AmqpHeaders.REDELIVERED)));
     }
 
 }
