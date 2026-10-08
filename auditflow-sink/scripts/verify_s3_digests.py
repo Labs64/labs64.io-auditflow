@@ -5,7 +5,7 @@
   verify_s3_digests.py --generate-key
 
   # verify one tenant's archive with the public key (needs s3:ListBucket + s3:GetObject on the prefix)
-  verify_s3_digests.py --bucket labs64-io-prod-auditflow-sink-123 \\
+  verify_s3_digests.py --bucket my-audit-archive \\
       --prefix tenants/tenant=netlicensing --public-key <base64 or @file.pem> [--profile x] [--region y]
 
 Checks, per chain under <prefix>/_digests/chain=<id>/: every record's signature, the sequence and the

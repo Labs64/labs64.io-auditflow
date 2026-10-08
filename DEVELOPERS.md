@@ -858,7 +858,7 @@ cases:
 ```
 
 The repository tenants in `tenants/` are checked by `TenantFixturesTest` on every build. Deployments
-keep their own fixtures next to their tenant files (labs64.io-devops: `just tenant-check <env>`).
+keep their own fixtures next to their tenant files and check them the same way.
 
 ### Tamper-evidence for the S3 archive
 
@@ -890,8 +890,7 @@ python3 auditflow-sink/scripts/verify_s3_digests.py --bucket <bucket> --prefix t
 
 It checks every signature, sequence and previous-record link, and every attested object's SHA-256,
 and with `--unattested` also fails on objects no record covers. Not covered by the chain alone:
-removing the newest records of a chain; enable S3 Object Lock on the bucket for that
-(labs64.io-devops: `auditflow_archive_object_lock`). Use it with `batch.enabled`: a digest record per
+removing the newest records of a chain; enable S3 Object Lock on the bucket for that. Use it with `batch.enabled`: a digest record per
 object doubles the PUTs of one-object-per-event pipelines.
 
 ### Local compose
