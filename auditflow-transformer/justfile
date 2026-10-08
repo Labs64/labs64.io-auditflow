@@ -14,23 +14,23 @@ docker:
     docker push {{REGISTRY}}/{{APP_NAME}}:latest
     docker images | grep "{{APP_NAME}}"
 
-# Run the Docker image (mounts transformers_bootstrap for custom transformers)
+# Run the Docker image with transformers_bootstrap mounted for custom transformers
 run:
     docker run --rm -p {{PORT}}:{{PORT}} \
         -v ./transformers_bootstrap:/home/{{USER_NAME}}/transformers_bootstrap \
         {{APP_NAME}}:latest
 
-# Run directly on the host (no Docker) — requires Python 3 and pip
+# Install the dependencies and run the service on the host with auto-reload
 run-local:
     pip install -r requirements.txt --quiet
     uvicorn transformer:app --host 0.0.0.0 --port {{PORT}} --reload
 
-# Run the test suite
+# Install the dev dependencies and run the tests
 test:
     pip install -r requirements-dev.txt --quiet
     pytest -q
 
-# Open API documentation in the browser (macOS / Linux with xdg-open)
+# Open the ReDoc and Swagger docs in the browser
 docu:
     open "http://localhost:{{PORT}}/redoc" 2>/dev/null || xdg-open "http://localhost:{{PORT}}/redoc"
     open "http://localhost:{{PORT}}/docs"  2>/dev/null || xdg-open "http://localhost:{{PORT}}/docs"

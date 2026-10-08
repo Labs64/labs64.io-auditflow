@@ -10,8 +10,10 @@
 #   just clean       → stop + remove volumes (full reset)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# List available recipes
+# Entry point
 # ─────────────────────────────────────────────────────────────────────────────
+
+# List available recipes
 default:
     @just --list
 
@@ -50,6 +52,8 @@ _stop-all:
 # Args (any order, space-separated, case-sensitive):
 #   obs | otel | yes | true | 1  → add the observability overlay (docker-compose-observability.yml)
 # Unrecognized tokens (e.g. wrong case, typos) are ignored but print a warning to stderr.
+#
+# Build the JAR, then build and start the stack, optionally with the observability overlay
 up *args: build-be
     @just _stop-all
     @for token in {{ args }}; do \
@@ -68,7 +72,7 @@ up *args: build-be
 down:
     @just _stop-all
 
-# Stop and remove containers AND volumes (full clean)
+# Stop and remove all containers and volumes
 clean:
     @docker compose -f docker-compose.yml -f docker-compose-observability.yml down -v --remove-orphans 2>/dev/null || true
 
@@ -76,11 +80,11 @@ clean:
 status:
     docker compose ps
 
-# Tail logs from all services (Ctrl+C to stop)
+# Follow the logs of all services
 logs:
     docker compose logs -f
 
-# Tail logs from a specific service: just log backend | transformer | sink | rabbitmq
+# Follow the logs of a single service
 log service:
     docker compose logs -f {{ service }}
 
@@ -88,11 +92,11 @@ log service:
 # Build
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Build and install the API client (required before building the backend Docker image)
+# Build and install the API client into the local Maven repository
 build-api:
     mvn -B clean install -DskipTests --file auditflow-api/pom.xml
 
-# Build the Spring Boot JAR (required before building the backend Docker image)
+# Build the backend Spring Boot JAR, building the API client first
 build-be: build-api
     mvn -B clean package -DskipTests --file auditflow-be/pom.xml
 
@@ -100,14 +104,14 @@ build-be: build-api
 # Testing
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Run all tests across all three services plus e2e
+# Run the API, backend, transformer, sink and E2E tests
 test: test-api test-be test-transformer test-sink test-e2e
 
-# Run Java backend unit tests
+# Run the API client tests
 test-api:
     mvn -B verify --file auditflow-api/pom.xml
 
-# Run Java backend unit tests (reactor build: the API client comes from this checkout)
+# Run the backend tests, building the API client from this checkout
 test-be:
     mvn -B verify -pl auditflow-be -am
 
@@ -132,7 +136,7 @@ test-e2e:
 # The publish → sink → query round trip is covered by examples/getting-started.ipynb
 # (section 6) — run it with `just notebook-getting-started`.
 
-# Run arbitrary SQL against the audit database: just ch "SELECT count() FROM audit_events"
+# Run a SQL query against the ClickHouse audit database
 ch query:
     @docker compose exec -T clickhouse clickhouse-client \
         --user "${CLICKHOUSE_USERNAME:-auditflow}" \
@@ -140,15 +144,15 @@ ch query:
         --database audit \
         --query {{ quote(query) }}
 
-# Show the most recently stored audit events (ordered on event_time, the analytics axis)
+# Show the most recently stored audit events, newest first
 ch-events limit="20":
     @just ch "SELECT event_time, tenant_id, event_type, action_status, licensee_number, product_number, action_method, gross_amount, currency, extra FROM audit_events FINAL ORDER BY event_time DESC LIMIT {{ limit }} FORMAT PrettyCompactMonoBlock"
 
-# Event counts grouped by tenant / API method / status
+# Count events grouped by tenant, event type, API method and status
 ch-stats:
     @just ch "SELECT tenant_id, event_type, action_method, action_status, count() AS events, min(event_time) AS first_seen, max(event_time) AS last_seen FROM audit_events FINAL GROUP BY tenant_id, event_type, action_method, action_status ORDER BY events DESC FORMAT PrettyCompactMonoBlock"
 
-# Interactive ClickHouse shell
+# Open an interactive ClickHouse shell
 ch-shell:
     @docker compose exec clickhouse clickhouse-client \
         --user "${CLICKHOUSE_USERNAME:-auditflow}" \
@@ -158,6 +162,8 @@ ch-shell:
 # Publish synthetic NetLicensing API + Payment Gateway events so the queries in
 # examples/clickhouse/NETLICENSING_EVENTS.md have data.
 # Pass extra flags through, e.g.: just ch-seed "--tenant demo"
+#
+# Publish synthetic NetLicensing and Payment Gateway events to query against
 ch-seed *args:
     @python3 examples/clickhouse/seed_events.py {{ args }}
 
@@ -165,12 +171,12 @@ ch-seed *args:
 # Example notebooks
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Open the getting-started notebook (requires: pip install jupyter requests)
+# Open the getting-started notebook in JupyterLab
 notebook-getting-started:
     @echo "Prerequisites: pip install jupyter requests && just up"
     jupyter lab examples/getting-started.ipynb
 
-# Open the load-testing notebook (requires: pip install jupyter requests)
+# Open the load-testing notebook in JupyterLab
 notebook-load-test:
     @echo "Prerequisites: pip install jupyter requests && just up"
     jupyter lab examples/load-tests.ipynb
