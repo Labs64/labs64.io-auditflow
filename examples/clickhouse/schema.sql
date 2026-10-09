@@ -46,7 +46,6 @@ CREATE TABLE IF NOT EXISTS audit.audit_events
     action_status    LowCardinality(String),
     action_message   String,
     user_id          String,
-    session_id       String,
     duration_ms      Nullable(UInt32),
     response_status  Nullable(UInt16),
 

@@ -25,7 +25,6 @@ FULL_EVENT = {
         "actionName": "login",
         "actionStatus": "SUCCESS",
         "actionMessage": "User logged in successfully",
-        "sessionId": "sess456",
         "durationMs": 34,
         "responseStatus": 200,
         # Outside the well-known vocabulary — must survive in the map column.
@@ -64,7 +63,6 @@ def test_promotes_well_known_extra_keys_and_removes_them_from_extra():
     assert row["action_status"] == "SUCCESS"
     assert row["action_message"] == "User logged in successfully"
     assert row["user_id"] == "customer123"
-    assert row["session_id"] == "sess456"
     assert row["duration_ms"] == 34
     assert row["response_status"] == 200
     # Promoted keys must not be duplicated into the map column; unknown ones must stay in it.

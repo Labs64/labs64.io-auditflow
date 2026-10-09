@@ -13,7 +13,7 @@ BASE_PROPERTIES = {
 }
 
 ROW = {"event_id": "fedcba98-7654-3210-fedc-ba9876543210", "tenant_id": "t_mock",
-       "event_type": "audit.test", "extra": {"sessionId": "sess456"}}
+       "event_type": "audit.test", "extra": {"orderRef": "ord-1"}}
 
 
 def _ok_response():

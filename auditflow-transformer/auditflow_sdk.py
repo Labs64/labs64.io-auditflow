@@ -79,7 +79,6 @@ WELL_KNOWN_EXTRA: Dict[str, str] = {
     "actionStatus": "action_status",
     "actionMessage": "action_message",
     "userId": "user_id",
-    "sessionId": "session_id",
     "durationMs": "duration_ms",
     "responseStatus": "response_status",
 }

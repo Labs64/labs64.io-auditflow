@@ -55,7 +55,7 @@ Example input:
       "sourceSystem": "netlicensing/core",
       "tenantId": "V12345678",
       "geolocation": {"lat": 48.1264019, "lon": 11.5407647, "countryCode": "DE"},
-      "extra": {"userId": "customer123", "actionName": "login", "sessionId": "sess456",
+      "extra": {"userId": "customer123", "actionName": "login",
                 "durationMs": 34, "invoiceRef": "INV-1"}
     }
 
@@ -69,7 +69,6 @@ Example output (one ClickHouse row, absent scalars omitted):
       "tenant_id": "V12345678",
       "action_name": "login",
       "user_id": "customer123",
-      "session_id": "sess456",
       "duration_ms": 34,
       "geo_country_code": "DE", "geo_lat": 48.1264019, "geo_lon": 11.5407647,
       "extra": {"invoiceRef": "INV-1"}

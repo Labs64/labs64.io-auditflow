@@ -82,7 +82,6 @@ FULL_EVENT = {
         "actionName": "payment.capture",
         "actionStatus": "SUCCESS",
         "actionMessage": "Payment captured",
-        "sessionId": "sess456",
         "durationMs": 128,
         "responseStatus": 200,
         # standard API call
@@ -235,7 +234,7 @@ def test_extension_schema_parses_to_a_plausible_column_set():
     core, netlicensing = core_columns(), alter_table_columns(SCHEMA_NETLICENSING_SQL)
     assert {"licensee_number", "gross_amount", "action_method", "validation_args"} <= netlicensing
     assert not core & netlicensing, "a column is declared in both schema files"
-    assert len(_schema_columns()) == 39
+    assert len(_schema_columns()) == 38
 
 
 def test_transformer_output_matches_both_schema_layers_exactly():

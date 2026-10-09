@@ -45,7 +45,6 @@ FULL_EVENT = {
         "actionName": "licensee.get",
         "actionStatus": "SUCCESS",
         "actionMessage": "Request served",
-        "sessionId": "sess456",
         "durationMs": 128,
         "responseStatus": 200,
     },
@@ -94,7 +93,7 @@ def test_schema_file_parses_to_a_plausible_column_set():
     # Guards the parser itself: a silently-empty column set would make the contract test vacuous.
     core = core_columns()
     assert {"timestamp", "event_time", "event_id", "tenant_id", "extra"} <= core
-    assert len(core) == 21
+    assert len(core) == 20
 
 
 def test_transformer_output_matches_the_schema_columns_exactly():

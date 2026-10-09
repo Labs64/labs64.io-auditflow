@@ -81,7 +81,6 @@ paths:
                     actionName: "licensee/validate"
                     actionStatus: "SUCCESS"
                     actionMessage: "Validation completed successfully"
-                    sessionId: "sess456"
                     durationMs: 34
                     responseStatus: 200
                     invoiceRef: "INV-1"
@@ -436,7 +435,6 @@ components:
         | `actionName` | What happened, e.g. an API operation name. |
         | `actionStatus` | Outcome of the **action**: `SUCCESS`, `FAILURE`, `DENIED`. This is the outcome of the operation, not the state of any entity it acted on. |
         | `actionMessage` | Human-readable description of the outcome. |
-        | `sessionId` | Session the action belongs to; the unit of "concurrent usage". |
         | `durationMs` | Server-side processing time in milliseconds (integer). |
         | `responseStatus` | HTTP status returned to the caller (integer). |
 

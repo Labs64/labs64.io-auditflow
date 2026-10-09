@@ -24,7 +24,6 @@ FULL_EVENT = {
         "actionStatus": "SUCCESS",
         "actionMessage": "Test successful",
         "userId": "u1",
-        "sessionId": "s1",
         "durationMs": 34,
         "responseStatus": 200,
     },
@@ -77,7 +76,6 @@ def test_full_event_populates_labels_and_metadata():
     assert metadata["eventId"] == "1234-5678"
     assert metadata["correlationId"] == "corr-1"
     assert metadata["userId"] == "u1"
-    assert metadata["sessionId"] == "s1"
     assert metadata["durationMs"] == "34"
     assert metadata["responseStatus"] == "200"
     assert metadata["country_code"] == "US"

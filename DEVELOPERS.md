@@ -343,10 +343,10 @@ a target name were ever interpolated instead of bound.
 
 #### Migrating from audit_opensearch 1.x
 
-`audit_opensearch` 2.0.0 promotes all 7 well-known keys instead of 3. `sessionId`, `durationMs` and
-`responseStatus` now land in top-level `session_id`, `duration_ms` and `response_status` instead of
-staying inside the `extra` object — update any query or dashboard reading `extra.sessionId` (etc.).
-The index mapping gains **five** fields in total: those same three moved-out fields, plus
+`audit_opensearch` 2.0.0 promotes all 6 well-known keys instead of 4. `durationMs` and `responseStatus` now land in
+top-level `duration_ms` and `response_status` instead of staying inside the `extra` object — update
+any query or dashboard reading `extra.durationMs` (etc.). The index mapping gains **four** fields in
+total: those same two moved-out fields, plus
 `event_time` and `correlation_id`, which are genuinely new — 1.x never emitted an `eventTime` or
 `correlationId` top-level field at all, promoted or not. `audit_loki` 2.0.0 additionally stops
 emitting the placeholder labels `action_name="unknown_action"` / `action_status="unknown_status"`
@@ -431,13 +431,13 @@ tenant's sink. See [Configuring Pipelines](#configuring-pipelines) for the tenan
 curl -s -X POST http://localhost:8080/audit/publish \
   -H "Content-Type: application/json" \
   -d '{"eventType":"payment.succeeded","sourceSystem":"smoke-test","tenantId":"demo",
-       "extra":{"userId":"alice","apiKey":"super-secret","sessionId":"sess-1"}}'
+       "extra":{"userId":"alice","apiKey":"super-secret","durationMs":12}}'
 
-just ch "SELECT user_id, session_id, has(extra,'apiKey') AS has_api_key
+just ch "SELECT user_id, duration_ms, has(extra,'apiKey') AS has_api_key
          FROM audit_events ORDER BY timestamp DESC LIMIT 1"
 ```
 Expect `user_id = '***'` (masked), `has_api_key = 0` (dropped before the pipeline ever saw it),
-and `session_id` intact. This confirms redaction runs in the backend, before the broker, and
+and `duration_ms` intact. This confirms redaction runs in the backend, before the broker, and
 deliberately leaves reporting dimensions alone — see the redaction rules in `docker-compose.yml`'s
 backend `JAVA_OPTS` and [Extending it for a use case](#extending-it-for-a-use-case).
 

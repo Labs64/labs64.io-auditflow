@@ -13,7 +13,7 @@ for the full walkthrough.
 **`extra` is an open map — four invariants** (`tests/test_extra_contract.py` enforces them across
 every module in `transformers/`, so a new transformer is covered on arrival):
 
-1. **Open** — no `extra` key is required; the well-known 7 are a convention, not a schema.
+1. **Open** — no `extra` key is required; the well-known 6 are a convention, not a schema.
 2. **Absent is absent** — never fabricate `"unknown"` / `"N/A"` / `level: "UNKNOWN"` for a missing
    key. A placeholder is indistinguishable from a publisher that really sent it.
 3. **Nothing is dropped** — a non-promoted key always reaches the sink via its metadata channel.

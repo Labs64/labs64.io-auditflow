@@ -36,7 +36,7 @@ PROPERTIES = {}
 
 # NetLicensing / Payment Gateway `extra` keys → columns added by
 # examples/clickhouse/schema-netlicensing.sql. Layered on top of the generic audit-semantics
-# vocabulary that `audit_clickhouse` promotes on its own (userId, action_*, sessionId, durationMs,
+# vocabulary that `audit_clickhouse` promotes on its own (userId, action_*, durationMs,
 # responseStatus) — those are not repeated here.
 PROMOTED = {
     # Standard API call. `actionMethod` is the wire endpoint (`licensee/validate`), which is a

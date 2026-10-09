@@ -23,7 +23,6 @@ Example Input:
     "actionName": "LOGIN_SUCCESS",
     "actionStatus": "SUCCESS",
     "actionMessage": "User logged in successfully",
-    "sessionId": "sess456",
     "durationMs": 234,
     "responseStatus": 200
   }
@@ -40,7 +39,6 @@ Example Output:
   "action_status": "SUCCESS",
   "action_message": "User logged in successfully",
   "user_id": "user123",
-  "session_id": "sess456",
   "duration_ms": 234,
   "response_status": 200,
   "location": {
@@ -67,14 +65,14 @@ the envelope, so it would otherwise let a publisher's `extra` value replace the 
 
 Migration from 1.x
 ------------------
-`sessionId`, `durationMs` and `responseStatus` are now promoted to top-level `session_id`,
-`duration_ms` and `response_status` instead of remaining inside the `extra` object, making the
-promotion set symmetric with `audit_clickhouse`. Queries and dashboards reading `extra.sessionId`
+`durationMs` and `responseStatus` are now promoted to top-level `duration_ms` and
+`response_status` instead of remaining inside the `extra` object, making the
+promotion set symmetric with `audit_clickhouse`. Queries and dashboards reading `extra.durationMs`
 (etc.) must move to the top-level field.
 
-The index mapping gains five fields in total, not three: those same three moved-out fields, plus
-`event_time` and `correlation_id`. The two groups are not the same kind of change — `session_id`,
-`duration_ms` and `response_status` only *moved* out of `extra`, where 1.x already emitted them;
+The index mapping gains four fields in total, not two: those same two moved-out fields, plus
+`event_time` and `correlation_id`. The two groups are not the same kind of change — `duration_ms` and
+`response_status` only *moved* out of `extra`, where 1.x already emitted them;
 `event_time` and `correlation_id` are genuinely new top-level fields with no 1.x equivalent, since
 1.x never emitted `eventTime` or `correlationId` at all, promoted or not.
 """

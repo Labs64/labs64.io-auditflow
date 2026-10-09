@@ -365,7 +365,7 @@ a fully supported setup. Unrecognised keys are delivered unchanged in the sink's
 event never loses data by using names AuditFlow has not heard of.
 
 On top of that, a small **convention** — the generic audit-semantics keys `userId`, `actionName`,
-`actionStatus`, `actionMessage`, `sessionId`, `durationMs`, `responseStatus` — is what the bundled
+`actionStatus`, `actionMessage`, `durationMs`, `responseStatus` — is what the bundled
 transformers promote out of the map into dedicated fields, columns and labels. Promotion is what
 makes a key a queryable report dimension rather than an opaque map entry. Every one is optional, and
 an absent key yields an omitted field, never a placeholder.

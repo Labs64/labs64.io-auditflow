@@ -62,7 +62,7 @@ shares one, so a stuck payment is traceable with a single `WHERE`.
 ## Field vocabulary
 
 Promoted by the **generic** layer, available to every deployment: `userId`, `actionName`,
-`actionStatus`, `actionMessage`, `sessionId`, `durationMs`, `responseStatus`. Documented in the
+`actionStatus`, `actionMessage`, `durationMs`, `responseStatus`. Documented in the
 `Extra` schema of the AuditEvent contract, not here.
 
 Promoted by **this** layer:

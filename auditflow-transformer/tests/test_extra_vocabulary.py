@@ -11,10 +11,10 @@ from auditflow_sdk import WELL_KNOWN_EXTRA, resolve_promoted, stringify_value
 ENV_GLOBAL = "AUDITFLOW_PROMOTED_KEYS"
 
 
-def test_well_known_vocabulary_is_the_documented_seven_keys():
+def test_well_known_vocabulary_is_the_documented_six_keys():
     assert set(WELL_KNOWN_EXTRA) == {
         "actionName", "actionStatus", "actionMessage", "userId",
-        "sessionId", "durationMs", "responseStatus",
+        "durationMs", "responseStatus",
     }
     # Values are the snake_case field/column names the bundled transformers use.
     assert WELL_KNOWN_EXTRA["actionName"] == "action_name"

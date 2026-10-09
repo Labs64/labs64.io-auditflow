@@ -213,9 +213,8 @@ services:
       # the -Dauditflow.pipelines[N].* JAVA_OPTS, which now fail startup by design.
       #
       # The redaction rules below demonstrate mask and drop. They deliberately target `userId`
-      # and `apiKey` and NOT `sessionId`: redaction runs before the pipeline, so a redacted key
-      # is silently empty in every sink — and `sessionId` is promoted to the `session_id` column
-      # that the "active sessions per product" KPI counts. Redacting a reporting dimension makes
+      # and `apiKey` and NOT the dimensions the KPI queries group on (`actionStatus`, `durationMs`, …):
+      # redaction runs before the pipeline, so a redacted key is silently empty in every sink. Redacting a reporting dimension makes
       # the dashboard wrong in a way that looks like no data rather than like an error.
       #
       # The per-tenant in-flight cap (tenants.consumer.max-in-flight-per-tenant) keeps its shipped

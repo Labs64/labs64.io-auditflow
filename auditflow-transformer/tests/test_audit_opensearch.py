@@ -17,7 +17,7 @@ FULL_EVENT = {
                     "country": "Germany", "region": "Bavaria", "city": "Munich"},
     "extra": {
         "actionName": "login", "actionStatus": "SUCCESS", "actionMessage": "ok",
-        "userId": "customer123", "sessionId": "sess456", "durationMs": 34,
+        "userId": "customer123", "durationMs": 34,
         "responseStatus": 200,
     },
 }
@@ -28,13 +28,12 @@ def test_promoted_map_is_the_shared_well_known_vocabulary():
     assert audit_opensearch.transform.promoted == dict(WELL_KNOWN_EXTRA)
 
 
-def test_all_seven_well_known_keys_are_promoted_to_top_level():
+def test_all_six_well_known_keys_are_promoted_to_top_level():
     doc = audit_opensearch.transform(FULL_EVENT)
     assert doc["action_name"] == "login"
     assert doc["action_status"] == "SUCCESS"
     assert doc["action_message"] == "ok"
     assert doc["user_id"] == "customer123"
-    assert doc["session_id"] == "sess456"
     assert doc["duration_ms"] == 34
     assert doc["response_status"] == 200
 
@@ -61,7 +60,7 @@ def test_absent_well_known_keys_are_omitted():
              "extra": {"invoiceRef": "INV-1"}}
     doc = audit_opensearch.transform(event)
     for field in ("action_name", "action_status", "action_message", "user_id",
-                  "session_id", "duration_ms", "response_status"):
+                  "duration_ms", "response_status"):
         assert field not in doc
     assert doc["extra"] == {"invoiceRef": "INV-1"}
 
