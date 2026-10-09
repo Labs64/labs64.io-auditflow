@@ -681,8 +681,8 @@ One object per event: `<prefix>[tenant=<tenantId>/]<partition-format>/<yyyymmdd-
 
 ```yaml
 prefix: tenants/
-partition-format: "vendor_id={extra.vendor_id}/year=%Y/month=%m/day=%d/eventType={eventType}/actionName={extra.actionName}/"
-# -> tenants/tenant=acme/vendor_id=V1/year=2026/month=10/day=02/eventType=api.call/actionName=product_create/<ts>-<id>.json
+partition-format: "vendor_number={extra.vendorNumber}/year=%Y/month=%m/day=%d/eventType={eventType}/actionName={extra.actionName}/"
+# -> tenants/tenant=acme/vendor_number=V1/year=2026/month=10/day=02/eventType=api.call/actionName=product_create/<ts>-<id>.json
 ```
 
 Values are sanitized to `[A-Za-z0-9._-]` (every other character, such as `/` in `product/create`, becomes

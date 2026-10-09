@@ -105,12 +105,12 @@ def s3(monkeypatch):
 
 
 PROPS = {"bucket": "b", "prefix": "tenants/",
-         "partition-format": "vendor_id={extra.vendor_id}/year=%Y/month=%m/day=%d/"}
+         "partition-format": "vendor_number={extra.vendorNumber}/year=%Y/month=%m/day=%d/"}
 
 
 def event(i, vendor):
     return {"eventId": f"00000000-0000-0000-0000-00000000000{i}", "tenantId": "acme",
-            "timestamp": "2026-10-02T14:26:39Z", "extra": {"vendor_id": vendor}}
+            "timestamp": "2026-10-02T14:26:39Z", "extra": {"vendorNumber": vendor}}
 
 
 def test_one_jsonl_object_per_key_prefix(s3):
@@ -119,7 +119,7 @@ def test_one_jsonl_object_per_key_prefix(s3):
     assert all(isinstance(o, dict) for o in outcomes)
     assert len(s3.puts) == 2
     by_prefix = {p["Key"].rsplit("/", 1)[0]: p for p in s3.puts}
-    v1 = by_prefix["tenants/tenant=acme/vendor_id=V1/year=2026/month=10/day=02"]
+    v1 = by_prefix["tenants/tenant=acme/vendor_number=V1/year=2026/month=10/day=02"]
     lines = v1["Body"].decode().splitlines()
     assert [json.loads(line)["eventId"] for line in lines] == [events[0]["eventId"], events[2]["eventId"]]
     assert v1["Key"].endswith(".jsonl")
@@ -141,7 +141,7 @@ def test_compressed_batch(s3):
 
 
 def test_a_failed_put_fails_only_its_group(monkeypatch):
-    fake = RecordingS3(fail_keys=("vendor_id=V2",))
+    fake = RecordingS3(fail_keys=("vendor_number=V2",))
     monkeypatch.setattr(aws_s3_sink, "_get_s3_client", lambda *a: fake)
     outcomes = aws_s3_sink.process_batch([event(1, "V1"), event(2, "V2")], PROPS)
     assert isinstance(outcomes[0], dict)

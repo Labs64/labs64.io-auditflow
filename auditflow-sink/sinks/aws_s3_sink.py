@@ -26,7 +26,7 @@ PROPERTIES = {
     "partition-by-date": "Partition objects by event date: true/false (default: true)",
     "partition-format": "strftime pattern for partitioning (default: year=%Y/month=%m/day=%d/). "
                         "{field} placeholders insert an event field, e.g. "
-                        "vendor_id={extra.vendor_id}/year=%Y/month=%m/day=%d/; values are sanitized to "
+                        "vendor_number={extra.vendorNumber}/year=%Y/month=%m/day=%d/; values are sanitized to "
                         "[A-Za-z0-9._-] and a missing value becomes 'unknown'",
     "file-format": "File format: json or jsonl (default: json)",
     "endpoint-url": "Custom S3-compatible endpoint URL (optional)",
