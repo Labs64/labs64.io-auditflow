@@ -232,6 +232,11 @@ auditflow:
   # Retry/backoff for outbound transformer & sink HTTP calls.
   # Only transient failures (5xx, connection/timeout) are retried; 4xx is never retried.
   http:
+    # Largest transformer or sink response read into memory. A transformer answers with the whole
+    # event, so keep this above the largest event ingest accepts (the gateway's request body limit,
+    # buffering.maxRequestBodyBytes of the api-gateway chart: 2.5 MB). An event above it is
+    # dead-lettered as poison on its first delivery attempt.
+    max-response-size: 4MB
     retry:
       enabled: true
       max-attempts: 3        # retries after the initial try (total tries = 1 + max-attempts)

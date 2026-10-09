@@ -1,6 +1,7 @@
 package io.labs64.audit.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.labs64.audit.config.HttpClientProperties;
 import io.labs64.audit.config.HttpRetryProperties;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.netty.channel.ChannelOption;
@@ -30,11 +31,13 @@ public class TransformationService {
     private final ReactiveCircuitBreakerFactory<?, ?> circuitBreakerFactory;
     private final Map<String, WebClient> webClientCache = new ConcurrentHashMap<>();
     private final Retry retrySpec;
+    private final int maxResponseBytes;
 
     public TransformationService(TransformerDiscovery transformerDiscovery,
                                  WebClient.Builder webClientBuilder,
                                  ReactiveCircuitBreakerFactory<?, ?> circuitBreakerFactory,
                                  HttpRetryProperties retryProperties,
+                                 HttpClientProperties httpProperties,
                                  MeterRegistry meterRegistry) {
         this.transformerDiscovery = transformerDiscovery;
         this.webClientBuilder = webClientBuilder;
@@ -43,6 +46,7 @@ public class TransformationService {
                 ? HttpRetrySupport.spec(retryProperties,
                         meterRegistry.counter("auditflow.http.retries", "service", "transformer"))
                 : null;
+        this.maxResponseBytes = Math.toIntExact(httpProperties.getMaxResponseSize().toBytes());
     }
 
     /** Package-private accessor for testing — allows injecting mock WebClient instances. */
@@ -100,6 +104,8 @@ public class TransformationService {
                                     .option(ChannelOption.TCP_NODELAY, true)
                                     .responseTimeout(Duration.ofSeconds(10))
                     ))
+                    // The whole response is read into memory; WebClient stops at 256 KB by default.
+                    .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(maxResponseBytes))
                     .baseUrl(u)
                     .build();
         });

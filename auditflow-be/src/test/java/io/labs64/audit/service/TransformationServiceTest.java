@@ -54,7 +54,8 @@ class TransformationServiceTest {
         lenient().when(cb.run(any(Mono.class), any())).thenAnswer(inv -> inv.getArgument(0));
 
         transformationService = new TransformationService(
-                transformerDiscovery, WebClient.builder(), cbFactory, retryProperties, new SimpleMeterRegistry());
+                transformerDiscovery, WebClient.builder(), cbFactory, retryProperties,
+                new io.labs64.audit.config.HttpClientProperties(), new SimpleMeterRegistry());
     }
 
     private com.fasterxml.jackson.databind.JsonNode node(String json) {
@@ -102,6 +103,60 @@ class TransformationServiceTest {
                 () -> transformationService.transform(node("{\"key\":\"value\"}"), "my_transformer"));
 
         assertTrue(ex.getMessage().contains("Transformer URL is empty or null"));
+    }
+
+    // -------------------------------------------------------------------------
+    // Response size — against a real HTTP server (the limit lives in the WebClient codecs)
+    // -------------------------------------------------------------------------
+
+    private reactor.netty.DisposableServer transformerAnswering(String body) {
+        return reactor.netty.http.server.HttpServer.create().port(0)
+                .route(routes -> routes.post("/transform/{name}", (request, response) -> response
+                        .header("Content-Type", "application/json")
+                        .sendString(Mono.just(body))))
+                .bindNow();
+    }
+
+    @Test
+    @DisplayName("A transformer response above WebClient's 256 KB default is read (events up to the ingest limit)")
+    void shouldReadAResponseLargerThanTheDefaultBuffer() {
+        String event = "{\"eventId\":\"e-1\",\"extra\":{\"p\":\"" + "a".repeat(300_000) + "\"}}";
+        reactor.netty.DisposableServer server = transformerAnswering(event);
+        try {
+            when(transformerDiscovery.getTransformerUrl()).thenReturn("http://localhost:" + server.port());
+
+            StepVerifier.create(transformationService.transform(node("{\"eventId\":\"e-1\"}"), "zero"))
+                    .expectNext(event)
+                    .verifyComplete();
+        } finally {
+            server.disposeNow();
+        }
+    }
+
+    @Test
+    @DisplayName("A response above auditflow.http.max-response-size is poison, not retried")
+    void shouldClassifyAResponseAboveTheLimitAsPoison() {
+        io.labs64.audit.config.HttpClientProperties small = new io.labs64.audit.config.HttpClientProperties();
+        small.setMaxResponseSize(org.springframework.util.unit.DataSize.ofKilobytes(1));
+        HttpRetryProperties retryProperties = new HttpRetryProperties();
+        retryProperties.setMinBackoff(Duration.ofMillis(1));
+        ReactiveCircuitBreakerFactory<?, ?> cbFactory = mock(ReactiveCircuitBreakerFactory.class);
+        ReactiveCircuitBreaker cb = mock(ReactiveCircuitBreaker.class);
+        when(cbFactory.create(anyString())).thenReturn(cb);
+        when(cb.run(any(Mono.class), any())).thenAnswer(inv -> inv.getArgument(0));
+        TransformationService limited = new TransformationService(
+                transformerDiscovery, WebClient.builder(), cbFactory, retryProperties, small, new SimpleMeterRegistry());
+
+        reactor.netty.DisposableServer server = transformerAnswering("{\"p\":\"" + "a".repeat(4_000) + "\"}");
+        try {
+            when(transformerDiscovery.getTransformerUrl()).thenReturn("http://localhost:" + server.port());
+
+            StepVerifier.create(limited.transform(node("{\"eventId\":\"e-1\"}"), "zero"))
+                    .expectError(io.labs64.audit.exception.PoisonDeliveryException.class)
+                    .verify(Duration.ofSeconds(10));
+        } finally {
+            server.disposeNow();
+        }
     }
 
     // -------------------------------------------------------------------------

@@ -28,6 +28,16 @@ class DeliveryErrorsTest {
     }
 
     @Test
+    @DisplayName("A response above the buffer limit classifies as poison (as large on every retry)")
+    void shouldClassifyAnOversizedResponseAsPoison() {
+        // What WebClient raises: a response exception (status 200) caused by the codec's limit.
+        WebClientResponseException ex = new WebClientResponseException(200, "OK", null, null, null);
+        ex.initCause(new org.springframework.core.io.buffer.DataBufferLimitException(
+                "Exceeded limit on max bytes to buffer : 262144"));
+        assertInstanceOf(PoisonDeliveryException.class, DeliveryErrors.classify("ctx", ex));
+    }
+
+    @Test
     @DisplayName("An open circuit breaker classifies as retryable (preserve -> DLQ)")
     void shouldClassifyOpenCircuitAsRetryable() {
         CircuitBreaker breaker = CircuitBreaker.ofDefaults("test");
