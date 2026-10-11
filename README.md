@@ -286,7 +286,9 @@ Four steps and you have the full stack — backend, broker, transformer, and sin
 
 **Prerequisites:** Docker, Docker Compose v2, [`just`](https://github.com/casey/just), and — because `just up` builds the backend jar on your machine before starting the containers — **JDK 25** and **Maven 3.6.3+**.
 
-Measured at **61 seconds** from `just up` to a delivered event on a warm developer machine; see the [timed quickstart](https://github.com/Labs64/labs64.io-docs/blob/master/auditflow/quickstart.md) for the full breakdown and what was cold.
+Measured at **61 seconds** from `just up` to a delivered event on a warm developer machine. A first run takes longer, because it downloads base images and Maven dependencies and builds everything.
+
+> **No JDK at hand, or want AuditFlow behind the gateway with authentication?** The [Labs64.IO Quickstart](https://labs64.io/docs/getting-started/quickstart/) installs published images on any Kubernetes cluster with one script, in about five minutes. A walkthrough of the steps below, with troubleshooting, is in [Run one module locally](https://labs64.io/docs/getting-started/run-one-module-locally/).
 
 **1. Clone the repo**
 ```bash
@@ -299,7 +301,7 @@ cd labs64.io-auditflow
 just up
 ```
 Builds the backend JAR and all three Docker images, then starts the full local stack — 3 services
-+ RabbitMQ + Cerbos + ClickHouse (see [Deployment](#deployment) for what the other profiles add).
++ RabbitMQ + Valkey + Cerbos + ClickHouse (see [Deployment](#deployment) for what the observability profile adds).
 
 **3. Publish an event and watch it arrive**
 ```bash
@@ -505,7 +507,7 @@ volumes:
       name: my-sink-plugins
 ```
 
-> Production-ready Helm charts are available in `labs64.io-helm-charts/charts/auditflow`.
+> Helm charts are published from [`labs64.io-helm-charts`](https://github.com/Labs64/labs64.io-helm-charts): `helm repo add labs64io https://labs64.github.io/labs64.io-helm-charts`, then `labs64io/auditflow` for AuditFlow alone or `labs64io/labs64io-ecosystem` for the platform. Its `install.sh` puts the whole stack on a cluster and verifies it; see [Deploy to your Kubernetes cluster](https://labs64.io/docs/getting-started/deploy-to-kubernetes/).
 
 ### Cloud-managed infrastructure
 
@@ -524,9 +526,9 @@ The cloud sinks (`aws_s3_sink`, `aws_cloudwatch_sink`, `gcs_sink`, `azure_blob_s
 ### Running without Redis
 
 Redis is only used for idempotency/dedup and multi-replica rate-limiting. A single-replica
-deployment that doesn't need either can skip running Redis at all — this is exactly what the
-bundled `docker-compose.yml` dev stack does (`just up` runs with Redis fully excluded). To do the
-same via the Helm chart, set:
+deployment that doesn't need either can skip running Redis at all. (The bundled
+`docker-compose.yml` stack does run Valkey, so that local behaviour matches Kubernetes.) To run
+without it via the Helm chart, set:
 
 ```yaml
 applicationYaml:
