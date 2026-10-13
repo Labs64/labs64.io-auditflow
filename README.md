@@ -18,13 +18,26 @@
 
 ## Why AuditFlow?
 
-Most teams reinvent audit logging in every service, and the rules for *what* to capture, *where* it goes and *which fields must never be stored* drift apart. AuditFlow moves that into one place:
+Every team ends up building audit logging more than once. One service writes to a table, another calls a logging API, a third does nothing until an auditor asks. The rules for *what* to capture, *where* it goes and *which fields must never be stored* are copied from service to service and quietly drift apart, and you find out at the worst possible moment.
 
-1. **Your service makes one REST call.** No SDK, no broker client, no per-destination code.
-2. **AuditFlow protects and routes it.** Sensitive fields are masked before anything is stored, then your YAML pipelines decide where the event goes.
-3. **Every destination gets it, reliably.** Retries over hours, a replayable dead-letter queue and per-tenant isolation mean nothing is silently lost.
+1. **Your service makes one REST call.** No SDK, no broker client, no per-destination code to maintain.
+2. **AuditFlow protects and routes the event.** Sensitive fields are masked before anything is stored, then your YAML pipelines decide where it goes.
+3. **Every destination gets it, reliably.** Retries over hours, a replayable dead-letter queue and per-tenant isolation mean an outage at a sink does not become a hole in your audit trail.
 
-It complements OpenTelemetry rather than replacing it: OpenTelemetry tells you whether your system is healthy; AuditFlow tells you who did what, when, and with what outcome.
+AuditFlow complements OpenTelemetry rather than replacing it: OpenTelemetry tells you whether your system is healthy; AuditFlow tells you who did what, when, and with what outcome.
+
+**A good fit if**
+
+- You must answer "who did what, when, from where" across several services, and each service does it differently today.
+- Events have to reach more than one place (search for ops, archive for compliance, a SIEM for security) without hand-wiring each one.
+- Personal data must never reach your log storage, and redaction at the door is a hard requirement.
+- You can not afford silent loss: a sink outage must delay delivery, not drop evidence.
+
+**Probably not what you need if**
+
+- You only need traces, metrics or infrastructure logs: reach for OpenTelemetry, Prometheus or your observability platform.
+- You want to intercept raw HTTP traffic at a proxy or sidecar: AuditFlow is event-driven and your services decide what to publish.
+- You want AuditFlow itself to be the queryable store: it deliberately has no database; your sinks own retention and query.
 
 ## Get started
 
@@ -49,16 +62,17 @@ Not sure? Start with **3** to see AuditFlow in two minutes, or **1** to see it a
 
 ### 1. `install.sh`: the quick ecosystem start
 
-One script installs AuditFlow, the Payment Gateway and the authenticating API gateway on any Kubernetes cluster, then sends a real audit event through it to prove it works. No cluster? A throwaway one on your laptop is enough:
+One script installs AuditFlow, the Payment Gateway and the authenticating API gateway on any Kubernetes cluster, then sends a real audit event through it to prove it works.
 
 ```bash
-k3d cluster create labs64io-demo -p "8000:80@loadbalancer" --k3s-arg "--disable=traefik@server:0"   # optional
+# No cluster yet? A throwaway one needs only Docker and k3d:
+k3d cluster create labs64io-demo -p "8000:80@loadbalancer" --k3s-arg "--disable=traefik@server:0"
 
 curl -fsSL https://raw.githubusercontent.com/Labs64/labs64.io-helm-charts/master/install.sh -o install.sh
 bash install.sh
 ```
 
-Press Enter three times to take the defaults. You finish with a gateway you can `curl`, interactive API docs and a working token flow:
+Press Enter three times to take the defaults. A few minutes later you should see:
 
 ```text
   PASS  Obtained a demo access token from mock-oidc
@@ -69,19 +83,21 @@ Press Enter three times to take the defaults. You finish with a gateway you can 
    API docs:  http://localhost:8000/swagger-ui/
 ```
 
-You finish with a gateway you can `curl`, interactive API docs and an audit event you published yourself. The same script later runs `status`, `stop`, `start` and `uninstall`. This is an evaluation install with a demo identity provider: keep it on a local or private cluster. Details: [Quickstart](https://labs64.io/docs/getting-started/quickstart/) · [`install.sh`](https://github.com/Labs64/labs64.io-helm-charts/blob/master/install.sh).
+Along the way you watch AuditFlow accept a real audit event through the gateway, with authentication in front of it. The same script later runs `status`, `stop`, `start` and `uninstall`. This is an evaluation install with a demo identity provider: keep it on a local or private cluster. Details: [Quickstart](https://labs64.io/docs/getting-started/quickstart.html) · [`install.sh`](https://github.com/Labs64/labs64.io-helm-charts/blob/master/install.sh).
 
 ### 2. Kubernetes: on your own cluster
 
-Install AuditFlow from its Helm chart and point it at your infrastructure:
+You have a cluster and a RabbitMQ broker (self-hosted or managed). Install AuditFlow from its chart and tell it where the broker is:
 
 ```bash
 helm repo add labs64io https://labs64.github.io/labs64.io-helm-charts
 helm repo update
-helm install my-auditflow labs64io/auditflow -n labs64io --create-namespace
+
+helm install my-auditflow labs64io/auditflow -n labs64io --create-namespace \
+  --set global.rabbitmq.host=rabbitmq.mycompany.internal
 ```
 
-AuditFlow needs a RabbitMQ broker (self-hosted or managed) and, for more than one replica, a Redis-compatible store. The [`preflight`](https://labs64.io/docs/getting-started/deploy-to-kubernetes/) chart checks both from inside your cluster before you install. Guides: [Deploy to your Kubernetes cluster](https://labs64.io/docs/getting-started/deploy-to-kubernetes/) · [AuditFlow deployment](https://labs64.io/docs/modules/auditflow/deployment/) · [Helm chart on Artifact Hub](https://artifacthub.io/packages/helm/labs64io-helm-charts/auditflow).
+Broker credentials go in a Kubernetes Secret (see the chart's values), and a Redis-compatible store is recommended once you run more than one replica. The `preflight` chart can check the broker from inside your cluster before you install. Guides: [Deploy to your Kubernetes cluster](https://labs64.io/docs/getting-started/deploy-to-kubernetes.html) · [AuditFlow deployment](https://labs64.io/docs/modules/auditflow/deployment/) · [Helm chart on Artifact Hub](https://artifacthub.io/packages/helm/labs64io-helm-charts/auditflow).
 
 ### 3. Docker: on your machine
 
@@ -130,7 +146,7 @@ mvn -B clean package -DskipTests -pl auditflow-be -am   # build the backend jar
 docker compose up --build -d                            # build and start every service, including Cerbos
 ```
 
-[`AGENTS.md`](AGENTS.md) describes the layout, commands and tests; [`DEVELOPERS.md`](DEVELOPERS.md) is the full developer guide; the [Contributing guide](https://labs64.io/docs/development/contributing/) covers the workflow.
+[`AGENTS.md`](AGENTS.md) describes the layout, commands and tests; [`DEVELOPERS.md`](DEVELOPERS.md) is the full developer guide; the [Contributing guide](https://labs64.io/docs/development/contributing.html) covers the workflow.
 
 ### Where next?
 
@@ -141,7 +157,9 @@ Everything below is in the [AuditFlow documentation](https://labs64.io/docs/modu
 | Route events to my own destination (S3, OpenSearch, Splunk, webhook, …) | [Configuring pipelines](https://labs64.io/docs/modules/auditflow/configuring-pipelines/) and [Sinks and transformers](https://labs64.io/docs/modules/auditflow/sinks-and-transformers/) |
 | Mask, hash or drop sensitive fields | [PII redaction](https://labs64.io/docs/modules/auditflow/configuring-pipelines/#pii-redaction) |
 | See which setup fits my situation | [Usage scenarios](https://labs64.io/docs/modules/auditflow/usage-scenarios/) |
-| Compare all the ways to run Labs64.IO | [Choose a deployment path](https://labs64.io/docs/getting-started/choose-a-deployment-path/) |
+| Compare all the ways to run Labs64.IO | [Choose a deployment path](https://labs64.io/docs/getting-started/choose-a-deployment-path.html) |
+
+Something not working? [Troubleshooting your first run](https://labs64.io/docs/getting-started/troubleshooting.html) covers the usual suspects, and you are always welcome to [open an issue](https://github.com/Labs64/labs64.io-auditflow/issues).
 
 ## Features
 
@@ -189,6 +207,19 @@ The complete list is in the [Features documentation](https://labs64.io/docs/modu
 
 Redis (Valkey) is used for deduplication only, never as storage. Design details and invariants are in the [architecture documentation](https://labs64.io/docs/modules/auditflow/#architecture).
 
+## AuditFlow and OpenTelemetry
+
+They look alike (both capture events from your services and ship them somewhere) but they answer different questions for different people.
+
+| | OpenTelemetry / observability | AuditFlow |
+|---|---|---|
+| **Question answered** | *Is my system healthy?* Latency, errors, throughput | *Who did what, when, with what outcome?* Intentional actions by users and services |
+| **Main reader** | SREs and platform engineers | Compliance, security, legal and auditors |
+| **Data character** | High volume, sampled, short retention | Every event matters, lossless, long retention |
+| **When it goes wrong** | A dropped span is a gap in a graph | A dropped audit event is a compliance failure |
+
+Both belong in a production system. AuditFlow is built around the assumption that **every event matters**, which is why it has idempotency, a dead-letter queue, retries and ingest-time redaction.
+
 ## Using AuditFlow with AI agents
 
 AuditFlow gives an agent a durable record of what it did, with one HTTP call per action and no SDK.
@@ -220,11 +251,11 @@ AuditFlow is one module of the [Labs64.IO Ecosystem](https://labs64.io); [every 
 
 ## Contributing
 
-Contributions of all sizes are welcome. Fork, branch, run the tests described in [`AGENTS.md`](AGENTS.md), and open a pull request; for a new sink or transformer, start with the [plugin guide](DEVELOPERS.md#adding-a-new-sink). If you are unsure whether something fits, open an issue first.
+We would love your help. Good first areas are new condition operators, transformers and sinks, and documentation or examples. Fork the repository, make your change on a branch, run the checks described in [`AGENTS.md`](AGENTS.md) and open a pull request. For a new sink or transformer, the [plugin guide](DEVELOPERS.md#adding-a-new-sink) is the place to start. Not sure whether an idea fits? Open an issue first and we will talk it through; that is a perfectly good way to start.
 
 ## License
 
-The core of the *Labs64.IO Ecosystem* is entirely open source and free forever. Community modules are licensed under [Apache License 2.0](LICENSE).
+Everything in this repository is open source under the [Apache License 2.0](LICENSE): you can use it, change it and ship it commercially. The core of the *Labs64.IO Ecosystem* is free forever; community modules are Apache-2.0 licensed.
 
 ---
 
