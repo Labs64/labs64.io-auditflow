@@ -31,18 +31,18 @@ It complements OpenTelemetry rather than replacing it: OpenTelemetry tells you w
 Four ways in. Pick the one that matches what you have; each is complete on its own.
 
 ```
- 1  install.sh           2  Kubernetes           3  Docker               4  Source
-┌─────────────────────┐ ┌─────────────────────┐ ┌─────────────────────┐ ┌─────────────────────┐
-│ The whole ecosystem │ │ AuditFlow on your   │ │ AuditFlow on your   │ │ Build it, change    │
-│ with gateway + auth │ │ cluster and your    │ │ machine, from       │ │ it, contribute      │
-│ and a live smoke    │ │ own infrastructure  │ │ published images    │ │ back                │
-│ test                │ │                     │ │                     │ │                     │
-├─────────────────────┤ ├─────────────────────┤ ├─────────────────────┤ ├─────────────────────┤
-│ needs  a cluster,   │ │ needs  a cluster,   │ │ needs  Docker       │ │ needs  JDK 25,      │
-│        kubectl,helm │ │        kubectl,helm │ │                     │ │        Maven, Docker│
-│ time   ~5 minutes   │ │ time   an afternoon │ │ time   ~2 minutes   │ │ time   first build  │
-└─────────────────────┘ └─────────────────────┘ └─────────────────────┘ └─────────────────────┘
- evaluate everything     run it for real         see AuditFlow work      work on the code
+ 1  install.sh             2  Kubernetes             3  Docker                 4  Source
+┌───────────────────────┐ ┌───────────────────────┐ ┌───────────────────────┐ ┌───────────────────────┐
+│ The whole ecosystem   │ │ AuditFlow on your     │ │ AuditFlow on your     │ │ Build it, change      │
+│ with gateway + auth   │ │ cluster and your      │ │ machine, from         │ │ it, contribute        │
+│ and a live smoke      │ │ own infrastructure    │ │ published images      │ │ back                  │
+│ test                  │ │                       │ │                       │ │                       │
+├───────────────────────┤ ├───────────────────────┤ ├───────────────────────┤ ├───────────────────────┤
+│ needs  a cluster,     │ │ needs  a cluster,     │ │ needs  Docker         │ │ needs  JDK 25, Maven, │
+│        kubectl, helm  │ │        kubectl, helm  │ │                       │ │        Docker         │
+│ time   ~5 minutes     │ │ time   an afternoon   │ │ time   ~2 minutes     │ │ time   first build    │
+└───────────────────────┘ └───────────────────────┘ └───────────────────────┘ └───────────────────────┘
+ evaluate everything       run it for real           see AuditFlow work        work on the code
 ```
 
 Not sure? Start with **3** to see AuditFlow in two minutes, or **1** to see it as part of the platform.
@@ -58,7 +58,7 @@ curl -fsSL https://raw.githubusercontent.com/Labs64/labs64.io-helm-charts/master
 bash install.sh
 ```
 
-Press Enter three times to take the defaults. You finish with a gateway you can `curl`, interactive API docs, and an audit event you published yourself:
+Press Enter three times to take the defaults. You finish with a gateway you can `curl`, interactive API docs and a working token flow:
 
 ```text
   PASS  Obtained a demo access token from mock-oidc
@@ -69,7 +69,7 @@ Press Enter three times to take the defaults. You finish with a gateway you can 
    API docs:  http://localhost:8000/swagger-ui/
 ```
 
-The same script later runs `status`, `stop`, `start` and `uninstall`. This is an evaluation install with a demo identity provider: keep it on a local or private cluster. Details: [Quickstart](https://labs64.io/docs/getting-started/quickstart/) · [`install.sh`](https://github.com/Labs64/labs64.io-helm-charts/blob/master/install.sh).
+You finish with a gateway you can `curl`, interactive API docs and an audit event you published yourself. The same script later runs `status`, `stop`, `start` and `uninstall`. This is an evaluation install with a demo identity provider: keep it on a local or private cluster. Details: [Quickstart](https://labs64.io/docs/getting-started/quickstart/) · [`install.sh`](https://github.com/Labs64/labs64.io-helm-charts/blob/master/install.sh).
 
 ### 2. Kubernetes: on your own cluster
 
@@ -203,7 +203,7 @@ AuditFlow gives an agent a durable record of what it did, with one HTTP call per
 
 AuditFlow is one module of the [Labs64.IO Ecosystem](https://labs64.io); [every module is documented here](https://labs64.io/docs/).
 
-| Module | What it does | Repository |
+| Module | What it does | Link |
 |---|---|---|
 | **AuditFlow** | Audit-event routing pipeline | [labs64.io-auditflow](https://github.com/Labs64/labs64.io-auditflow) |
 | **API Gateway** | Authenticating, policy-enforcing edge for all modules | [labs64.io-authproxy](https://github.com/Labs64/labs64.io-authproxy) |
@@ -215,6 +215,8 @@ AuditFlow is one module of the [Labs64.IO Ecosystem](https://labs64.io); [every 
 | **Workspace** | Dev container and multi-repo tooling | [labs64.io-workspace](https://github.com/Labs64/labs64.io-workspace) |
 | **Tests** | Cross-module regression suite | [labs64.io-tests](https://github.com/Labs64/labs64.io-tests) |
 | **Docs** | Published documentation | [labs64.io-docs](https://github.com/Labs64/labs64.io-docs) |
+| **NetLicensing** | Licensing-as-a-Service: license and entitlement management | [netlicensing.io](https://netlicensing.io) |
+| **GuideChimp** | Interactive guided product tours | [labs64.com/guidechimp](https://www.labs64.com/guidechimp/) |
 
 ## Contributing
 
@@ -223,6 +225,13 @@ Contributions of all sizes are welcome. Fork, branch, run the tests described in
 ## License
 
 The core of the *Labs64.IO Ecosystem* is entirely open source and free forever. Community modules are licensed under [Apache License 2.0](LICENSE).
+
+---
+
+<p align="center">
+  <a href="https://labs64.io"><img alt="Labs64.IO" src="https://labs64.io/docs/assets/images/labs64-logo.png" width="110"></a><br>
+  <sub>Made by the <a href="https://labs64.io">Labs64</a> team and community.</sub>
+</p>
 
 ---
 
