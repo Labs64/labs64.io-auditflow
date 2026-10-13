@@ -46,29 +46,29 @@
 <use href="#po1" fill="none" stroke="#F8EDE5" stroke-opacity=".22" stroke-width="1.5"/>
 <use href="#po2" fill="none" stroke="#F8EDE5" stroke-opacity=".22" stroke-width="1.5"/>
 <use href="#po3" fill="none" stroke="#F8EDE5" stroke-opacity=".22" stroke-width="1.5"/>
-<text x="64" y="262" class="mono" font-size="12" letter-spacing="2.4" fill="#87888A">ANY SERVICE THAT CAN POST JSON</text>
+<text x="64" y="262" class="mono" font-size="12" letter-spacing="2.4" fill="#87888A">ANY SOURCE THAT CAN POST JSON</text>
 <rect x="64" y="274" width="216" height="52" rx="10" fill="#F8EDE5" fill-opacity=".05" stroke="#F8EDE5" stroke-opacity=".2"/>
 <circle cx="86" cy="300" r="4" fill="#E14817"/>
-<text x="102" y="297" class="sans" font-size="15" font-weight="700" fill="#F8EDE5">Keycloak</text>
-<text x="102" y="315" class="mono" font-size="11.5" fill="#F08B53">user.login</text>
+<text x="102" y="297" class="sans" font-size="15" font-weight="700" fill="#F8EDE5">Business application</text>
+<text x="102" y="315" class="mono" font-size="11.5" fill="#F08B53">order.approved</text>
 <rect x="64" y="274" width="216" height="52" rx="10" fill="none" stroke="#E14817" stroke-width="2" opacity="0">
       <animate attributeName="opacity" dur="6.0s" begin="0.0s" repeatCount="indefinite" values="0;1;0;0" keyTimes="0;0.05;0.1500;1"/></rect>
 <rect x="64" y="344" width="216" height="52" rx="10" fill="#F8EDE5" fill-opacity=".05" stroke="#F8EDE5" stroke-opacity=".2"/>
 <circle cx="86" cy="370" r="4" fill="#E14817"/>
-<text x="102" y="367" class="sans" font-size="15" font-weight="700" fill="#F8EDE5">Kubernetes</text>
-<text x="102" y="385" class="mono" font-size="11.5" fill="#F08B53">pod.exec</text>
+<text x="102" y="367" class="sans" font-size="15" font-weight="700" fill="#F8EDE5">Platform event</text>
+<text x="102" y="385" class="mono" font-size="11.5" fill="#F08B53">deployment.finished</text>
 <rect x="64" y="344" width="216" height="52" rx="10" fill="none" stroke="#E14817" stroke-width="2" opacity="0">
       <animate attributeName="opacity" dur="6.0s" begin="0.3s" repeatCount="indefinite" values="0;1;0;0" keyTimes="0;0.05;0.1500;1"/></rect>
 <rect x="64" y="414" width="216" height="52" rx="10" fill="#F8EDE5" fill-opacity=".05" stroke="#F8EDE5" stroke-opacity=".2"/>
 <circle cx="86" cy="440" r="4" fill="#E14817"/>
-<text x="102" y="437" class="sans" font-size="15" font-weight="700" fill="#F8EDE5">GitHub</text>
-<text x="102" y="455" class="mono" font-size="11.5" fill="#F08B53">repo.permission.changed</text>
+<text x="102" y="437" class="sans" font-size="15" font-weight="700" fill="#F8EDE5">Legacy system</text>
+<text x="102" y="455" class="mono" font-size="11.5" fill="#F08B53">record.changed</text>
 <rect x="64" y="414" width="216" height="52" rx="10" fill="none" stroke="#E14817" stroke-width="2" opacity="0">
       <animate attributeName="opacity" dur="6.0s" begin="0.6s" repeatCount="indefinite" values="0;1;0;0" keyTimes="0;0.05;0.1500;1"/></rect>
 <rect x="64" y="484" width="216" height="52" rx="10" fill="#F8EDE5" fill-opacity=".05" stroke="#F8EDE5" stroke-opacity=".2"/>
 <circle cx="86" cy="510" r="4" fill="#E14817"/>
-<text x="102" y="507" class="sans" font-size="15" font-weight="700" fill="#F8EDE5">Stripe</text>
-<text x="102" y="525" class="mono" font-size="11.5" fill="#F08B53">charge.refunded</text>
+<text x="102" y="507" class="sans" font-size="15" font-weight="700" fill="#F8EDE5">Security tooling</text>
+<text x="102" y="525" class="mono" font-size="11.5" fill="#F08B53">alert.raised</text>
 <rect x="64" y="484" width="216" height="52" rx="10" fill="none" stroke="#E14817" stroke-width="2" opacity="0">
       <animate attributeName="opacity" dur="6.0s" begin="0.8999999999999999s" repeatCount="indefinite" values="0;1;0;0" keyTimes="0;0.05;0.1500;1"/></rect>
 <rect x="430" y="262" width="340" height="286" rx="14" fill="#F8EDE5" fill-opacity=".05" stroke="#F08B53" stroke-opacity=".55"/>
@@ -94,36 +94,36 @@
 <rect x="454" y="410" width="292" height="122" rx="10" fill="#0A0402" fill-opacity=".6" stroke="#F8EDE5" stroke-opacity=".15"/>
 <g class="mono" font-size="12.5" fill="#F8EDE5">
   <text x="470" y="436" fill-opacity=".5">{</text>
-  <text x="486" y="458"><tspan fill="#F08B53">"eventType"</tspan>: "user.login",</text>
-  <text x="486" y="480"><tspan fill="#F08B53">"sourceSystem"</tspan>: "keycloak",</text>
+  <text x="486" y="458"><tspan fill="#F08B53">"eventType"</tspan>: "record.changed",</text>
+  <text x="486" y="480"><tspan fill="#F08B53">"sourceSystem"</tspan>: "legacy",</text>
   <g><text x="486" y="502"><tspan fill="#F08B53">"userId"</tspan>: "alice"</text>
     <animate attributeName="opacity" dur="6.0s" repeatCount="indefinite" values="1;1;0;0;1;1" keyTimes="0.0000;0.3083;0.3333;0.9333;0.9833;1.0000"/></g>
   <g opacity="0"><text x="486" y="502"><tspan fill="#F08B53">"userId"</tspan>: <tspan fill="#E14817" font-weight="700">"••••••"</tspan></text>
     <animate attributeName="opacity" dur="6.0s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0.0000;0.3083;0.3333;0.9333;0.9833;1.0000"/></g>
   <text x="470" y="524" fill-opacity=".5">}</text>
 </g>
-<text x="920" y="262" class="mono" font-size="12" letter-spacing="2.4" fill="#87888A">YOUR DESTINATIONS</text>
+<text x="920" y="262" class="mono" font-size="12" letter-spacing="2.4" fill="#87888A">ANY DESTINATION</text>
 <rect x="920" y="274" width="216" height="52" rx="10" fill="#F8EDE5" fill-opacity=".05" stroke="#F8EDE5" stroke-opacity=".2"/>
-<text x="942" y="297" class="sans" font-size="15" font-weight="700" fill="#F8EDE5">OpenSearch</text>
-<text x="942" y="315" class="mono" font-size="11.5" fill="#F08B53">search</text>
+<text x="942" y="297" class="sans" font-size="15" font-weight="700" fill="#F8EDE5">Databases</text>
+<text x="942" y="315" class="mono" font-size="11.5" fill="#F08B53">records, shaped for use</text>
 <path d="M1112,295 l5,5 l-5,5" fill="none" stroke="#E14817" stroke-width="2" stroke-linecap="round"/>
 <rect x="920" y="274" width="216" height="52" rx="10" fill="none" stroke="#E14817" stroke-width="2" opacity="0">
       <animate attributeName="opacity" dur="6.0s" begin="4.4s" repeatCount="indefinite" values="0;1;0;0" keyTimes="0;0.05;0.1500;1"/></rect>
 <rect x="920" y="344" width="216" height="52" rx="10" fill="#F8EDE5" fill-opacity=".05" stroke="#F8EDE5" stroke-opacity=".2"/>
-<text x="942" y="367" class="sans" font-size="15" font-weight="700" fill="#F8EDE5">S3 / Blob</text>
-<text x="942" y="385" class="mono" font-size="11.5" fill="#F08B53">archive</text>
+<text x="942" y="367" class="sans" font-size="15" font-weight="700" fill="#F8EDE5">Logs and streams</text>
+<text x="942" y="385" class="mono" font-size="11.5" fill="#F08B53">monitoring, analytics</text>
 <path d="M1112,365 l5,5 l-5,5" fill="none" stroke="#E14817" stroke-width="2" stroke-linecap="round"/>
 <rect x="920" y="344" width="216" height="52" rx="10" fill="none" stroke="#E14817" stroke-width="2" opacity="0">
       <animate attributeName="opacity" dur="6.0s" begin="4.6s" repeatCount="indefinite" values="0;1;0;0" keyTimes="0;0.05;0.1500;1"/></rect>
 <rect x="920" y="414" width="216" height="52" rx="10" fill="#F8EDE5" fill-opacity=".05" stroke="#F8EDE5" stroke-opacity=".2"/>
-<text x="942" y="437" class="sans" font-size="15" font-weight="700" fill="#F8EDE5">Splunk</text>
-<text x="942" y="455" class="mono" font-size="11.5" fill="#F08B53">SIEM</text>
+<text x="942" y="437" class="sans" font-size="15" font-weight="700" fill="#F8EDE5">Archives</text>
+<text x="942" y="455" class="mono" font-size="11.5" fill="#F08B53">tamper-evident</text>
 <path d="M1112,435 l5,5 l-5,5" fill="none" stroke="#E14817" stroke-width="2" stroke-linecap="round"/>
 <rect x="920" y="414" width="216" height="52" rx="10" fill="none" stroke="#E14817" stroke-width="2" opacity="0">
       <animate attributeName="opacity" dur="6.0s" begin="4.8s" repeatCount="indefinite" values="0;1;0;0" keyTimes="0;0.05;0.1500;1"/></rect>
 <rect x="920" y="484" width="216" height="52" rx="10" fill="#F8EDE5" fill-opacity=".05" stroke="#F8EDE5" stroke-opacity=".2"/>
-<text x="942" y="507" class="sans" font-size="15" font-weight="700" fill="#F8EDE5">Webhook</text>
-<text x="942" y="525" class="mono" font-size="11.5" fill="#F08B53">alert</text>
+<text x="942" y="507" class="sans" font-size="15" font-weight="700" fill="#F8EDE5">Security platforms</text>
+<text x="942" y="525" class="mono" font-size="11.5" fill="#F08B53">detection, response</text>
 <path d="M1112,505 l5,5 l-5,5" fill="none" stroke="#E14817" stroke-width="2" stroke-linecap="round"/>
 <rect x="920" y="484" width="216" height="52" rx="10" fill="none" stroke="#E14817" stroke-width="2" opacity="0">
       <animate attributeName="opacity" dur="6.0s" begin="5.0s" repeatCount="indefinite" values="0;1;0;0" keyTimes="0;0.05;0.1500;1"/></rect>
