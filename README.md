@@ -1,750 +1,232 @@
-<p align="center"><img src="https://raw.githubusercontent.com/Labs64/.github/refs/heads/master/assets/labs64-io-ecosystem.png"></p>
-
 # Labs64.IO :: AuditFlow
 
-**Audit logging for microservices — publish once, route anywhere, lose nothing.**
+**Audit logging for microservices: publish once, route anywhere, lose nothing.**
+*Part of the [Labs64.IO Ecosystem](https://labs64.io): the audit-event router that sits behind your services.*
 
 [![CI](https://github.com/Labs64/labs64.io-auditflow/actions/workflows/labs64io-ci.yml/badge.svg)](https://github.com/Labs64/labs64.io-auditflow/actions/workflows/labs64io-ci.yml)
-[![Docker Image Version](https://img.shields.io/docker/v/labs64/auditflow?logo=docker&logoColor=white&color=1C90ED)](https://hub.docker.com/r/labs64/auditflow)
-[![Docker Image Version (transformer)](https://img.shields.io/docker/v/labs64/auditflow-transformer?logo=docker&logoColor=white&color=1C90ED)](https://hub.docker.com/r/labs64/auditflow-transformer)
-[![Docker Image Version (sink)](https://img.shields.io/docker/v/labs64/auditflow-sink?logo=docker&logoColor=white&color=1C90ED)](https://hub.docker.com/r/labs64/auditflow-sink)
+[![Docker Image Version](https://img.shields.io/docker/v/labs64/auditflow?label=Docker&logo=docker&logoColor=white&color=1C90ED)](https://hub.docker.com/r/labs64/auditflow)
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/labs64io-helm-charts)](https://artifacthub.io/packages/helm/labs64io-helm-charts/auditflow)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![📖 Documentation](https://img.shields.io/badge/📖-Documentation-AB6543.svg)](https://labs64.io/docs/index.html)
+[![📖 Documentation](https://img.shields.io/badge/📖-Documentation-AB6543.svg)](https://labs64.io/docs/modules/auditflow/)
 
-AuditFlow is an open-source pipeline for capturing audit events from your services and delivering them — reliably, with sensitive data stripped out at the door — to wherever they need to live: a search index, cold storage, a SIEM, or all of them at once. Your services publish events with a single REST call; you describe the routing in YAML. AuditFlow takes care of the buffering, redaction, deduplication, retries, and fan-out.
+<p align="center"><img src="docs/assets/auditflow-hero.svg" alt="AuditFlow: services such as Keycloak, Kubernetes, GitHub and Stripe publish audit events; AuditFlow ingests, redacts, routes and delivers them to search, archive, SIEM and webhook destinations." width="880"></p>
 
-**Contents**
+[**Get started**](#get-started) · [Features](#features) · [Architecture](#architecture) · [AI agents](#using-auditflow-with-ai-agents) · [Ecosystem](#the-labs64io-ecosystem) · [Documentation](https://labs64.io/docs/modules/auditflow/) · [labs64.io](https://labs64.io)
 
-- [What is AuditFlow?](#what-is-auditflow)
-- [Usage scenarios](#usage-scenarios) — find the one closest to yours
-- [Features](#features)
-- [Architecture](#architecture)
-- [Quick start](#quick-start)
-- [Deployment](#deployment) — Docker Compose · Kubernetes · cloud-managed
-- [Configuring pipelines](#configuring-pipelines)
-- [Built-in sinks and transformers](#built-in-sinks-and-transformers)
-- [Developer guide](#developer-guide)
-- [Contributing](#contributing)
+> [!NOTE]
+> AuditFlow is a **router, not a system of record**. It has no database of its own by design; your sinks (OpenSearch, S3, Splunk, …) own retention and query.
 
----
+## Why AuditFlow?
 
-## What is AuditFlow?
+Most teams reinvent audit logging in every service, and the rules for *what* to capture, *where* it goes and *which fields must never be stored* drift apart. AuditFlow moves that into one place:
 
-Most teams end up reinventing audit logging in every service — one writes to a database table, another POSTs to a logging API, a third does nothing until an auditor comes asking. The rules for *what* to capture, *where* it goes, and *how* to keep sensitive fields out of your logs get copy-pasted from service to service and quietly drift apart.
+1. **Your service makes one REST call.** No SDK, no broker client, no per-destination code.
+2. **AuditFlow protects and routes it.** Sensitive fields are masked before anything is stored, then your YAML pipelines decide where the event goes.
+3. **Every destination gets it, reliably.** Retries over hours, a replayable dead-letter queue and per-tenant isolation mean nothing is silently lost.
 
-AuditFlow pulls that responsibility into one place. A service emits an audit event with a single REST call; AuditFlow buffers it on a message broker, redacts the fields that shouldn't be stored, evaluates it against your configured **pipelines**, and delivers the result to one or more destinations (called **sinks**). Want audit data to flow somewhere new? Edit YAML — don't redeploy every service.
+It complements OpenTelemetry rather than replacing it: OpenTelemetry tells you whether your system is healthy; AuditFlow tells you who did what, when, and with what outcome.
 
-```bash
-curl -X POST http://localhost:8080/audit/publish \
-  -H "Content-Type: application/json" \
-  -d '{
-    "eventType":    "user.login",
-    "sourceSystem": "auth-service",
-    "tenantId":     "acme",
-    "extra": { "userId": "alice", "ip": "203.0.113.7" }
-  }'
+## Get started
+
+Four ways in. Pick the one that matches what you have; each is complete on its own.
+
+```
+ 1  install.sh           2  Kubernetes           3  Docker               4  Source
+┌─────────────────────┐ ┌─────────────────────┐ ┌─────────────────────┐ ┌─────────────────────┐
+│ The whole ecosystem │ │ AuditFlow on your   │ │ AuditFlow on your   │ │ Build it, change    │
+│ with gateway + auth │ │ cluster and your    │ │ machine, from       │ │ it, contribute      │
+│ and a live smoke    │ │ own infrastructure  │ │ published images    │ │ back                │
+│ test                │ │                     │ │                     │ │                     │
+├─────────────────────┤ ├─────────────────────┤ ├─────────────────────┤ ├─────────────────────┤
+│ needs  a cluster,   │ │ needs  a cluster,   │ │ needs  Docker       │ │ needs  JDK 25,      │
+│        kubectl,helm │ │        kubectl,helm │ │                     │ │        Maven, Docker│
+│ time   ~5 minutes   │ │ time   an afternoon │ │ time   ~2 minutes   │ │ time   first build  │
+└─────────────────────┘ └─────────────────────┘ └─────────────────────┘ └─────────────────────┘
+ evaluate everything     run it for real         see AuditFlow work      work on the code
 ```
 
-That single call is all a service needs to know about. Everything after it — routing, transformation, redaction, retries, fan-out — is **configuration, not code**. Sinks and transformers are plain Python modules you drop into a folder; they load dynamically at runtime, so adding a destination never means touching the backend.
+Not sure? Start with **3** to see AuditFlow in two minutes, or **1** to see it as part of the platform.
 
-**AuditFlow is a good fit when:**
+### 1. `install.sh`: the quick ecosystem start
 
-- You need to answer "who did what, when, and from where" — reliably, across multiple services — and you're tired of each service solving this differently (or not at all).
-- You need events delivered to more than one destination — a search index for ops, cold storage for compliance, an alerting channel for security — without wiring that up by hand.
-- Sensitive fields (user IDs, session tokens, health data) must never reach your log storage. Redaction at the API boundary, before the broker, is a hard requirement.
-- Delivery guarantees matter: you can't afford silent event loss, duplicate processing, or a sink outage silently dropping your audit trail.
-- You want to add or reroute destinations without touching service code or redeploying the backend.
+One script installs AuditFlow, the Payment Gateway and the authenticating API gateway on any Kubernetes cluster, then sends a real audit event through it to prove it works. No cluster? A throwaway one on your laptop is enough:
 
-**AuditFlow complements OpenTelemetry — it does not replace it.** They look similar (both capture events from your services and ship them somewhere), but they answer different questions and serve different audiences:
+```bash
+k3d cluster create labs64io-demo -p "8000:80@loadbalancer" --k3s-arg "--disable=traefik@server:0"   # optional
 
-| | OpenTelemetry / Observability | AuditFlow |
-|---|---|---|
-| **Question answered** | *Is my system healthy?* — latency, error rates, throughput, resource usage | *Who did what, when, and with what outcome?* — intentional actions by users and services |
-| **Primary consumer** | SREs, platform engineers debugging behaviour | Compliance, security, and legal — plus auditors |
-| **Data character** | High-volume, sampled, short retention, disposable | Every event matters, lossless, long retention, often immutable |
-| **When it's wrong** | A dropped span is a gap in a graph | A dropped audit event is a compliance failure |
-| **Typical question** | "Why was the checkout API slow at 14:00?" | "Prove user X never accessed tenant Y's records." |
+curl -fsSL https://raw.githubusercontent.com/Labs64/labs64.io-helm-charts/master/install.sh -o install.sh
+bash install.sh
+```
 
-Both belong in a production system. AuditFlow is built around the assumption that **every event matters** — hence idempotency, the dead-letter queue, retries, and ingest-time redaction. That durability-first posture is exactly what general observability pipelines trade away for volume and speed.
+Press Enter three times to take the defaults. You finish with a gateway you can `curl`, interactive API docs, and an audit event you published yourself:
 
-**AuditFlow is probably not what you need if:**
+```text
+  PASS  Obtained a demo access token from mock-oidc
+  PASS  Published a demo audit event (HTTP 200) — first good request succeeded
 
-- You want distributed tracing, metrics, or infrastructure logs only — reach for OpenTelemetry, Prometheus, or your observability platform of choice.
-- You want to intercept raw HTTP traffic at the proxy or sidecar layer — AuditFlow is event-driven; your services decide what to publish.
+ Labs64.IO is ready.
+   Base URL:  http://localhost:8000
+   API docs:  http://localhost:8000/swagger-ui/
+```
 
----
+The same script later runs `status`, `stop`, `start` and `uninstall`. This is an evaluation install with a demo identity provider: keep it on a local or private cluster. Details: [Quickstart](https://labs64.io/docs/getting-started/quickstart/) · [`install.sh`](https://github.com/Labs64/labs64.io-helm-charts/blob/master/install.sh).
 
-## Usage Scenarios
+### 2. Kubernetes: on your own cluster
 
-The fastest way to tell whether AuditFlow fits is to find the situation closest to yours. Each scenario below ends with a short, concrete proof-of-concept you can run on the local stack in an afternoon.
+Install AuditFlow from its Helm chart and point it at your infrastructure:
 
-- [**Compliance audit trail**](#compliance-audit-trail-gdpr-soc-2-iso-27001-hipaa) — GDPR, SOC 2, ISO 27001, HIPAA
-- [**Security event alerting**](#security-event-alerting-and-siem-integration) — route alerts to your SIEM in near real-time
-- [**Multi-tenant SaaS audit logs**](#multi-tenant-saas-audit-logs) — a pipeline per tenant, isolated and throttled
-- [**Centralised audit hub**](#centralised-audit-hub-across-microservices) — one pipeline serving many services
-- [**Observability reference**](#microservices-observability-reference-implementation) — OpenTelemetry across a polyglot stack
-- [**Developer sandbox**](#developer-sandbox-and-local-integration-testing) — run the whole thing locally in a minute
+```bash
+helm repo add labs64io https://labs64.github.io/labs64.io-helm-charts
+helm repo update
+helm install my-auditflow labs64io/auditflow -n labs64io --create-namespace
+```
 
-### Compliance audit trail (GDPR, SOC 2, ISO 27001, HIPAA)
+AuditFlow needs a RabbitMQ broker (self-hosted or managed) and, for more than one replica, a Redis-compatible store. The [`preflight`](https://labs64.io/docs/getting-started/deploy-to-kubernetes/) chart checks both from inside your cluster before you install. Guides: [Deploy to your Kubernetes cluster](https://labs64.io/docs/getting-started/deploy-to-kubernetes/) · [AuditFlow deployment](https://labs64.io/docs/modules/auditflow/deployment/) · [Helm chart on Artifact Hub](https://artifacthub.io/packages/helm/labs64io-helm-charts/auditflow).
 
-You need a verifiable record of who did what and when, stored somewhere tamper-resistant and queryable during an audit. AuditFlow publishes events from your services via a single REST call, redacts PII or health data at ingest (before it ever hits the broker), and delivers clean audit records to OpenSearch for full-text search, S3/GCS/Azure Blob for long-term immutable archival, or both simultaneously via fan-out pipelines.
+### 3. Docker: on your machine
 
-The event payload is yours to define — user identity, action, resource, outcome, timestamp — and the schema is enforced via OpenAPI. Each event carries a correlation ID for cross-service traceability.
+Only Docker and Git are needed. This uses the published images, so there is nothing to build.
 
-**What to try in a POC:**
-- Enable PII redaction on `extra.userId` / `extra.email`
-- Create two pipelines: one to `opensearch_sink` (searchable), one to `aws_s3_sink` (archival)
-- Verify that redacted fields are absent from both destinations
+**Start the stack** (the first run pulls the images):
 
----
+```bash
+git clone https://github.com/Labs64/labs64.io-auditflow.git && cd labs64.io-auditflow
+docker compose -f docker-compose.yml -f docker-compose.images.yml up -d
+```
 
-### Security event alerting and SIEM integration
+**Send an audit event**, as any service would. It carries a user id we do not want stored:
 
-Your services generate security-relevant events (login failures, privilege escalations, suspicious access patterns) mixed in with routine operational traffic. You need the security events routed to your SIEM or alerting channel in near real-time, without burdening the core service or slowing down routine calls.
+```bash
+curl -i -X POST http://localhost:8080/audit/publish \
+  -H "Content-Type: application/json" \
+  -d '{"eventType":"user.login","sourceSystem":"keycloak","tenantId":"demo","extra":{"userId":"alice","ip":"203.0.113.7"}}'
+```
 
-Use a conditional pipeline with `eventType eq security.alert` (or a `regex` on your event schema). Only matching events reach your `splunk_sink`, `datadog_sink`, or `webhook_sink` alert handler. Routine events flow to a separate pipeline targeting cheaper storage. The circuit breaker and retry guard against SIEM downtime — events queue in the broker and replay automatically when the SIEM recovers.
+You get `HTTP/1.1 200` and the event id in the `X-Audit-Event-Id` header. (The backend needs about 30 seconds after `up` to become healthy; if the call is refused, retry.)
 
-**What to try in a POC:**
-- Define two pipelines: `security-alerts` (condition: `eventType = security.alert`) → Splunk; `audit-archive` (no condition) → S3
-- Send a mix of event types and confirm only security events reach Splunk
-- Take the webhook endpoint offline briefly and confirm events are retried, not lost
+**See where it landed.** The demo tenant routes every event to a log and to ClickHouse:
 
----
+```bash
+docker compose exec clickhouse clickhouse-client --user auditflow --password auditflow \
+  --query "SELECT event_type, source_system, tenant_id, user_id FROM audit.audit_events ORDER BY timestamp DESC LIMIT 5"
+```
 
-### Multi-tenant SaaS audit logs
+```
+user.login   keycloak   demo   ***
+```
 
-Your SaaS platform serves multiple tenants. Each tenant may have different audit data residency or delivery requirements — one wants logs in their own S3 bucket, another in their Splunk instance. AuditFlow is multi-tenant by construction (silo model): every tenant owns its own config — pipelines, quota, and credentials — and events route **only** through the pipeline set owned by the event's tenant. There is no global pipeline list and no cross-tenant fall-through; an event for an unknown or disabled tenant is rejected at ingest (`403 TENANT_NOT_PROVISIONED` / `TENANT_DISABLED`) or quarantined, never delivered to another tenant's sink. Onboarding a tenant means adding one YAML document (a `tenants/<tenantId>.yaml` file locally, or a labelled ConfigMap on Kubernetes) — no code change, no restart; the config is picked up live.
+`userId` arrived as `alice` and was stored as `***`: it was masked at ingest, before the event reached the broker or any destination.
 
-Per-tenant ingest rate limits (token bucket, `429` + `Retry-After`) and a per-tenant in-flight cap keep noisy tenants from affecting others. Sink credentials use `${secretRef:<key>}` indirection resolved from the tenant's own secret store at delivery time.
+**Clean up** with `docker compose down -v`. Prefer a UI? Open <http://localhost:8080/swagger-ui.html> and call the API from the browser.
 
-**What to try in a POC:**
-- Drop two tenant files into `tenants/` (see `tenants/_platform.yaml` for the shape), each pointing at a different `webhook_sink` URL
-- Publish events with each `tenantId` and confirm events for tenant A never appear in tenant B's stream
-- Publish with an unknown `tenantId` and watch it get `403 TENANT_NOT_PROVISIONED` at ingest
+**What just happened?** The event was accepted only after RabbitMQ confirmed it, redacted, matched against the `demo` tenant's pipelines in [`tenants/demo.yaml`](tenants/demo.yaml), and delivered to two destinations. Open that file and change a destination: it is picked up live, with no restart.
 
----
+### 4. Source: build and change it
 
-### Centralised audit hub across microservices
+Needs Docker with Compose v2, JDK 25 and Maven 3.6.3+:
 
-You have many services — each currently solving audit logging ad hoc (some write to their own DB, some call a shared log API, some do nothing). You want a single, consistent audit pipeline without refactoring every service.
+```bash
+mvn -B clean package -DskipTests -pl auditflow-be -am   # build the backend jar
+docker compose up --build -d                            # build and start every service, including Cerbos
+```
 
-Each service publishes events to AuditFlow's REST endpoint. From there, one set of pipelines handles routing, transformation, and delivery for all of them. New services onboard by making one REST call — the pipeline logic stays in one place.
+[`AGENTS.md`](AGENTS.md) describes the layout, commands and tests; [`DEVELOPERS.md`](DEVELOPERS.md) is the full developer guide; the [Contributing guide](https://labs64.io/docs/development/contributing/) covers the workflow.
 
-**What to try in a POC:**
-- Stand up AuditFlow alongside two existing services
-- Have each service publish events with a distinct `sourceSystem` field
-- Use `sourceSystem`-based conditions to route each service's events to a different sink
+### Where next?
 
----
+Everything below is in the [AuditFlow documentation](https://labs64.io/docs/modules/auditflow/):
 
-### Microservices observability reference implementation
-
-You're building or evaluating a microservices platform and want a reference that shows how to wire distributed tracing, structured logging, and metrics end-to-end across a polyglot stack (Java + Python). AuditFlow ships with a full OpenTelemetry observability stack: one command brings up OTel Collector, Tempo (traces), Loki (logs), Prometheus (metrics), and a pre-wired Grafana dashboard.
-
-Traces flow from the Java backend through the Python transformer and sink services. Log records carry trace IDs so clicking a trace in Grafana shows correlated logs in Loki. All three signal types are auto-configured — no hand-written OTel SDK beans, no manual appender wiring.
-
-**What to try in a POC:**
-- Run `just up obs` and open Grafana at http://localhost:3000
-- Explore the AuditFlow Overview dashboard — click a trace, then follow it to its correlated logs
-
----
-
-### Developer sandbox and local integration testing
-
-You're building a service that publishes audit events and want to verify end-to-end behaviour locally without standing up a full production stack. The local stack (three services + RabbitMQ + Valkey + Cerbos + ClickHouse — the Kubernetes stack without the gateway) starts in under a minute. Tenant pipelines live in `tenants/`; redaction rules are configured via `JAVA_OPTS` in `docker-compose.yml`.
-
-**What to try:**
-- `just up` — starts the stack
-- Walk through the step-by-step [Manual Verification (Smoke Test)](DEVELOPERS.md#manual-verification-smoke-test) checklist — publish an event, confirm tenant isolation, confirm redaction, confirm the DLQ — each step with an expected result to check against
-
----
+| I want to… | Read |
+|---|---|
+| Route events to my own destination (S3, OpenSearch, Splunk, webhook, …) | [Configuring pipelines](https://labs64.io/docs/modules/auditflow/configuring-pipelines/) and [Sinks and transformers](https://labs64.io/docs/modules/auditflow/sinks-and-transformers/) |
+| Mask, hash or drop sensitive fields | [PII redaction](https://labs64.io/docs/modules/auditflow/configuring-pipelines/#pii-redaction) |
+| See which setup fits my situation | [Usage scenarios](https://labs64.io/docs/modules/auditflow/usage-scenarios/) |
+| Compare all the ways to run Labs64.IO | [Choose a deployment path](https://labs64.io/docs/getting-started/choose-a-deployment-path/) |
 
 ## Features
 
-Everything below ships in the box and works today — this is a description of the software as it stands, not a roadmap.
+- **Pipeline-as-configuration**: destinations and conditions live in YAML; adding or rerouting one needs no rebuild and no restart.
+- **Intelligent routing**: field-level conditions (nested paths, AND/OR groups, CIDR, regex, wildcard) plus a dry run that shows which pipelines a sample event would reach.
+- **Asynchronous by design**: events are buffered on RabbitMQ before processing, so API latency stays flat under bursts.
+- **Multi-destination fan-out**: one publish can reach search, archive, SIEM and webhooks; pipelines fail independently.
+- **Redaction at ingest**: sensitive fields are masked, hashed or dropped before they reach the broker.
+- **Multi-tenant by construction**: every tenant owns its pipelines, quota and credentials; there is no cross-tenant fall-through.
+- **Resilient delivery**: idempotent processing, retry tiers, circuit breaking and a per-tenant dead-letter queue with replay.
+- **Pluggable**: sinks and transformers are Python modules loaded at runtime; ClickHouse, OpenSearch, S3/GCS/Azure Blob, Splunk, Datadog, webhook and more ship in the box.
+- **Observable**: OpenTelemetry traces, metrics and logs, with a ready-made Grafana dashboard.
 
-### Pipeline-as-configuration
-Define where events go — and under what conditions — entirely in YAML or environment variables. Multiple pipelines evaluate independently for each event; one failing pipeline never stops the others. No backend code changes, no rebuilds, no restarts required to add or reroute a destination.
-
-### Intelligent event routing
-Route events selectively using rich field-level condition rules on any JSON field, including nested paths (`extra.userId`) and array indices (`items[0].name`). Combine rules with AND / OR logic and nest groups, e.g. "A and (B or C)". Supported operators: `eq`, `neq`, `eqIgnoreCase`, `contains`, `startsWith`, `endsWith`, `in`, `notIn`, `exists`, `notExists`, `regex`, `gt`, `gte`, `lt`, `lte`, `cidr`, `notCidr`, `wildcard`, `notWildcard` (IP ranges and glob patterns included). Unrelated traffic never reaches sinks that don't need it. A **dry run** shows which pipelines a sample event would reach and why, and fixture files test a tenant's pipelines before they are deployed.
-
-### Asynchronous, decoupled processing
-Every audit event is buffered on the message broker before processing. Your calling service gets an immediate acknowledgement and continues — the pipeline runs on a separate consumer thread. API latency stays flat under burst load, and the broker absorbs traffic spikes without back-pressure reaching upstream services.
-
-### RabbitMQ transport, self-hosted or managed
-The event backbone is RabbitMQ (AMQP 0-9-1, 4.x): the in-cluster broker of the Helm chart, Amazon MQ for RabbitMQ, CloudAMQP or any other RabbitMQ service. AuditFlow relies on standard AMQP features only (publisher confirms, durable queues, per-queue TTL with dead-letter exchanges), so no broker plugin is required. Kafka is not supported: delayed redelivery and per-tenant dead-lettering would need a different design there.
-
-### Multi-destination fan-out
-A single event can be delivered to multiple sinks simultaneously — log it to Loki, archive it to S3, and alert via webhook, all from one publish call. Each pipeline is independent: different conditions, different transformers, different destinations, evaluated in parallel.
-
-### Rich sink catalogue
-Deliver audit events without writing glue code. Destinations include: log output (for local dev), HTTP webhook, RFC 5424 syslog, Grafana Loki, OpenSearch / Elasticsearch, Amazon S3, Amazon CloudWatch Logs, Google Cloud Storage, Azure Blob Storage, Datadog Logs API, Splunk HEC, Snowflake, ClickHouse, PostgreSQL, and Labs64 NetLicensing. Sink properties (URLs, API keys, bucket names) are declared per-pipeline and resolved from environment variables — no credentials in configuration files.
-
-### Transformer pipeline with chaining
-Shape or enrich an event before delivery. Transformers are Python modules loaded dynamically at runtime. The built-in set covers pass-through, Loki-optimised labels, and OpenSearch indexing conventions. Chain multiple transformers in sequence within a single pipeline to compose richer transformations without coupling them together.
-
-### PII and sensitive data redaction
-Declare which fields to mask (`***`), hash or drop entirely. A hashed value is an HMAC-SHA256 under a secret key: equal values still give equal hashes, so events stay correlatable, but the value cannot be recovered by hashing guesses. Redaction runs at ingest — before the event is published to the broker — so sensitive values never reach the message broker, never appear in broker logs, and are never forwarded to any downstream sink. Rules are fine-grained, per field, with an independent action per rule.
-
-### Idempotent event processing
-Each event carries an `eventId`. The consumer checks a deduplication store before processing: duplicate deliveries from broker redelivery, network retries, or at-least-once producers are silently suppressed. Uses Redis (Valkey) for distributed dedup, in the local stack as in Kubernetes; an in-memory store is available for single-process runs without Redis. Claim TTL and completion TTL are independently configurable.
-
-### Resilience and fault tolerance
-- **End-to-end acknowledgement.** `/audit/publish` answers 200 only after the broker has confirmed it stored the event (publisher confirms, durable queue, persistent message). If the broker cannot confirm, the client gets 503 and retries with the same `eventId`.
-- **Per-pipeline delivery.** Each event becomes one delivery per matching pipeline, so a slow or failing destination never holds up the others or causes duplicates in them.
-- **Retries over hours, per pipeline.** A failed delivery comes back after growing delays (5 s, 30 s, 2 min, 10 min, 30 min, 1 h, then every 3 h) until it succeeds, the pipeline's `retry.maxAttempts` is used up, or `retry.maxAge` (default 24 h) has passed. A ten-minute sink outage is ridden out without operator action.
-- **Backpressure, not failure.** Throttling (pipeline rate limit, a tenant's in-flight cap, a full bulkhead) defers a delivery for a few seconds without spending an attempt.
-- **Nothing silently dropped.** Exhausted, expired and poison deliveries (a 4xx or malformed transformer output) go to the **tenant's own DLQ**, one entry per failed pipeline with the reason and last error. `/actuator/dlq/<tenantId>` inspects (GET, counts by pipeline and reason), replays (POST, optionally one pipeline) or purges (DELETE, **irreversible**, optionally one pipeline).
-- **Circuit breakers** and short in-call HTTP retries guard every transformer and sink call. **Graceful shutdown** drains in-flight work before the process exits.
-
-### Tamper-evidence for the archive
-The S3 sink stores an S3-verified SHA-256 with every object and, with `digest: "true"`, writes a signed (Ed25519), hash-chained digest record per object. An auditor with the public key can prove that no archived object was altered and no record removed, using `auditflow-sink/scripts/verify_s3_digests.py`. Combine it with S3 Object Lock for a write-once archive.
-
-### Batching
-- **Batch publish:** `POST /audit/publish/batch` takes up to 100 events and answers with a result per event; one invalid or over-quota event never blocks the others.
-- **Sink batching:** with `batch.enabled` a pipeline hands its sink up to `batch.maxSize` events in one call. Eleven sinks write the batch with one request to the destination: one object per partition folder (S3, GCS, Azure Blob), one multi-row insert (ClickHouse, Snowflake, PostgreSQL), one `_bulk` request (OpenSearch), one multi-record call (CloudWatch Logs, Datadog, Splunk HEC, Loki). The other sinks get the events of a batch a few at a time. Each event still gets its own outcome, so one refused event never fails the rest.
-
-### Sink fallback routing
-Designate a fallback sink per pipeline. If the primary sink returns a retryable error (network failure, timeout, 5xx), AuditFlow automatically routes the event to the fallback rather than the DLQ — keeping delivery continuity during planned maintenance windows or transient dependency outages.
-
-### Secure plugin sandboxing
-Transformer and sink module IDs are validated against an allow-list regex (`^[a-zA-Z0-9_]+$`) at the HTTP boundary, preventing path traversal and arbitrary module injection. Custom plugin directories (`sinks_bootstrap/`, `transformers_bootstrap/`) are separate from built-in modules and can be mounted at runtime via ConfigMap or volume without modifying the image. Each service exposes a `/registry` endpoint that lists all available modules with their version, description, and documented properties — also used as the Docker healthcheck.
-
-### Full OpenTelemetry observability
-Distributed traces (OTLP → Tempo), structured logs (OTLP → Loki), and metrics (Prometheus scrape + OTLP push) are wired end-to-end across all three services. A pre-provisioned Grafana dashboard surfaces request rate, error rate, recent traces, and live log streams out of the box — one command starts the full observability stack. Cross-signal linking is built in: clicking a trace in Tempo opens the correlated logs in Loki.
-
-### Pluggable service discovery
-Switch between `local` (a configured base URL) and `kubernetes` (fabric8 `KubernetesClient` resolves the Service ClusterIP at runtime) with a single property. No code paths change; only the discovery implementation is swapped. The same configuration file works identically in local Docker Compose and in a Kubernetes cluster.
-
-### OpenAPI-first contract
-The public API contract lives in a single YAML spec. Java models and the controller interface are generated at build time — generated sources are never committed and never hand-edited. Changing the API means editing the YAML. The Swagger UI ships with the backend for interactive exploration at `/swagger-ui.html`.
-
-### v1 compatibility promise
-
-`auditflow-api/src/main/resources/openapi/openapi-audit-v1.yaml` is **frozen**: within v1, changes are additive-only. You can build against it once and upgrade AuditFlow without your integration breaking.
-
-**What "additive-only" means in practice** — always allowed:
-- New paths, operations, response status codes, schemas, properties, parameters, enum values.
-- A previously-required property or parameter becoming optional.
-- Documentation-only changes (descriptions, examples).
-
-**Never allowed within v1** — any of these require a v2 spec instead:
-- Removing a path, operation, response code, schema, or property.
-- A previously-optional property or parameter becoming required.
-- Changing a property's or parameter's declared type.
-- Removing an enum value.
-
-A breaking change to v1 is a bug, not a release. **CI enforces this mechanically**: every pull request diffs `openapi-audit-v1.yaml` against its version on the base branch and fails the build if anything above was removed or narrowed (`scripts/check_openapi_breaking_changes.py`, wired into `labs64io-ci.yml`'s `api-contract-freeze` job). A genuine breaking change needs a new spec file (`openapi-audit-v2.yaml`) and a new major version — never an edit to the frozen file.
-
----
+The complete list is in the [Features documentation](https://labs64.io/docs/modules/auditflow/features/).
 
 ## Architecture
 
 ```
-POST /audit/publish  (direct; via gateway: /auditflow/api/v1/audit/publish)
-        │
-        ▼
-  Backend  (Java · Spring Boot · :8080)
-        │  redact PII → publish to broker topic
-        ▼
-  RabbitMQ  labs64-audit-topic             (200 only after the broker confirms)
-        │
-        ▼  router (same backend): one delivery per matching pipeline
-  RabbitMQ  labs64-audit-delivery ◄── delay tiers 5s … 3h (retry, backpressure)
-        │                          ──► labs64-audit-dlq.<tenant> (exhausted, poison)
-        ▼  delivery worker (same backend, batched)
-        ├─► Transformer  (Python · FastAPI · :8081)   POST /transform/{name}
-        └─► Sink         (Python · FastAPI · :8082)   POST /sink/{name}[/batch]
+  ┌──────────────┐   POST /audit/publish    ┌───────────────────────────────────────────┐
+  │ Your service │ ───────────────────────► │ auditflow-be   Java 25 · Spring Boot 4    │
+  │ (any stack)  │   redact · validate      │  ingest → router → delivery worker        │
+  └──────────────┘                          └───────┬────────────────────────▲──────────┘
+                                                    │ publish                │ consume
+                                            ┌───────▼────────────────────────┴──────────┐
+                                            │ RabbitMQ   delivery queue · delay tiers   │
+                                            │            per-tenant DLQ                 │
+                                            └───────────────────────────────────────────┘
+                                                    │ one delivery per matching pipeline
+                                       ┌────────────┴────────────┐
+                                       ▼                         ▼
+                        ┌─────────────────────────┐  ┌─────────────────────────┐
+                        │ auditflow-transformer   │  │ auditflow-sink          │
+                        │ Python · FastAPI :8081  │  │ Python · FastAPI :8082  │
+                        │ POST /transform/{name}  │  │ POST /sink/{name}       │
+                        └─────────────────────────┘  └───────────┬─────────────┘
+                                                                 ▼
+                                          OpenSearch · S3/Blob · Splunk · Webhook · …
 ```
-
-Three independently deployable services:
 
 | Service | Stack | Port | Role |
-|---------|-------|------|------|
-| `auditflow-be` | Java 25, Spring Boot 4, Maven | 8080 | REST API, broker, pipeline orchestration |
-| `auditflow-transformer` | Python 3.14, FastAPI | 8081 | Dynamically-loaded transform modules |
-| `auditflow-sink` | Python 3.14, FastAPI | 8082 | Dynamically-loaded sink/delivery modules |
+|---|---|---|---|
+| `auditflow-be` | Java 25, Spring Boot 4 | 8080 | REST API, broker, pipeline orchestration |
+| `auditflow-transformer` | Python 3.14, FastAPI | 8081 | Dynamically loaded transform modules |
+| `auditflow-sink` | Python 3.14, FastAPI | 8082 | Dynamically loaded sink modules |
 
-![AuditFlow architecture diagram](https://github.com/user-attachments/assets/ca5f0c0e-81dc-439d-a855-95ebc2fc50ed)
+Redis (Valkey) is used for deduplication only, never as storage. Design details and invariants are in the [architecture documentation](https://labs64.io/docs/modules/auditflow/#architecture).
 
-Key design decisions:
+## Using AuditFlow with AI agents
 
-- **AuditFlow is a router, not a system of record.** It has **no database of its own** — there is no Postgres or event store, and adding one is an explicit non-goal. AuditFlow ingests, redacts, routes, and delivers; the **sinks** (OpenSearch, S3/GCS/Azure Blob, Splunk, Snowflake, Database, …) *are* the systems of record and own retention, immutability, and query. Durability is provided by the broker (confirmed, persistent buffering), per-pipeline retries over hours, the per-tenant dead-letter queue (exhausted and poison deliveries, replayable or purgeable via `/actuator/dlq/<tenantId>`), and the destination sink — not by AuditFlow persisting events itself. Redis is a **deduplication** store (idempotency keys with TTL), not storage. Treat "persist audit events in AuditFlow" as out of scope by design: if you need a queryable record, point a pipeline at a durable sink.
-- The backend is **both producer and consumer** of the same broker topic, providing decoupling and buffering without a separate ingestion service.
-- The broker is **RabbitMQ**: ingest through a Spring Cloud Stream binding, the delivery stage (delivery queue, delay tiers, per-tenant DLQs) declared by the backend itself.
-- **Pipelines are independent** — each pipeline gets its own delivery message, retries and DLQ entry; a failure in one (e.g., an unreachable sink) never delays or repeats delivery to the others.
-- **Python services are stateless plugins** — they do not hold broker connections or pipeline state; they receive a request, run a module function, and return a result.
-- A **per-tenant dead-letter queue** captures deliveries that exhaust their retries or are poison, one entry per failed pipeline, with a management API for inspection, replay and purge.
+AuditFlow gives an agent a durable record of what it did, with one HTTP call per action and no SDK.
 
----
+- **Emit audit events from an agent.** `POST /audit/publish` (or `/audit/publish/batch`, up to 100 events) with `eventType` (for example `agent.tool.called`), `sourceSystem` (the agent's name) and the details in `extra`. Fields listed in your redaction rules are removed before the event is stored anywhere.
+- **Machine-readable contract.** The OpenAPI v1 spec is served at `/v3/api-docs` and lives in [`openapi-audit-v1.yaml`](auditflow-api/src/main/resources/openapi/openapi-audit-v1.yaml). It is additive-only within v1, so generated clients and tool definitions stay valid.
+- **Errors an agent can act on.** `400` invalid event, `403 TENANT_NOT_PROVISIONED` / `TENANT_DISABLED`, `429` with `Retry-After`, `503` when the broker has not confirmed (retry with the same `eventId`; duplicates are suppressed).
+- **Check routing before relying on it.** `POST /actuator/pipelines/<tenantId>/dry-run` shows which pipelines a sample event would reach and why.
+- **Working on the code with an agent?** [`AGENTS.md`](AGENTS.md) and [`CLAUDE.md`](CLAUDE.md) describe the layout, conventions and test commands.
 
-## Quick Start
+## The Labs64.IO Ecosystem
 
-Four steps and you have the full stack — backend, broker, transformer, and sink — publishing and delivering events on your machine.
+AuditFlow is one module of the [Labs64.IO Ecosystem](https://labs64.io); [every module is documented here](https://labs64.io/docs/).
 
-**Prerequisites:** Docker, Docker Compose v2, [`just`](https://github.com/casey/just), and — because `just up` builds the backend jar on your machine before starting the containers — **JDK 25** and **Maven 3.6.3+**.
-
-Measured at **61 seconds** from `just up` to a delivered event on a warm developer machine. A first run takes longer, because it downloads base images and Maven dependencies and builds everything.
-
-> **No JDK at hand, or want AuditFlow behind the gateway with authentication?** The [Labs64.IO Quickstart](https://labs64.io/docs/getting-started/quickstart/) installs published images on any Kubernetes cluster with one script, in about five minutes. A walkthrough of the steps below, with troubleshooting, is in [Run one module locally](https://labs64.io/docs/getting-started/run-one-module-locally/).
-
-**1. Clone the repo**
-```bash
-git clone https://github.com/Labs64/labs64.io-auditflow.git
-cd labs64.io-auditflow
-```
-
-**2. Build and start the stack**
-```bash
-just up
-```
-Builds the backend JAR and all three Docker images, then starts the full local stack — 3 services
-+ RabbitMQ + Valkey + Cerbos + ClickHouse (see [Deployment](#deployment) for what the observability profile adds).
-
-**3. Publish an event and watch it arrive**
-```bash
-curl -s -X POST http://localhost:8080/audit/publish \
-  -H "Content-Type: application/json" \
-  -d '{"eventType":"user.login","sourceSystem":"quickstart","tenantId":"demo"}'
-
-just log sink
-# Look for: "Audit Event Logged" — then Ctrl+C
-```
-
-**4. Tear down**
-```bash
-just down
-```
-
-Want a guided checklist that also confirms tenant isolation, redaction, and the DLQ — not just
-that one event arrived? See [Manual Verification (Smoke Test)](DEVELOPERS.md#manual-verification-smoke-test).
-
-Local URLs once the stack is running:
-
-| URL | Purpose |
-|-----|---------|
-| http://localhost:8080/swagger-ui.html | Interactive REST API |
-| http://localhost:8081/docs | Transformer registry + API docs |
-| http://localhost:8082/docs | Sink registry + API docs |
-| http://localhost:15673 | RabbitMQ Management UI (`guest` / `guest`) |
-| http://localhost:8123/play | ClickHouse query console (`auditflow` / `auditflow`) |
-
-### Query the stored events
-
-The default stack ships ClickHouse as a working analytics sink, so events are not only delivered
-but queryable. Section 6 of the getting-started notebook walks the whole path — publish → broker →
-transformer → sink → `audit.audit_events` → `SELECT` — and asserts the stored row against the
-column contract:
-
-```bash
-just notebook-getting-started              # section 6: ClickHouse Analytics Sink (End-to-End)
-```
-
-From the shell, in order:
-
-```bash
-just ch-seed                               # 1. seed a synthetic licensing business to query
-just ch-events                             # 2. look at what landed — 20 most recent events
-just ch "SELECT count() FROM audit_events" # 3. run your own SQL
-```
-
-The `demo` tenant (`tenants/demo.yaml`) and the reserved `_platform` tenant both route to
-ClickHouse. Note that `tenant_id` leads the table's `ORDER BY` key, and a **tenantless** event
-stores an empty string there — publish with `"tenantId": "demo"` for a representative round trip.
-
-See [DEVELOPERS.md's ClickHouse section](DEVELOPERS.md#clickhouse-analytics-sink) for the full
-reference: the schema-layering model, redaction visibility, and everything worth knowing before
-trusting a number out of it.
-
-### Event vocabulary and the `extra` block
-
-`AuditEvent` has a small required core — `eventType` and `sourceSystem` — and everything else your
-domain needs goes in `extra`, an **open map**. No key in it is required, and none is guaranteed:
-every deployment defines its own field set, and a publisher whose keys appear nowhere in our docs is
-a fully supported setup. Unrecognised keys are delivered unchanged in the sink's metadata map, so an
-event never loses data by using names AuditFlow has not heard of.
-
-On top of that, a small **convention** — the generic audit-semantics keys `userId`, `actionName`,
-`actionStatus`, `actionMessage`, `durationMs`, `responseStatus` — is what the bundled
-transformers promote out of the map into dedicated fields, columns and labels. Promotion is what
-makes a key a queryable report dimension rather than an opaque map entry. Every one is optional, and
-an absent key yields an omitted field, never a placeholder.
-
-To make **your** keys first-class dimensions, promote them — two paths, same effect:
-
-```python
-# 1. A transformer module: per-pipeline, one module per domain.
-#    Drop it into transformers_bootstrap/ (compose mounts it) or ship it as a wheel.
-from audit_clickhouse import make_transform
-transform = make_transform({"orderRef": "order_ref", "carrier": "carrier"}, module_id=__name__)
-```
-
-```yaml
-# 2. Configuration only: deployment-wide, no code.
-environment:
-  AUDITFLOW_PROMOTED_KEYS: '{"orderRef": "order_ref", "carrier": "carrier"}'
-```
-
-Code declares the domain and the operator overrides the code, so precedence runs built-in vocabulary
-→ `make_transform()` argument → `AUDITFLOW_PROMOTED_KEYS` → `AUDITFLOW_PROMOTED_KEYS_<MODULE_ID>`. A
-malformed mapping fails that module's import and shows up in `GET /registry` rather than silently
-dropping the column — an operator typo must not become missing analytics data.
-
-A promoted key needs somewhere to land: pair it with a sink schema that has the column (for
-ClickHouse, an `ALTER TABLE ... ADD COLUMN`). Without one the key is dropped at insert time rather
-than rejected, so the pairing is what the `examples/clickhouse` layer demonstrates below.
-
-Four rules every bundled transformer and sink follows, enforced by
-`auditflow-transformer/tests/test_extra_contract.py`:
-
-| | Rule |
-|---|---|
-| **Open** | No `extra` key is required. |
-| **Absent is absent** | A missing key yields an omitted field, never `"unknown"` or `"N/A"`. |
-| **Nothing is dropped** | Non-promoted keys always reach the sink. |
-| **Uniform extension** | Every bundled transformer takes the same `make_transform` + env mapping. |
-
-Those bind the *generic* modules. A **domain** module may require its own keys — `netlicensing_sink`
-raises without `extra.transaction` — as long as it documents them and gates on `eventType` first.
-
-### NetLicensing API events — and how to model your own domain
-
-The ClickHouse transformer and schema are **generic**: they promote the well-known audit-semantics
-keys into columns and leave everything else in a `Map(String, String)`. A use case that wants its
-own fields as queryable dimensions adds a layer instead of changing the core — a key map on top of
-the shipped transformer, an `ALTER TABLE` script, and a documented vocabulary:
-
-| Layer | Generic | NetLicensing example |
+| Module | What it does | Repository |
 |---|---|---|
-| Columns | [`schema.sql`](examples/clickhouse/schema.sql) | [`schema-netlicensing.sql`](examples/clickhouse/schema-netlicensing.sql) |
-| Promotion | `audit_clickhouse` | [`audit_clickhouse_netlicensing.py`](examples/netlicensing/audit_clickhouse_netlicensing.py) — `make_transform({...})`, ~40 lines of data |
-| Vocabulary | `Extra` in the API contract | [`NETLICENSING_EVENTS.md`](examples/clickhouse/NETLICENSING_EVENTS.md) |
-| Pipeline | `tenants/_platform.yaml` | `tenants/demo.yaml` |
-
-The example is mounted into the transformer's bootstrap directory rather than baked into the image —
-the same extension point you would use for your own. Both pipelines write to the same table, so the
-compose stack shows the two side by side.
-
-[**`examples/clickhouse/NETLICENSING_EVENTS.md`**](examples/clickhouse/NETLICENSING_EVENTS.md)
-documents the two sources this example models — the NetLicensing API (entity CRUD, licensee and
-license lifecycle, `licensee/validate`) and the Payment Gateway lifecycle (`payments/create`,
-`pay`, `close`, …) — with the `extra` keys each emits and the ClickHouse queries built on them.
-`just ch-seed` publishes a synthetic stream so those queries return real data.
-
-It is deliberately *not* a full analytics model: no MRR, retention or cohort machinery. It shows
-what ClickHouse gives you over a log line, and leaves the reporting model to the deployment.
-
----
-
-## Deployment
-
-### Docker Compose
-
-Two Compose profiles cover local iteration and observability:
-
-| Command | Stack | When to use |
-|---------|-------|-------------|
-| `just up` | 3 services + RabbitMQ + Valkey + Cerbos + ClickHouse | Same stack as Kubernetes minus the gateway; Redis-backed dedup, queryable sink |
-| `just up obs` | Stack + OTel Collector + Tempo + Loki + Prometheus + Grafana | Full telemetry, fast iteration |
-
-```bash
-cp .env.example .env   # optional — only needed for custom RabbitMQ credentials
-just up obs            # recommended starting point
-```
-
-Observability overlay URLs:
-
-| URL | Credentials | Purpose |
-|-----|-------------|---------|
-| http://localhost:3000 | admin / admin | Grafana — pre-provisioned AuditFlow Overview dashboard |
-| http://localhost:9090 | — | Prometheus query UI |
-| http://localhost:3100 | — | Loki API (use Grafana for UI) |
-| http://localhost:3200 | — | Tempo API (use Grafana for UI) |
-
-### Kubernetes
-
-AuditFlow supports Kubernetes-native service discovery. Set `discovery.mode: kubernetes` and the backend resolves transformer and sink service IPs via the fabric8 `KubernetesClient` at runtime — no hardcoded URLs in Deployment specs.
-
-```yaml
-# application.yml or JAVA_OPTS in your Deployment
-transformer:
-  discovery:
-    mode: kubernetes
-    namespace: auditflow
-    service-name: auditflow-transformer
-
-sink:
-  discovery:
-    mode: kubernetes
-    namespace: auditflow
-    service-name: auditflow-sink
-```
-
-Health probes are ready to use out of the box:
-
-```yaml
-livenessProbe:
-  httpGet:
-    path: /live       # Python services; use /actuator/health for the Java backend
-    port: 8081
-readinessProbe:
-  httpGet:
-    path: /ready
-    port: 8081
-```
-
-Custom sinks and transformers can be injected at runtime via a ConfigMap or volume — no image rebuild required:
-
-```yaml
-volumeMounts:
-  - name: custom-sinks
-    mountPath: /home/l64user/sinks_bootstrap
-volumes:
-  - name: custom-sinks
-    configMap:
-      name: my-sink-plugins
-```
-
-> Helm charts are published from [`labs64.io-helm-charts`](https://github.com/Labs64/labs64.io-helm-charts): `helm repo add labs64io https://labs64.github.io/labs64.io-helm-charts`, then `labs64io/auditflow` for AuditFlow alone or `labs64io/labs64io-ecosystem` for the platform. Its `install.sh` puts the whole stack on a cluster and verifies it; see [Deploy to your Kubernetes cluster](https://labs64.io/docs/getting-started/deploy-to-kubernetes/).
-
-### Cloud-managed infrastructure
-
-Swap any self-hosted component for a managed cloud service — pipeline behaviour is unchanged:
-
-| Component | Cloud alternatives |
-|-----------|--------------------|
-| Message broker (RabbitMQ) | Amazon MQ for RabbitMQ, CloudAMQP |
-| Redis (idempotency) | ElastiCache, Azure Cache for Redis, Memorystore |
-| Log storage | Amazon OpenSearch Service, Grafana Cloud Loki |
-| Archive storage | Amazon S3, Google Cloud Storage, Azure Blob Storage |
-| Metrics / traces | Grafana Cloud, Datadog, Honeycomb |
-
-The cloud sinks (`aws_s3_sink`, `aws_cloudwatch_sink`, `gcs_sink`, `azure_blob_sink`) read connection details from `sink.properties`, resolved from environment variables — no credentials in configuration files.
-
-### Running without Redis
-
-Redis is only used for idempotency/dedup and multi-replica rate-limiting. A single-replica
-deployment that doesn't need either can skip running Redis at all. (The bundled
-`docker-compose.yml` stack does run Valkey, so that local behaviour matches Kubernetes.) To run
-without it via the Helm chart, set:
-
-```yaml
-applicationYaml:
-  auditflow:
-    idempotency:
-      store: memory
-  tenants:
-    ratelimit:
-      backend: in-memory
-  spring:
-    autoconfigure:
-      exclude:
-        - org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration
-        - org.springframework.boot.data.redis.autoconfigure.DataRedisReactiveAutoConfiguration
-        - org.springframework.boot.data.redis.autoconfigure.health.DataRedisHealthContributorAutoConfiguration
-        - org.springframework.boot.data.redis.autoconfigure.health.DataRedisReactiveHealthContributorAutoConfiguration
-```
-
-All four exclude entries are required together — Spring Boot still instantiates a Redis
-connection factory (and its health indicator, which will report `DOWN` against an unreachable
-Redis) if only `idempotency.store`/`ratelimit.backend` are switched without also excluding the
-auto-configuration classes.
-
-Running more than one replica without Redis is not supported: rate-limiting falls back to
-per-process in-memory counters, so each replica enforces its own independent quota instead of a
-shared one.
-
----
-
-## Configuring Pipelines
-
-Pipelines are owned per tenant. Each tenant is one YAML document — a `tenants/<tenantId>.yaml`
-file (local/compose, hot-reloaded) or a labelled ConfigMap (Kubernetes) — and events route only
-through their own tenant's pipelines. Tenantless events use the reserved `_platform` tenant
-(see `tenants/_platform.yaml`).
-
-```yaml
-# tenants/acme.yaml
-tenantId: acme
-enabled: true
-quota:                       # optional per-tenant ingest rate limit (429 + Retry-After over budget)
-  rateLimitPerSec: 200
-  burst: 400
-pipelines:
-  - name: security-alerts
-    enabled: true
-    condition:
-      match: all             # "all" (AND) or "any" (OR)
-      rules:
-        - field: eventType
-          operator: eq
-          value: "security.alert"
-        - field: extra.severity
-          operator: in
-          value: "HIGH,CRITICAL"
-    transformer:
-      name: audit_loki       # optional — omit to pass through unchanged
-    sink:
-      name: loki_sink
-      properties:
-        url: "http://loki:3100"
-        api-key: "${secretRef:lokiApiKey}"  # resolved from THIS tenant's secret store at delivery
-      fallback:              # optional — used when primary sink fails with a retryable error
-        name: webhook_sink
-        properties:
-          url: "https://hooks.example.com/auditflow"
-```
-
-**Available condition operators:** `eq`, `neq`, `eqIgnoreCase`, `contains`, `startsWith`, `endsWith`, `in`, `notIn`, `exists`, `notExists`, `regex`, `gt`, `gte`, `lt`, `lte`, `cidr`, `notCidr`, `wildcard`, `notWildcard`. A rule with `match` + `rules` instead of `field`/`operator` is a nested group.
-
-Field paths support dot notation (`extra.userId`) and array indices (`items[0].name`).
-
-### PII Redaction
-
-```yaml
-auditflow:
-  redaction:
-    enabled: true
-    rules:
-      - field: extra.userId
-        action: mask         # replace with ***
-      - field: extra.email
-        action: hash         # replace with a keyed hash (needs the key below)
-      - field: extra.sessionId
-        action: drop         # remove the field entirely
-```
-
-Redaction runs at ingest, before the event is published to the broker — sensitive values never reach it or any downstream sink.
-
-The key of a rule is `action` (`mask`, `hash` or `drop`); a rule without it masks.
-
-**`hash` needs a secret key.** The hash is an HMAC-SHA256 of the value, written as 64 hex characters. A plain, unkeyed hash of an e-mail address, an IP address or a user id can be reversed by hashing candidates; with a key that only AuditFlow holds it cannot.
-
-```bash
-openssl rand -base64 32      # generate a key (at least 32 characters)
-```
-
-Supply it as the environment variable `AUDITFLOW_REDACTION_HASH_KEY`, from a secret and never in a values file: with the Helm chart as `secrets.data.AUDITFLOW_REDACTION_HASH_KEY`, or as a key of the module's external secret.
-
-- If an enabled rule uses `hash` and the key is missing or shorter than 32 characters, the backend does not start. It never falls back to an unkeyed hash.
-- Every replica must have the same key, or the same value gets different hashes.
-- Changing the key changes every hash from then on: values hashed before and after cannot be matched. Keep the key for as long as the hashes must stay comparable.
-- Whoever holds the key can test a guess against a hash. Treat it like a credential; it gives pseudonymisation, not anonymisation.
-- The key is one per deployment and the same for every tenant, like the redaction rules themselves.
-
----
-
-## Built-in Sinks and Transformers
-
-### Sinks
-
-| Sink | Destination | A batch is written as |
-|------|-------------|-----------------------|
-| `logging_sink` | Log output (dev/testing) | one event at a time |
-| `webhook_sink` | HTTP POST to any URL | one event at a time |
-| `syslog_sink` | RFC 5424 syslog | one event at a time |
-| `loki_sink` | Grafana Loki | one push, equal label sets merged |
-| `opensearch_sink` | OpenSearch / Elasticsearch | one `_bulk` request |
-| `aws_s3_sink` | Amazon S3 | one JSON Lines object per partition folder |
-| `aws_cloudwatch_sink` | Amazon CloudWatch Logs | one `PutLogEvents` call |
-| `gcs_sink` | Google Cloud Storage | one JSON Lines object per partition folder |
-| `azure_blob_sink` | Azure Blob Storage | one JSON Lines blob per partition folder |
-| `datadog_sink` | Datadog Logs API | one request, up to 1000 entries |
-| `splunk_sink` | Splunk HTTP Event Collector | one request |
-| `snowflake_sink` | Snowflake (via the Python connector, not bundled) | one connection and one multi-row insert |
-| `clickhouse_sink` | ClickHouse table over the HTTP interface; pair it with the `audit_clickhouse` transformer | one multi-row insert |
-| `postgres_sink` | PostgreSQL table; the event is stored as JSON in an `event_data` column | one multi-row insert in one transaction |
-| `netlicensing_sink` | Labs64 NetLicensing | one event at a time |
-
-The last column applies to pipelines with `batch.enabled: true`. `GET /registry` on the sink service reports the same per sink as `batch: true|false`.
-
-On Kubernetes with the chart's NetworkPolicy enabled, the pod may only reach HTTPS (port 443) outside the platform services. A sink whose destination listens on another port (ClickHouse 8123 or 8443, PostgreSQL 5432, syslog, Splunk HEC 8088, Loki 3100, OpenSearch 9200) needs a matching `networkPolicy.extraEgress` rule in the chart values.
-
-### Transformers
-
-| Transformer | What it does |
-|-------------|-------------|
-| `zero` | Pass-through (no change) |
-| `audit_loki` | Reshape event for Loki label conventions |
-| `audit_opensearch` | Reshape event for OpenSearch indexing |
-| `audit_clickhouse` | Flatten event into one ClickHouse row; extensible per use case via `make_transform()` |
-
-Mounted example (not shipped in the image): `audit_clickhouse_netlicensing`, in
-[`examples/netlicensing/`](examples/netlicensing/) — see
-[Licensing & monetization KPIs](#licensing--monetization-kpis--and-how-to-model-your-own-domain).
-
-### Adding your own sink or transformer
-
-Drop a `.py` file into `sinks/` or `transformers/`. It's discovered at runtime — no backend changes, no image rebuild for local development.
-
-```python
-# sinks/my_sink.py
-def process(event_data: dict, properties: dict) -> dict:
-    # event_data: the audit event JSON
-    # properties: pipeline-specific config from sink.properties
-    return {"sent": True}
-```
-
-Then reference it by filename (without `.py`) in a pipeline:
-
-```yaml
-sink:
-  name: my_sink
-  properties:
-    api-key: "${MY_API_KEY}"
-```
-
-See [DEVELOPERS.md](DEVELOPERS.md) for full details on the plugin API, transformer chaining, and testing.
-
----
-
-## Developer Guide
-
-The [DEVELOPERS.md](DEVELOPERS.md) covers everything for working on AuditFlow locally:
-
-- Architecture deep-dive and key design decisions
-- Prerequisites and environment setup
-- Running the full, lite, observability, and verification stacks
-- Writing and testing sinks and transformers
-- Pipeline condition reference
-- Health endpoints and circuit breaker metrics
-- Troubleshooting common issues
-
-**Prerequisites at a glance:**
-
-| Tool | Minimum version |
-|------|----------------|
-| Java (Temurin) | 25 |
-| Maven | 3.6.3+ |
-| Python | 3.14 |
-| Docker Engine | 24+ |
-| Docker Compose | v2 |
-| `just` | any |
-
----
+| **AuditFlow** | Audit-event routing pipeline | [labs64.io-auditflow](https://github.com/Labs64/labs64.io-auditflow) |
+| **API Gateway** | Authenticating, policy-enforcing edge for all modules | [labs64.io-authproxy](https://github.com/Labs64/labs64.io-authproxy) |
+| **Payment Gateway** | One API over multiple payment providers | [labs64.io-payment-gateway](https://github.com/Labs64/labs64.io-payment-gateway) |
+| **Checkout** | Embeddable, brandable checkout | [labs64.io-checkout](https://github.com/Labs64/labs64.io-checkout) |
+| **Customer Portal** | Customer self-service UI | [labs64.io-customer-portal](https://github.com/Labs64/labs64.io-customer-portal) |
+| **Commons** | Shared Java and Python libraries | [labs64.io-commons](https://github.com/Labs64/labs64.io-commons) |
+| **Helm Charts** | Kubernetes deployment for every module | [labs64.io-helm-charts](https://github.com/Labs64/labs64.io-helm-charts) |
+| **Workspace** | Dev container and multi-repo tooling | [labs64.io-workspace](https://github.com/Labs64/labs64.io-workspace) |
+| **Tests** | Cross-module regression suite | [labs64.io-tests](https://github.com/Labs64/labs64.io-tests) |
+| **Docs** | Published documentation | [labs64.io-docs](https://github.com/Labs64/labs64.io-docs) |
 
 ## Contributing
 
-Community input shapes where AuditFlow goes next. Contributions of all sizes are welcome.
-
-**Good first areas to contribute:**
-
-- New condition operators or transformer utilities
-- Documentation improvements and usage examples
-
-**To get started:**
-
-1. Fork the repository and create a branch.
-2. For a new sink or transformer, see the [plugin guide in DEVELOPERS.md](DEVELOPERS.md#adding-a-new-sink).
-3. Run `just test` to make sure existing tests pass.
-4. Open a pull request with a clear description of what you changed and why.
-
-If you're unsure whether something is a good fit, open an issue first — it saves everyone time. And if AuditFlow helps you, a ⭐ on the repo helps others find it.
-
----
+Contributions of all sizes are welcome. Fork, branch, run the tests described in [`AGENTS.md`](AGENTS.md), and open a pull request; for a new sink or transformer, start with the [plugin guide](DEVELOPERS.md#adding-a-new-sink). If you are unsure whether something fits, open an issue first.
 
 ## License
 
 The core of the *Labs64.IO Ecosystem* is entirely open source and free forever. Community modules are licensed under [Apache License 2.0](LICENSE).
+
+---
+
+<p align="center">
+  <a href="https://labs64.io"><img alt="Labs64.IO" src="https://labs64.io/docs/assets/images/labs64-logo.png" width="110"></a><br>
+  <sub>Made by the <a href="https://labs64.io">Labs64</a> team and community.</sub>
+</p>
