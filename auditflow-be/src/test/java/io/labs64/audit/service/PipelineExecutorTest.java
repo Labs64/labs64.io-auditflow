@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -103,6 +104,19 @@ class PipelineExecutorTest {
 
         verifyNoInteractions(transformationService);
         verify(sinkService).sendToSink(eq(event("1")), eq("s"), any());
+    }
+
+    @Test
+    void theZeroTransformerIsAppliedWithoutCallingTheTransformerService() throws Exception {
+        when(transformationService.transform(any(), eq("t"))).thenReturn(Mono.just("{\"transformed\":true}"));
+        when(sinkService.sendToSink(any(), eq("s"), any())).thenReturn(Mono.just("ok"));
+
+        executor.execute(pipeline("s", "zero"), event("1"), "acme").block();
+        executor.execute(pipeline("s", "zero", "t", "zero"), event("2"), "acme").block();
+
+        verify(sinkService).sendToSink(eq(event("1")), eq("s"), any());
+        verify(transformationService, never()).transform(any(), eq("zero"));
+        verify(transformationService, times(1)).transform(eq(event("2")), eq("t"));
     }
 
     @Test

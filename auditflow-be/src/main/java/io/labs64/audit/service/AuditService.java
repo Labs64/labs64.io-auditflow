@@ -130,12 +130,14 @@ public class AuditService {
         // killed, channel lost), and dropping the redelivery would lose an event the API accepted.
         // It takes the claim over and routes again; pipelines already delivered are skipped below.
         String eventId = eventJson.path("eventId").asText(null);
+        boolean tookOver = false;
         if (!StringUtils.hasText(eventId)) {
             logger.warn("Audit event has no eventId; processing without dedup guarantee.");
         } else if (!idempotencyService.claim(eventId)) {
             if (redelivered && idempotencyService.takeOver(eventId)) {
                 logger.info("Redelivered audit event eventId='{}' took over an unfinished claim.", eventId);
                 claimTakeoverCounter.increment();
+                tookOver = true;
             } else {
                 logger.debug("Duplicate audit event eventId='{}', dropping.", eventId);
                 consumerHealthIndicator.recordEventFailed();
@@ -149,7 +151,7 @@ public class AuditService {
         }
         businessTelemetry.auditEventReceived(eventId, eventJson.path("eventType").asText(null));
         try {
-            route(message, eventJson, eventId);
+            route(message, eventJson, eventId, tookOver);
             if (StringUtils.hasText(eventId)) {
                 idempotencyService.markProcessed(eventId);
             }
@@ -167,7 +169,13 @@ public class AuditService {
         }
     }
 
-    private void route(String message, JsonNode eventJson, String eventId) {
+    /**
+     * @param tookOver the claim was an unfinished earlier attempt's: skip the pipelines it already
+     *                 delivered. A fresh claim does not ask the store (a call per pipeline and event):
+     *                 the delivery stage checks every delivery against the same marker before sending,
+     *                 so a pipeline re-enqueued after a released claim is still delivered only once.
+     */
+    private void route(String message, JsonNode eventJson, String eventId, boolean tookOver) {
         // Authoritative tenantId (stamped at ingest from X-Auth-Tenant; trusted here).
         String tenantId = TenantIds.resolve(eventJson.path("tenantId").asText(null));
 
@@ -191,7 +199,7 @@ public class AuditService {
                 continue;
             }
             // A redelivered ingest message must not re-enqueue a pipeline that already delivered.
-            if (StringUtils.hasText(eventId) && idempotencyService.isPipelineDone(eventId, name)) {
+            if (tookOver && idempotencyService.isPipelineDone(eventId, name)) {
                 continue;
             }
             matching.add(name);

@@ -9,6 +9,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
@@ -40,6 +41,7 @@ import io.labs64.audit.config.AuditFlowConfiguration.RetryProperties;
 import io.labs64.audit.config.AuditFlowConfiguration.SinkProperties;
 import io.labs64.audit.config.PipelineRateLimiterRegistry;
 import io.labs64.audit.service.IdempotencyService;
+import io.labs64.audit.service.IdempotencyService.PipelineDelivery;
 import io.labs64.audit.service.PipelineExecutor;
 import io.labs64.audit.service.PipelineExecutor.Outcome;
 import io.labs64.audit.service.QuarantineService;
@@ -75,6 +77,10 @@ class DeliveryWorkerTest {
         concurrencyLimiter = new TenantConcurrencyLimiter(16);
         worker = newWorker(concurrencyLimiter);
         lenient().when(rateLimiters.tryAcquirePermission(anyString())).thenReturn(true);
+        // The batch calls run the interface's defaults, which go through the single-delivery methods
+        // stubbed and verified below.
+        lenient().when(idempotencyService.arePipelinesDone(anyList())).thenCallRealMethod();
+        lenient().doCallRealMethod().when(idempotencyService).markPipelinesDone(anyList());
     }
 
     private DeliveryWorker newWorker(TenantConcurrencyLimiter limiter) {
@@ -373,6 +379,31 @@ class DeliveryWorkerTest {
         ArgumentCaptor<List<com.fasterxml.jackson.databind.JsonNode>> sent = ArgumentCaptor.forClass(List.class);
         verify(executor).executeBatch(any(), sent.capture(), eq("acme"));
         assertEquals(List.of("new"), sent.getValue().stream().map(e -> e.path("eventId").asText()).toList());
+    }
+
+    @Test
+    void aReceivedBatchAsksTheStoreOnceWhetherItsDeliveriesWereDone() {
+        tenant("acme", pipeline("archive"), pipeline("alerts"));
+        outcome(Outcome.SUCCESS);
+
+        worker.process(List.of(delivery("acme", "archive", "e1"), delivery("acme", "alerts", "e1"),
+                delivery("acme", "archive", "e2")));
+
+        verify(idempotencyService, times(1)).arePipelinesDone(List.of(new PipelineDelivery("e1", "archive"),
+                new PipelineDelivery("e1", "alerts"), new PipelineDelivery("e2", "archive")));
+    }
+
+    @Test
+    void theDeliveredEventsOfABatchAreMarkedDoneInOneStoreCall() {
+        tenant("acme", batchPipeline("archive", 100));
+        when(executor.executeBatch(any(), anyList(), eq("acme"))).thenReturn(Mono.just(List.of(
+                Outcome.SUCCESS, new Outcome(Outcome.Kind.RETRYABLE, "timeout"), Outcome.SUCCESS)));
+
+        worker.process(List.of(delivery("acme", "archive", "e1"), delivery("acme", "archive", "e2"),
+                delivery("acme", "archive", "e3")));
+
+        verify(idempotencyService, times(1)).markPipelinesDone(List.of(new PipelineDelivery("e1", "archive"),
+                new PipelineDelivery("e3", "archive")));
     }
 
     @Test

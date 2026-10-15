@@ -34,6 +34,12 @@ public class RedisIdempotencyService implements IdempotencyService {
                     + "return 1",
             Long.class);
 
+    /** SET every key to ARGV[1] with a TTL of ARGV[2] ms. */
+    private static final RedisScript<Long> MARK_ALL_DONE = new DefaultRedisScript<>(
+            "for _, k in ipairs(KEYS) do redis.call('SET', k, ARGV[1], 'PX', ARGV[2]) end "
+                    + "return #KEYS",
+            Long.class);
+
     private final StringRedisTemplate redisTemplate;
     private final Duration claimTtl;
     private final Duration doneTtl;
@@ -83,6 +89,45 @@ public class RedisIdempotencyService implements IdempotencyService {
     @Override
     public boolean isPipelineDone(String eventId, String pipelineName) {
         return Boolean.TRUE.equals(redisTemplate.hasKey(pipelineKey(eventId, pipelineName)));
+    }
+
+    /**
+     * One MGET for the whole batch instead of a call per delivery. On the shared connection: Spring's
+     * pipelining would borrow a dedicated one, and without a pool that is a new connection (and TLS
+     * handshake) per call.
+     */
+    @Override
+    public List<Boolean> arePipelinesDone(List<PipelineDelivery> deliveries) {
+        if (deliveries.isEmpty()) {
+            return List.of();
+        }
+        List<String> values = redisTemplate.opsForValue().multiGet(pipelineKeys(deliveries));
+        if (values == null || values.size() != deliveries.size()) {
+            return IdempotencyService.super.arePipelinesDone(deliveries);
+        }
+        return values.stream().map(v -> v != null).toList();
+    }
+
+    /**
+     * One script call sets every marker with the done TTL. A Redis that refuses it (a Redis Cluster
+     * rejects keys of several hash slots in one script) gets one SET per marker instead.
+     */
+    @Override
+    public void markPipelinesDone(List<PipelineDelivery> deliveries) {
+        if (deliveries.isEmpty()) {
+            return;
+        }
+        List<String> keys = pipelineKeys(deliveries);
+        try {
+            redisTemplate.execute(MARK_ALL_DONE, keys, DONE, String.valueOf(doneTtl.toMillis()));
+        } catch (RuntimeException e) {
+            logger.debug("Marking {} pipeline(s) done in one script failed ({}); one SET each", keys.size(), e.toString());
+            keys.forEach(k -> redisTemplate.opsForValue().set(k, DONE, doneTtl));
+        }
+    }
+
+    private List<String> pipelineKeys(List<PipelineDelivery> deliveries) {
+        return deliveries.stream().map(d -> pipelineKey(d.eventId(), d.pipelineName())).toList();
     }
 
     private String key(String eventId) {

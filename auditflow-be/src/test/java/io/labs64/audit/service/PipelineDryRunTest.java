@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Duration;
@@ -36,7 +37,7 @@ class PipelineDryRunTest {
                 enabled: true
                 retry: {maxAttempts: 3}
                 batch: {enabled: true, maxSize: 50}
-                transformer: {name: zero}
+                transformer: {name: audit_clickhouse}
                 sink: {name: aws_s3_sink}
               - name: failed-calls
                 enabled: true
@@ -89,13 +90,32 @@ class PipelineDryRunTest {
 
     @Test
     void transformRunsOnlyForMatchingPipelines() throws Exception {
-        when(transformations.transform(any(), eq("zero"))).thenReturn(Mono.just("{\"done\":true}"));
+        when(transformations.transform(any(), eq("audit_clickhouse"))).thenReturn(Mono.just("{\"done\":true}"));
 
         var report = dryRun.run("acme", tenant(), List.of(event("{\"extra\":{\"responseStatus\":200}}")), true);
 
         var archive = report.events().get(0).pipelines().get(0);
         assertEquals(true, archive.transformed().path("done").asBoolean());
         assertNull(report.events().get(0).pipelines().get(1).transformed());
+    }
+
+    @Test
+    void theZeroTransformerPassesTheEventThroughWithoutACall() throws Exception {
+        var cfg = new TenantConfigParser(mapper).parse("""
+                tenantId: acme
+                pipelines:
+                  - name: archive
+                    enabled: true
+                    transformer: {name: zero}
+                    sink: {name: aws_s3_sink}
+                """);
+
+        var report = dryRun.run("acme", cfg, List.of(event("{\"extra\":{\"responseStatus\":200}}")), true);
+
+        var archive = report.events().get(0).pipelines().get(0);
+        assertNull(archive.transformError());
+        assertEquals(200, archive.transformed().path("extra").path("responseStatus").asInt());
+        verifyNoInteractions(transformations);
     }
 
     @Test

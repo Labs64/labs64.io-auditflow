@@ -1,5 +1,8 @@
 package io.labs64.audit.service;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Idempotency / dedup guard keyed by audit {@code eventId}, with a secondary per-pipeline
  * completion key so a redelivery never re-delivers to an already-succeeded pipeline.
@@ -47,4 +50,23 @@ public interface IdempotencyService {
 
     /** @return true if this pipeline already delivered successfully for this event on a prior attempt. */
     boolean isPipelineDone(String eventId, String pipelineName);
+
+    /** One event's delivery to one pipeline. */
+    record PipelineDelivery(String eventId, String pipelineName) {
+    }
+
+    /**
+     * {@link #isPipelineDone} for several deliveries at once (a received delivery batch): one entry per
+     * delivery, in order. A store with network round trips answers them in one.
+     */
+    default List<Boolean> arePipelinesDone(List<PipelineDelivery> deliveries) {
+        List<Boolean> done = new ArrayList<>(deliveries.size());
+        deliveries.forEach(d -> done.add(isPipelineDone(d.eventId(), d.pipelineName())));
+        return done;
+    }
+
+    /** {@link #markPipelineDone} for several deliveries at once (a batch the sink took in one call). */
+    default void markPipelinesDone(List<PipelineDelivery> deliveries) {
+        deliveries.forEach(d -> markPipelineDone(d.eventId(), d.pipelineName()));
+    }
 }

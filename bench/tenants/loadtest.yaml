@@ -1,0 +1,19 @@
+# The shape of a production archive pipeline (zero transformer, batched sink); the S3 sink is replaced
+# by a no-op batch sink so the bench measures AuditFlow, not S3.
+tenantId: loadtest
+enabled: true
+quota:
+  rateLimitPerSec: 5000
+  burst: 10000
+pipelines:
+  - name: archive
+    enabled: true
+    transformer:
+      name: zero
+    batch:
+      enabled: true
+      maxSize: 50
+    sink:
+      name: null_batch_sink
+      properties:
+        bucket: bench

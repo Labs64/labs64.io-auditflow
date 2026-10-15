@@ -188,7 +188,7 @@ public class PipelineExecutor {
     private Mono<JsonNode> applyTransformers(PipelineProperties pipeline, JsonNode eventJson) {
         Mono<JsonNode> chain = Mono.just(eventJson);
         for (AuditFlowConfiguration.TransformerProperties stage : pipeline.getEffectiveTransformers()) {
-            if (stage == null || !StringUtils.hasText(stage.getName())) {
+            if (stage == null || !StringUtils.hasText(stage.getName()) || TransformationService.isIdentity(stage.getName())) {
                 continue;
             }
             String transformerName = stage.getName();

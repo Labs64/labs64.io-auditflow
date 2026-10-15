@@ -151,6 +151,9 @@ public class PipelineDryRun {
             try {
                 JsonNode current = event;
                 for (String name : transformers) {
+                    if (TransformationService.isIdentity(name)) {
+                        continue;
+                    }
                     String out = transformationService.transform(current, name).block(TRANSFORM_TIMEOUT);
                     current = objectMapper.readTree(out);
                 }

@@ -114,7 +114,7 @@ async def sink(
 
         # Execute the sink processing
         event_id = event_data.get("eventId", "unknown")
-        app_logger.info("Processing event '%s' type='%s' through sink '%s'",
+        app_logger.debug("Processing event '%s' type='%s' through sink '%s'",
                         event_id, event_data.get("eventType", ""), sink_id)
         # Sinks do blocking I/O (S3, HTTP, JDBC). Run them in the thread pool: called directly from
         # this coroutine they would block the event loop and serialize every event on the pod.

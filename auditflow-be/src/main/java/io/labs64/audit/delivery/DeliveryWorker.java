@@ -7,6 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,6 +28,7 @@ import com.rabbitmq.client.Channel;
 import io.labs64.audit.config.AuditFlowConfiguration.PipelineProperties;
 import io.labs64.audit.config.PipelineRateLimiterRegistry;
 import io.labs64.audit.service.IdempotencyService;
+import io.labs64.audit.service.IdempotencyService.PipelineDelivery;
 import io.labs64.audit.service.PipelineExecutor;
 import io.labs64.audit.service.PipelineExecutor.Outcome;
 import io.labs64.audit.service.QuarantineService;
@@ -148,16 +150,24 @@ public class DeliveryWorker {
 
     /** Settle every message (deliver, defer, retry or dead-letter). Throws if an outcome cannot be stored. */
     void process(List<Message> messages) {
+        List<Delivery> resolved = new ArrayList<>(messages.size());
+        for (Message message : messages) {
+            resolve(message).ifPresent(resolved::add);
+        }
         Map<String, List<Delivery>> batchGroups = new LinkedHashMap<>();
         List<Delivery> singles = new ArrayList<>();
-        for (Message message : messages) {
-            resolve(message).ifPresent(d -> {
-                if (d.pipeline().isBatchEnabled()) {
-                    batchGroups.computeIfAbsent(d.tenantId() + "\u0000" + d.pipeline().getName(), k -> new ArrayList<>()).add(d);
-                } else {
-                    singles.add(d);
-                }
-            });
+        for (Delivery d : notYetDelivered(resolved)) {
+            String pipelineName = d.pipeline().getName();
+            if (!rateLimiters.tryAcquirePermission(pipelineName)) {
+                deliveryQueue.defer(d.message());
+                count("deferred", d.tenantId(), pipelineName);
+                continue;
+            }
+            if (d.pipeline().isBatchEnabled()) {
+                batchGroups.computeIfAbsent(d.tenantId() + "\u0000" + pipelineName, k -> new ArrayList<>()).add(d);
+            } else {
+                singles.add(d);
+            }
         }
 
         List<Mono<Void>> units = new ArrayList<>();
@@ -212,16 +222,26 @@ public class DeliveryWorker {
             return Optional.empty();
         }
         String eventId = event.path("eventId").asText(null);
-        if (StringUtils.hasText(eventId) && idempotencyService.isPipelineDone(eventId, pipelineName)) {
-            count("duplicate", tenantId, pipelineName);
-            return Optional.empty();
-        }
-        if (!rateLimiters.tryAcquirePermission(pipelineName)) {
-            deliveryQueue.defer(message);
-            count("deferred", tenantId, pipelineName);
-            return Optional.empty();
-        }
         return Optional.of(new Delivery(message, tenantId, eventId, pipeline.get(), event));
+    }
+
+    /** Drops (and counts) the deliveries a previous attempt already completed: one store call for the batch. */
+    private List<Delivery> notYetDelivered(List<Delivery> deliveries) {
+        List<Delivery> withId = deliveries.stream().filter(d -> StringUtils.hasText(d.eventId())).toList();
+        if (withId.isEmpty()) {
+            return deliveries;
+        }
+        List<Boolean> done = idempotencyService.arePipelinesDone(withId.stream()
+                .map(d -> new PipelineDelivery(d.eventId(), d.pipeline().getName())).toList());
+        Set<Delivery> skip = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        for (int i = 0; i < withId.size(); i++) {
+            if (Boolean.TRUE.equals(done.get(i))) {
+                Delivery d = withId.get(i);
+                count("duplicate", d.tenantId(), d.pipeline().getName());
+                skip.add(d);
+            }
+        }
+        return skip.isEmpty() ? deliveries : deliveries.stream().filter(d -> !skip.contains(d)).toList();
     }
 
     private Mono<Void> runSingle(Delivery d) {
@@ -253,8 +273,17 @@ public class DeliveryWorker {
                     timer(first.pipeline().getName(), "BATCH", "batch", start);
                     meterRegistry.summary("auditflow.delivery.batch.size", "pipeline", first.pipeline().getName())
                             .record(chunk.size());
+                    // The sink took the chunk in one call: mark its delivered events in one store call too.
+                    List<PipelineDelivery> delivered = new ArrayList<>();
                     for (int i = 0; i < chunk.size(); i++) {
-                        settle(chunk.get(i), outcomes.get(i));
+                        Delivery d = chunk.get(i);
+                        if (outcomes.get(i).kind() == Outcome.Kind.SUCCESS && StringUtils.hasText(d.eventId())) {
+                            delivered.add(new PipelineDelivery(d.eventId(), d.pipeline().getName()));
+                        }
+                    }
+                    idempotencyService.markPipelinesDone(delivered);
+                    for (int i = 0; i < chunk.size(); i++) {
+                        settle(chunk.get(i), outcomes.get(i), false);
                     }
                 })
                 .doFinally(s -> concurrencyLimiter.release(first.tenantId()))
@@ -270,10 +299,15 @@ public class DeliveryWorker {
 
     /** Store the outcome of one delivery (throws if the broker does not confirm it). */
     void settle(Delivery d, Outcome outcome) {
+        settle(d, outcome, true);
+    }
+
+    /** @param markDone false when the caller already marked this delivery done (a batch, in one call) */
+    private void settle(Delivery d, Outcome outcome, boolean markDone) {
         String pipelineName = d.pipeline().getName();
         switch (outcome.kind()) {
             case SUCCESS -> {
-                if (StringUtils.hasText(d.eventId())) {
+                if (markDone && StringUtils.hasText(d.eventId())) {
                     idempotencyService.markPipelineDone(d.eventId(), pipelineName);
                 }
                 count("delivered", d.tenantId(), pipelineName);

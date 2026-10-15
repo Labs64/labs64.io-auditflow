@@ -77,6 +77,10 @@ Both use the same plugin pattern — keep symmetric when editing one.
 - ID validated against `^[a-zA-Z0-9_]+$` — **keep this regex consistent** with Java `TransformationService`/`SinkService`.
 - Module resolution: `transformers/` / `sinks/` (shipped), `transformers_bootstrap/` / `sinks_bootstrap/` (mounted at runtime, git-ignored).
 - `GET /registry` lists available modules (also Docker healthcheck).
+- `zero` (pass-through) is applied by the backend, never called (`TransformationService.isIdentity`).
+- Logging per event: the backend's ingest line ("Audit event published") is the one INFO line; per-event
+  transformer/sink success lines are DEBUG, and the services drop successful `/transform/` and `/sink/`
+  access lines (`AUDITFLOW_ACCESS_LOG_OK=true` keeps them). Failures always log.
 - `telemetry.py` = business telemetry abstraction (no OpenTelemetry imports in app code; auto-instrumentation via `entrypoint.sh` when `OTEL_EXPORTER_OTLP_ENDPOINT` is set).
 
 ### Adding a transformer or sink
@@ -218,3 +222,4 @@ a unique `extra.op` discriminator so at most one probe can ever match a given te
 | Grafana dashboard | `observability/grafana/dashboards/*.json` |
 | Observability toggle (local) | `docker-compose-observability.yml` (`just up obs`) — env-only, no rebuild |
 | Business telemetry | `auditflow-be` src/main/java/io/labs64/audit/telemetry/, transformer/sink `telemetry.py` |
+| CPU per event (before sizing requests, after a hot-path change) | `bench/bench.sh` (whole path in Docker at a fixed rate; JFR profiling notes in its header) |

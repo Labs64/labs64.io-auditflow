@@ -163,14 +163,16 @@ class AuditServiceTest {
     }
 
     @Test
-    @DisplayName("a redelivered event does not re-enqueue a pipeline that already delivered")
-    void alreadyDeliveredPipelinesAreNotEnqueuedAgain() {
+    @DisplayName("a fresh claim enqueues every matching pipeline without a store lookup per pipeline")
+    void aFreshClaimDoesNotAskWhichPipelinesDelivered() {
         tenant("acme", pipeline("archive", true), pipeline("siem", true));
-        when(idempotencyService.isPipelineDone(anyString(), eq("archive"))).thenReturn(true);
 
         auditService.processAuditEvent(ACME_EVENT);
 
-        verify(deliveryQueue).enqueue(anyString(), eq("acme"), eq(List.of("siem")), anyString());
+        // A pipeline delivered by an earlier attempt whose claim was released is skipped by the
+        // delivery stage, which checks every delivery against the same marker (DeliveryWorkerTest).
+        verify(deliveryQueue).enqueue(anyString(), eq("acme"), eq(List.of("archive", "siem")), anyString());
+        verify(idempotencyService, never()).isPipelineDone(anyString(), anyString());
     }
 
     @Test

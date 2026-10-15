@@ -90,7 +90,7 @@ public class SinkService {
         logger.debug("Sending to sink '{}' at '{}'", sinkName, sinkUrl);
 
         return sendEventToSink(message, sinkUrl, sinkName, properties)
-                .doOnNext(result -> logger.info("Event '{}' sent to sink '{}'", 
+                .doOnNext(result -> logger.debug("Event '{}' sent to sink '{}'", 
                         message.path("eventId").asText("unknown"), sinkName))
                 .onErrorMap(e -> {
                     logger.error("Failed to send event to sink '{}' at '{}': {}", sinkName, sinkUrl, e.getMessage(), e);

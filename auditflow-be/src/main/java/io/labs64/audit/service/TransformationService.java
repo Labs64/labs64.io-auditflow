@@ -26,6 +26,13 @@ public class TransformationService {
 
     private static final Logger logger = LoggerFactory.getLogger(TransformationService.class);
 
+    /**
+     * The pass-through transformer (auditflow-transformer/transformers/zero.py): its output is its
+     * input, so callers apply it themselves instead of an HTTP round trip to the transformer service
+     * per event and pipeline.
+     */
+    public static final String IDENTITY = "zero";
+
     private final TransformerDiscovery transformerDiscovery;
     private final WebClient.Builder webClientBuilder;
     private final ReactiveCircuitBreakerFactory<?, ?> circuitBreakerFactory;
@@ -49,6 +56,11 @@ public class TransformationService {
         this.maxResponseBytes = Math.toIntExact(httpProperties.getMaxResponseSize().toBytes());
     }
 
+    /** @return true for the pass-through transformer, which never needs a call to the transformer service */
+    public static boolean isIdentity(String transformerName) {
+        return IDENTITY.equals(transformerName);
+    }
+
     /** Package-private accessor for testing — allows injecting mock WebClient instances. */
     Map<String, WebClient> getWebClientCache() {
         return webClientCache;
@@ -70,7 +82,7 @@ public class TransformationService {
         logger.debug("Calling transformer '{}' at '{}'", transformerName, transformerUrl);
 
         return transformMessage(message, transformerUrl, transformerName)
-                .doOnNext(result -> logger.info("Transformation successful for event '{}' through transformer '{}'", 
+                .doOnNext(result -> logger.debug("Transformation successful for event '{}' through transformer '{}'",
                         message.path("eventId").asText("unknown"), transformerName))
                 .onErrorMap(e -> {
                     logger.error("Transformation failed for transformer '{}' at '{}': {}", transformerName, transformerUrl, e.getMessage(), e);

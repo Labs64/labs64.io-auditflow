@@ -99,10 +99,27 @@ async def service_info():
 HEALTH_PATHS = frozenset({"/health", "/ready", "/live", "/info"})
 
 
+# Calls the backend makes once per event and pipeline. Their successful access lines are most of a busy
+# pod's log volume, and the backend already accounts for every delivery (its metrics and logs); a
+# failed call keeps its line. AUDITFLOW_ACCESS_LOG_OK=true logs the successful ones too.
+DELIVERY_PATH_PREFIXES = ("/transform/", "/sink/")
+
+
+def _log_successful_deliveries() -> bool:
+    return os.getenv("AUDITFLOW_ACCESS_LOG_OK", "false").lower() == "true"
+
+
 class HealthAccessLogFilter(logging.Filter):
-    """Suppress Uvicorn access logs for health-check endpoints."""
+    """Suppress Uvicorn access logs for health-check endpoints and for successful delivery calls."""
 
     def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        # Uvicorn's access record: (client, method, path, http version, status code).
+        if isinstance(args, tuple) and len(args) == 5 and isinstance(args[4], int):
+            path, status = str(args[2]), args[4]
+            if (200 <= status < 300 and path.startswith(DELIVERY_PATH_PREFIXES)
+                    and not _log_successful_deliveries()):
+                return False
         msg = record.getMessage()
         return not any(f"\"GET {p} " in msg for p in HEALTH_PATHS)
 

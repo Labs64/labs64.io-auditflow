@@ -726,6 +726,10 @@ pipelines:
 
 `zero` (pass-through), `audit_loki`, `audit_opensearch`, `audit_clickhouse`
 
+`zero` never reaches the transformer service: the backend applies it itself (its output is its input),
+which saves an HTTP round trip per event and pipeline. A module mounted under the name `zero` is
+therefore never called; give a custom transformer its own name.
+
 Plus `audit_clickhouse_netlicensing`, mounted from `examples/netlicensing/` rather than shipped —
 see [Extending it for a use case](#extending-it-for-a-use-case).
 
@@ -781,7 +785,7 @@ pipelines:
                                   # notCidr, wildcard, notWildcard (see "Condition operators")
           value: "api.call"
     transformer:
-      name: zero                  # optional — omit to pass through unchanged
+      name: zero                  # optional — omit (or zero) to pass through unchanged, without a call
     sink:
       name: logging_sink          # required
       properties:                 # optional, passed to the sink's process() function
