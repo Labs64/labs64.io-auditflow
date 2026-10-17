@@ -41,6 +41,12 @@ public final class AuditEvents {
             return this;
         }
 
+        /**
+         * The event time: when the audited action happened at the source. Optional: omit it and AuditFlow
+         * uses the moment it receives the event. It must be plausible (by default at most 5 minutes ahead of
+         * the receipt time and not older than 1095 days), otherwise the server answers 400. This is not the
+         * receipt time ({@code timestamp}), which only AuditFlow sets; reports are grouped on the event time.
+         */
         public Builder eventTime(java.time.OffsetDateTime eventTime) {
             event.setEventTime(eventTime);
             return this;

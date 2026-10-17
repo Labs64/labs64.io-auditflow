@@ -42,7 +42,8 @@ class GlobalExceptionHandlerTest {
         ObjectMapper mapper = new ObjectMapper();
         mapper.registerModule(new JavaTimeModule());
         AuditEventController controller = new AuditEventController(publisherService, tenantGate, mapper,
-                jakarta.validation.Validation.buildDefaultValidatorFactory().getValidator());
+                jakarta.validation.Validation.buildDefaultValidatorFactory().getValidator(),
+                new io.labs64.audit.service.EventTimePolicy(new io.labs64.audit.config.EventTimeProperties()));
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(mapper))
@@ -68,6 +69,26 @@ class GlobalExceptionHandlerTest {
                 .andExpect(jsonPath("$.message").value("Invalid value for field 'eventId'"))
                 .andExpect(jsonPath("$.message").value(not(containsString("InvalidFormatException"))))
                 .andExpect(jsonPath("$.timestamp").exists());
+    }
+
+    @Test
+    void anImplausibleEventTimeReturns400WithTheReasonAndNeverReachesTheBroker() throws Exception {
+        String payload = """
+                {
+                  "sourceSystem": "test",
+                  "eventType": "test.event",
+                  "eventTime": "%s"
+                }
+                """.formatted(java.time.OffsetDateTime.now().plusDays(2));
+
+        mockMvc.perform(post("/audit/publish")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.message").value(containsString("eventTime")))
+                .andExpect(jsonPath("$.message").value(containsString("in the future")));
+        org.mockito.Mockito.verifyNoInteractions(publisherService);
     }
 
     @Test

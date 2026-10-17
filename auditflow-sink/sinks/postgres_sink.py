@@ -5,9 +5,12 @@ Each event is stored as JSON in the ``event_data`` column of a table the operato
 
     CREATE TABLE audit_events (
         id          BIGSERIAL PRIMARY KEY,
-        received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        inserted_at TIMESTAMPTZ NOT NULL DEFAULT now(),   -- when the row was written: delivery time, not an event time
         event_data  JSONB NOT NULL
     );
+    -- Report on the event's own times, both inside event_data (ISO 8601):
+    --   (event_data->>'eventTime')::timestamptz   event time: when the action happened (group reports on it)
+    --   (event_data->>'timestamp')::timestamptz   receipt time: when AuditFlow received the event
     -- optional, makes a redelivered event a no-op instead of a second row:
     CREATE UNIQUE INDEX audit_events_event_id ON audit_events ((event_data->>'eventId'));
 

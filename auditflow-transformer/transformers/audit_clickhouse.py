@@ -74,7 +74,7 @@ Example output (one ClickHouse row, absent scalars omitted):
       "extra": {"invoiceRef": "INV-1"}
     }
 """
-from auditflow_sdk import WELL_KNOWN_EXTRA, resolve_promoted, stringify_value
+from auditflow_sdk import WELL_KNOWN_EXTRA, event_time, resolve_promoted, stringify_value
 
 __version__ = "2.1.0"
 
@@ -137,12 +137,11 @@ def make_transform(extra_promoted=None, module_id=None):
         """Flatten a canonical AuditEvent into one ClickHouse row keyed by column name."""
         geolocation = input_data.get("geolocation") or {}
         extra = input_data.get("extra") or {}
-        timestamp = input_data.get("timestamp")
 
         row = {column: input_data.get(source_key) for source_key, column in _ENVELOPE.items()}
-        # eventTime is the client-supplied business time and the axis every report is grouped on;
-        # fall back to server receipt time so the column is never null.
-        row["event_time"] = input_data.get("eventTime") or timestamp
+        # event_time = the event time (when the action happened), the axis every report is grouped on:
+        # never null (auditflow_sdk.event_time); `timestamp` above is the receipt time, a different thing.
+        row["event_time"] = event_time(input_data)
 
         for source_key, column in promoted.items():
             row[column] = extra.get(source_key)

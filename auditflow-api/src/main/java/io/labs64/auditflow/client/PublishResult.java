@@ -4,7 +4,10 @@ import java.net.http.HttpHeaders;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
-/** Outcome of a successful publish: the resolved event id and server receipt time. */
+/**
+ * Outcome of a successful publish: the resolved event id and the receipt time, i.e. when AuditFlow received the
+ * event (the event's {@code timestamp}). Not the event time ({@code eventTime}), which is when the action happened.
+ */
 public final class PublishResult {
     private final UUID eventId;
     private final OffsetDateTime receivedAt;

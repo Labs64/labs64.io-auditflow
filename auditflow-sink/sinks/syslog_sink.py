@@ -7,7 +7,9 @@ Supports both UDP and TCP transports.
 import logging
 import socket
 import json
-from datetime import datetime, timezone
+from datetime import timezone
+
+from auditflow_sdk import event_time
 
 __version__ = "1.0.0"
 
@@ -109,7 +111,8 @@ def process(event_data: dict, properties: dict) -> dict:
         message = json.dumps(event_data)
 
     # Build syslog message (RFC 3164 format)
-    timestamp = datetime.now(timezone.utc).strftime('%b %d %H:%M:%S')
+    # The syslog TIMESTAMP is when the event happened (UTC), not when it was sent.
+    timestamp = event_time(event_data).astimezone(timezone.utc).strftime('%b %d %H:%M:%S')
     hostname = socket.gethostname()
     syslog_message = f"<{priority}>{timestamp} {hostname} {tag}: {message}"
 

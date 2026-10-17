@@ -19,6 +19,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.labs64.audit.config.CorrelationIdFilter;
 import io.labs64.audit.exception.PublishException;
 import io.labs64.audit.publisher.AuditPublisherService;
+import io.labs64.audit.service.EventTimePolicy;
 import io.labs64.audit.tenant.TenantGate;
 import io.labs64.audit.v1.api.AuditEventApi;
 import io.labs64.authcontext.authorization.Authorize;
@@ -54,13 +55,16 @@ public class AuditEventController implements AuditEventApi {
     private final TenantGate tenantGate;
     private final ObjectMapper objectMapper;
     private final Validator validator;
+    private final EventTimePolicy eventTimePolicy;
 
     public AuditEventController(AuditPublisherService publisherService, TenantGate tenantGate,
-                                ObjectMapper objectMapper, Validator validator) {
+                                ObjectMapper objectMapper, Validator validator,
+                                EventTimePolicy eventTimePolicy) {
         this.publisherService = publisherService;
         this.tenantGate = tenantGate;
         this.objectMapper = objectMapper;
         this.validator = validator;
+        this.eventTimePolicy = eventTimePolicy;
     }
 
     /**
@@ -73,6 +77,10 @@ public class AuditEventController implements AuditEventApi {
     @Authorize(action = "publishEvent", resourceType = "AuditEvent")
     public ResponseEntity<String> publishEvent(@Valid AuditEvent event) {
         OffsetDateTime receivedAt = OffsetDateTime.now();
+        String eventTimeProblem = eventTimePolicy.violation(event, receivedAt);
+        if (eventTimeProblem != null) {
+            throw new IllegalArgumentException(eventTimeProblem);
+        }
         prepare(event, receivedAt);
         String eventId = event.getEventId().toString();
 
@@ -128,6 +136,11 @@ public class AuditEventController implements AuditEventApi {
                         .collect(Collectors.joining("; ")));
                 continue;
             }
+            String eventTimeProblem = eventTimePolicy.violation(event, receivedAt);
+            if (eventTimeProblem != null) {
+                results[i] = rejected(i, event.getEventId(), ErrorCode.VALIDATION_ERROR, eventTimeProblem);
+                continue;
+            }
             prepare(event, receivedAt);
             if (!tenantGate.tryAcquireQuota(event.getTenantId())) {
                 results[i] = rejected(i, event.getEventId(), ErrorCode.TENANT_RATE_LIMITED,
@@ -169,7 +182,7 @@ public class AuditEventController implements AuditEventApi {
     }
 
     /** Server-side fields: event id, correlation id, trusted tenant and receipt time. */
-    private static void prepare(AuditEvent event, OffsetDateTime receivedAt) {
+    private void prepare(AuditEvent event, OffsetDateTime receivedAt) {
         if (event.getEventId() == null) {
             event.setEventId(UUID.randomUUID());
         }
@@ -187,7 +200,8 @@ public class AuditEventController implements AuditEventApi {
         // (TenantIds.resolve) and can never be routed into a tenant the caller named itself.
         // Without a context (no gateway in front, e.g. docker-compose) the payload value stands.
         AuthContextHolder.get().ifPresent(context -> event.setTenantId(context.tenantId()));
-        event.setTimestamp(receivedAt);
+        // Receipt time (timestamp) and event time (eventTime): see EventTimePolicy.
+        eventTimePolicy.stamp(event, receivedAt);
     }
 
     private static BatchPublishEntryResult rejected(int index, UUID eventId, ErrorCode code, String message) {

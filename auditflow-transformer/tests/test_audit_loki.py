@@ -68,7 +68,7 @@ def test_full_event_populates_labels_and_metadata():
     }
     assert line == "Test successful"
 
-    # eventTime is the business time and wins over the server receipt timestamp.
+    # eventTime is the event time and wins over the receipt time (timestamp).
     expected = str(int(datetime.fromisoformat("2025-07-04T09:59:55+00:00").timestamp() * 1_000_000_000))
     assert nano == expected
 

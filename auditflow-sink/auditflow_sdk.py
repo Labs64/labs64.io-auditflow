@@ -142,25 +142,61 @@ def chunk_indexes(sizes: Sequence[int], max_count: int, max_bytes: int) -> List[
     return chunks
 
 
-def event_datetime(event_data: Dict[str, Any]) -> datetime:
-    """The event's server receipt time (``timestamp``); now when absent or unparseable."""
-    value = event_data.get('timestamp')
+# ── The two times of an event ───────────────────────────────────────────────────────────────────
+#
+# An event carries exactly two times, and a sink uses them the same way as every other one:
+#
+#   event time    ``eventTime``  when the audited action HAPPENED, as the publisher says. The axis of every
+#                                report. AuditFlow's ingest sets it on every event (the receipt time when
+#                                the publisher omitted it) and rejects an implausible one.
+#   receipt time  ``timestamp``  when AuditFlow RECEIVED the event. Its own clock, never the publisher's, so
+#                                it is the one to lay out storage by (an archive's date folders and object
+#                                names): publishers cannot choose where their data lands.
+#
+# A sink never invents a third time: delivery happens later, possibly hours later with retries, and is not
+# part of the event. A destination that stamps its own arrival time (a table's ``DEFAULT now()``, an index
+# time) says so in its name and is never used for reporting. Use ``event_time()`` for a destination's
+# "time of the entry" and ``received_at()`` for storage layout; do not read the keys directly.
+
+def _parse_time(value: Any) -> Optional[datetime]:
+    """An ISO 8601 string as an aware datetime (a naive one is taken as UTC); None when absent or invalid."""
     if isinstance(value, str) and value:
         try:
             parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
-            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
         except ValueError:
-            pass
-    return datetime.now(timezone.utc)
+            return None
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return None
+
+
+def received_at(event_data: Dict[str, Any]) -> datetime:
+    """The receipt time (``timestamp``): when AuditFlow received the event. Now when absent or unparseable
+    (AuditFlow's ingest always sets it)."""
+    return _parse_time(event_data.get('timestamp')) or datetime.now(timezone.utc)
+
+
+def with_receipt_time(event_data: Dict[str, Any]) -> Dict[str, Any]:
+    """The event with its receipt time (``timestamp``) set: as it is when AuditFlow's ingest set it (always),
+    a copy with the time of the call for a hand-made event that has none. Never mutates the argument."""
+    if event_data.get('timestamp'):
+        return event_data
+    return {**event_data, 'timestamp': received_at(event_data).isoformat()}
+
+
+def event_time(event_data: Dict[str, Any]) -> datetime:
+    """The event time (``eventTime``): when the audited action happened, the time a destination shows an
+    entry at. Falls back to the receipt time only for an event queued before ingest started setting
+    ``eventTime`` on every event (a rolling upgrade)."""
+    return _parse_time(event_data.get('eventTime')) or received_at(event_data)
 
 
 def batch_object_name(group: Sequence[Dict[str, Any]], compress: bool) -> str:
-    """Deterministic file name of a batch object: the earliest event time plus a hash of the sorted
+    """Deterministic file name of a batch object: the earliest receipt time plus a hash of the sorted
     event ids. The same group of events gets the same name in any order, so a redelivery overwrites
     the object instead of adding a copy."""
     ids = sorted(str(e.get('eventId', '')) for e in group)
     digest = hashlib.sha256('\n'.join(ids).encode('utf-8')).hexdigest()[:32]
-    stamp = min(event_datetime(e) for e in group).strftime('%Y%m%d-%H%M%S')
+    stamp = min(received_at(e) for e in group).strftime('%Y%m%d-%H%M%S')
     return f"{stamp}-batch-{digest}.jsonl" + ('.gz' if compress else '')
 
 

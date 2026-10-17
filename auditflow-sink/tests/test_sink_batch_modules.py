@@ -92,12 +92,25 @@ def test_batch_object_name_is_the_same_for_the_same_events_in_any_order():
     assert name != auditflow_sdk.batch_object_name([early], compress=False)
 
 
-def test_event_datetime_reads_the_event_timestamp_and_treats_a_naive_one_as_utc():
-    assert auditflow_sdk.event_datetime({"timestamp": "2026-10-02T14:26:39Z"}) == \
+def test_received_at_is_the_receipt_time_and_a_naive_one_is_utc():
+    assert auditflow_sdk.received_at({"timestamp": "2026-10-02T14:26:39Z"}) == \
         datetime(2026, 10, 2, 14, 26, 39, tzinfo=timezone.utc)
-    assert auditflow_sdk.event_datetime({"timestamp": "2026-10-02T14:26:39"}).tzinfo is not None
-    assert auditflow_sdk.event_datetime({"timestamp": "not a date"}).tzinfo is not None
-    assert auditflow_sdk.event_datetime({}).tzinfo is not None
+    assert auditflow_sdk.received_at({"timestamp": "2026-10-02T14:26:39"}).tzinfo is not None
+    assert auditflow_sdk.received_at({"timestamp": "not a date"}).tzinfo is not None
+    assert auditflow_sdk.received_at({}).tzinfo is not None
+    # eventTime is a different time: it never changes the receipt time.
+    assert auditflow_sdk.received_at({"timestamp": "2026-10-02T14:26:39Z", "eventTime": "2020-01-01T00:00:00Z"}) == \
+        datetime(2026, 10, 2, 14, 26, 39, tzinfo=timezone.utc)
+
+
+def test_event_time_is_the_event_time_and_falls_back_to_the_receipt_time_only_when_it_is_missing():
+    both = {"timestamp": "2026-10-02T14:26:39Z", "eventTime": "2026-10-01T08:00:00+02:00"}
+    assert auditflow_sdk.event_time(both) == datetime(2026, 10, 1, 6, 0, tzinfo=timezone.utc)
+    assert auditflow_sdk.event_time({"timestamp": "2026-10-02T14:26:39Z"}) == \
+        datetime(2026, 10, 2, 14, 26, 39, tzinfo=timezone.utc)
+    assert auditflow_sdk.event_time({"timestamp": "2026-10-02T14:26:39Z", "eventTime": "garbage"}) == \
+        datetime(2026, 10, 2, 14, 26, 39, tzinfo=timezone.utc)
+    assert auditflow_sdk.event_time({}).tzinfo is not None
 
 
 def test_jsonl_body_is_stable_when_compressed():
@@ -689,7 +702,18 @@ def test_splunk_batch_is_one_request_with_the_events_one_after_another(http):
 def test_splunk_single_event_request_is_unchanged(http):
     fake = http(FakeResponse(200))
     splunk_sink.process(event(1), SP)
-    assert fake.calls[0]["json"] == {"event": event(1), "sourcetype": "_json", "source": "auditflow", "index": "audit"}
+    # HEC indexes the event at its event time (here equal to the receipt time: no eventTime was sent).
+    assert fake.calls[0]["json"] == {"event": event(1), "time": 1790951199.0, "sourcetype": "_json",
+                                     "source": "auditflow", "index": "audit"}
+
+
+def test_splunk_indexes_each_event_at_its_event_time_not_at_delivery(http):
+    fake = http(FakeResponse(200))
+    backfilled = {**event(1), "eventTime": "2026-09-01T10:00:00Z"}
+    splunk_sink.process_batch([backfilled, event(2)], SP)
+    payloads = [json.loads(line) for line in fake.calls[0]["data"].decode().split("\n")]
+    assert payloads[0]["time"] == datetime(2026, 9, 1, 10, 0, tzinfo=timezone.utc).timestamp()
+    assert payloads[1]["time"] == datetime(2026, 10, 2, 14, 26, 39, tzinfo=timezone.utc).timestamp()
 
 
 def test_splunk_unreadable_event_fails_alone(http):

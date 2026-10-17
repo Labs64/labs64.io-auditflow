@@ -206,6 +206,13 @@ auditflow:
     # Must outlive the longest delivery retry window (delivery.retry.max-age), or a late duplicate
     # of a delivery could be delivered twice.
     done-ttl: PT48H
+  # The two times of an event: `timestamp` is the receipt time (ours, set at ingest) and `eventTime` is
+  # the event time (when the action happened, as the publisher says; the receipt time when omitted).
+  # An eventTime outside this window, measured against the receipt time, is rejected with 400
+  # (ISO-8601 durations). Keep max-age at or below the shortest retention among your tenants' sinks.
+  event-time:
+    max-future: PT5M     # clock skew between publisher and server
+    max-age: P1095D      # oldest backfill accepted (the shipped ClickHouse retention)
   # Broker topology of the two-stage delivery model (delivery/BrokerTopology).
   broker:
     # classic (default) or quorum (replicated; for multi-node brokers such as an Amazon MQ cluster).

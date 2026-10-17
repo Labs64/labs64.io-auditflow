@@ -21,9 +21,9 @@ CREATE DATABASE IF NOT EXISTS audit;
 CREATE TABLE IF NOT EXISTS audit.audit_events
 (
     -- ── Time ─────────────────────────────────────────────────────────────────────────────────
-    -- `timestamp` is the server *receipt* time (AuditFlow assigns it, clients cannot).
-    -- `event_time` is the *business* time the audited action happened at the source; the
-    -- transformer falls back to `timestamp` when the publisher omits it. Analytics is keyed on
+    -- `timestamp` is the *receipt* time: when AuditFlow received the event (it assigns it, clients cannot).
+    -- `event_time` is the *event* time: when the audited action happened at the source. AuditFlow sets
+    -- it to the receipt time when the publisher omits it, so it is never empty. Analytics is keyed on
     -- event_time — a backfill or a broker backlog must not move revenue into the wrong month.
     timestamp        DateTime64(3, 'UTC'),
     event_time       DateTime64(3, 'UTC'),
@@ -62,8 +62,8 @@ CREATE TABLE IF NOT EXISTS audit.audit_events
 
     extra            Map(LowCardinality(String), String),
 
-    -- Forensic lookups ("what did we ingest between 09:00 and 09:05") do not follow the sorting
-    -- key, which is ordered on business time. A minmax index keeps them from full-scanning.
+    -- Forensic lookups ("what did we receive between 09:00 and 09:05") do not follow the sorting
+    -- key, which is ordered on event time. A minmax index on the receipt time keeps them from full-scanning.
     INDEX idx_ingest_time timestamp TYPE minmax GRANULARITY 4
 )
 -- ReplacingMergeTree, not MergeTree: AuditFlow is at-least-once. Its idempotency window is ~24h,

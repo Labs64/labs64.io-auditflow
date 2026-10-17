@@ -5,9 +5,9 @@ This sink sends audit events to CloudWatch Logs for centralized logging and moni
 """
 import logging
 import json
-import time
+from datetime import datetime, timedelta, timezone
 
-from auditflow_sdk import RejectedEvent, chunk_indexes
+from auditflow_sdk import RejectedEvent, chunk_indexes, received_at
 
 __version__ = "1.1.0"
 
@@ -29,6 +29,20 @@ try:
 except ImportError:
     logger.error("boto3 is not installed. Install with: pip install boto3")
     boto3 = None
+
+
+# CloudWatch Logs refuses an entry older than 14 days and an out-of-order call, so unlike Loki or
+# OpenSearch it cannot place an entry at an arbitrary event time.
+_MAX_ENTRY_AGE = timedelta(days=13)
+
+
+def _entry_millis(events: list) -> int:
+    """The time CloudWatch shows these entries at, in milliseconds: the RECEIPT time of the newest of
+    them (AuditFlow's clock; stable across retries, unlike the moment of delivery). eventTime, when the
+    action happened, stays inside the message. An event replayed after 13 days is placed 13 days back,
+    the oldest time CloudWatch accepts, instead of being refused."""
+    placed = max(received_at(event) for event in events)
+    return int(max(placed, datetime.now(timezone.utc) - _MAX_ENTRY_AGE).timestamp() * 1000)
 
 
 def process(event_data: dict, properties: dict) -> dict:
@@ -83,7 +97,7 @@ def process(event_data: dict, properties: dict) -> dict:
             ensure_log_stream(logs_client, log_group, log_stream)
 
         # Prepare log event
-        timestamp = int(time.time() * 1000)  # milliseconds
+        timestamp = _entry_millis([event_data])
         message = json.dumps(event_data)
 
         # Put log event
@@ -157,11 +171,12 @@ def process_batch(events: list, properties: dict) -> list:
         logger.error("Failed to prepare CloudWatch Logs %s/%s: %s", log_group, log_stream, e)
         return [RuntimeError(f"Failed to send to CloudWatch Logs: {e}")] * len(events)
 
-    timestamp = int(time.time() * 1000)  # milliseconds; one value keeps the call in time order
     messages = [json.dumps(event) for event in events]
     sizes = [len(message.encode('utf-8')) + _EVENT_OVERHEAD_BYTES for message in messages]
     outcomes = [None] * len(events)
     for indexes in chunk_indexes(sizes, _MAX_EVENTS_PER_CALL, _MAX_BYTES_PER_CALL):
+        # One value per call keeps its entries in time order, which CloudWatch requires.
+        timestamp = _entry_millis([events[i] for i in indexes])
         try:
             response = logs_client.put_log_events(
                 logGroupName=log_group,

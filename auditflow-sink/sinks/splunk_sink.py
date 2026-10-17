@@ -4,7 +4,7 @@ import logging
 
 import requests
 
-from auditflow_sdk import deliver_each, require_properties
+from auditflow_sdk import deliver_each, event_time, require_properties
 
 __version__ = "1.1.0"
 
@@ -48,6 +48,12 @@ def process_batch(events: list, properties: dict) -> list:
     return [result] * len(events)
 
 
+def _hec_time(event: dict) -> float:
+    """HEC's ``time``: epoch seconds Splunk indexes the event at. The event time (when the action
+    happened), not the moment of delivery, which Splunk would otherwise use."""
+    return round(event_time(event).timestamp(), 3)
+
+
 def _send(events: list, properties: dict) -> dict:
     require_properties(properties, "hec-url", "token")
 
@@ -64,12 +70,12 @@ def _send(events: list, properties: dict) -> dict:
 
     if len(events) == 1:
         response = requests.post(
-            properties["hec-url"], headers=headers, json={"event": events[0], **envelope},
+            properties["hec-url"], headers=headers, json={"event": events[0], "time": _hec_time(events[0]), **envelope},
             timeout=timeout, verify=verify_ssl
         )
     else:
         # HEC reads several events from one request as JSON objects one after another.
-        body = "\n".join(json.dumps({"event": event, **envelope}) for event in events).encode("utf-8")
+        body = "\n".join(json.dumps({"event": event, "time": _hec_time(event), **envelope}) for event in events).encode("utf-8")
         response = requests.post(
             properties["hec-url"], headers={**headers, "Content-Type": "application/json"}, data=body,
             timeout=timeout, verify=verify_ssl

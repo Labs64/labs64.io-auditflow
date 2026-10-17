@@ -5,6 +5,7 @@ import io.labs64.audit.exception.TenantNotProvisionedException;
 import io.labs64.audit.publisher.AuditPublisherService;
 import io.labs64.audit.tenant.TenantGate;
 import io.labs64.auditflow.model.AuditEvent;
+import io.labs64.auditflow.model.AuditEventBatch;
 import io.labs64.authcontext.test.WithAuthContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -22,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -48,8 +50,11 @@ class AuditEventControllerTest {
     private static final jakarta.validation.Validator VALIDATOR =
             jakarta.validation.Validation.buildDefaultValidatorFactory().getValidator();
 
+    private static final io.labs64.audit.service.EventTimePolicy EVENT_TIME =
+            new io.labs64.audit.service.EventTimePolicy(new io.labs64.audit.config.EventTimeProperties());
+
     private AuditEventController controller() {
-        return new AuditEventController(publisherService, tenantGate, MAPPER, VALIDATOR);
+        return new AuditEventController(publisherService, tenantGate, MAPPER, VALIDATOR, EVENT_TIME);
     }
 
     private AuditEvent newEvent() {
@@ -291,5 +296,77 @@ class AuditEventControllerTest {
                 () -> controller().publishEvents(batch(entry("a", null))));
         verify(tenantGate, never()).tryAcquireQuota(any());
         verify(publisherService, never()).publishMessages(any());
+    }
+
+    @Test
+    void anEventWithoutEventTimeGetsTheReceiptTimeAsEventTime() {
+        when(publisherService.publishMessage(any())).thenReturn(true);
+
+        controller().publishEvent(newEvent());
+
+        ArgumentCaptor<AuditEvent> captor = ArgumentCaptor.forClass(AuditEvent.class);
+        verify(publisherService).publishMessage(captor.capture());
+        assertNotNull(captor.getValue().getTimestamp());
+        assertEquals(captor.getValue().getTimestamp(), captor.getValue().getEventTime());
+    }
+
+    @Test
+    void aSuppliedEventTimeIsPublishedAsSentWhileTheReceiptTimeIsTheServers() {
+        when(publisherService.publishMessage(any())).thenReturn(true);
+        java.time.OffsetDateTime sent = java.time.OffsetDateTime.now().minusDays(40);
+
+        controller().publishEvent(newEvent().eventTime(sent).timestamp(sent));
+
+        ArgumentCaptor<AuditEvent> captor = ArgumentCaptor.forClass(AuditEvent.class);
+        verify(publisherService).publishMessage(captor.capture());
+        assertEquals(sent, captor.getValue().getEventTime());
+        assertTrue(captor.getValue().getTimestamp().isAfter(sent.plusDays(39)));
+    }
+
+    @Test
+    void anEventTimeInTheFutureIsRejectedBeforeTheGateAndTheBroker() {
+        AuditEventController controller = controller();
+        AuditEvent event = newEvent().eventTime(java.time.OffsetDateTime.now().plusHours(1));
+
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> controller.publishEvent(event));
+
+        assertTrue(e.getMessage().contains("in the future"), e.getMessage());
+        verify(tenantGate, never()).check(any());
+        verify(publisherService, never()).publishMessage(any());
+    }
+
+    @Test
+    void anEventTimeBeyondTheMaxAgeIsRejected() {
+        AuditEventController controller = controller();
+        AuditEvent event = newEvent().eventTime(java.time.OffsetDateTime.now().minusYears(4));
+
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> controller.publishEvent(event));
+
+        assertTrue(e.getMessage().contains("too old"), e.getMessage());
+        verify(publisherService, never()).publishMessage(any());
+    }
+
+    @Test
+    void batchRejectsOnlyTheEventWithAnImplausibleEventTimeAndSpendsNoQuotaOnIt() {
+        when(tenantGate.tryAcquireQuota(any())).thenReturn(true);
+        when(publisherService.publishMessages(any())).thenAnswer(inv -> java.util.Arrays.asList(
+                new String[((java.util.List<?>) inv.getArgument(0)).size()]));
+        java.util.Map<String, Object> ok = java.util.Map.of("eventType", "a.b", "sourceSystem", "s");
+        java.util.Map<String, Object> backfill = java.util.Map.of("eventType", "a.b", "sourceSystem", "s",
+                "eventTime", java.time.OffsetDateTime.now().minusDays(100).toString());
+        java.util.Map<String, Object> future = java.util.Map.of("eventType", "a.b", "sourceSystem", "s",
+                "eventTime", java.time.OffsetDateTime.now().plusDays(1).toString());
+        AuditEventBatch batch = new AuditEventBatch().events(java.util.List.of(ok, future, backfill));
+
+        var response = controller().publishEvents(batch);
+
+        var results = response.getBody().getResults();
+        assertEquals(3, results.size());
+        assertEquals(io.labs64.auditflow.model.BatchPublishEntryResult.StatusEnum.ACCEPTED, results.get(0).getStatus());
+        assertEquals(io.labs64.auditflow.model.BatchPublishEntryResult.StatusEnum.REJECTED, results.get(1).getStatus());
+        assertEquals(io.labs64.auditflow.model.ErrorCode.VALIDATION_ERROR, results.get(1).getError().getCode());
+        assertTrue(results.get(1).getError().getMessage().contains("in the future"));
+        assertEquals(io.labs64.auditflow.model.BatchPublishEntryResult.StatusEnum.ACCEPTED, results.get(2).getStatus());
+        verify(tenantGate, org.mockito.Mockito.times(2)).tryAcquireQuota(any());
     }
 }

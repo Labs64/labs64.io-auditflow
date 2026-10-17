@@ -7,6 +7,7 @@ Everything you need to work with AuditFlow locally, test it, and troubleshoot is
 ## Table of Contents
 
 - [Architecture Overview](#architecture-overview)
+- [Time fields: event time and receipt time](#time-fields-event-time-and-receipt-time)
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
 - [Project Layout](#project-layout)
@@ -60,6 +61,70 @@ Key design decisions:
 - **Circuit breakers + retry** guard all outbound HTTP calls to transformer/sink services; delivery
   retries over hours, backpressure and the per-tenant DLQ are described in
   [Delivery model](#delivery-model-confirms-retries-backpressure-and-the-dlq).
+
+---
+
+## Time fields: event time and receipt time
+
+Every event has exactly two times. They mean different things, and everything downstream uses them the
+same way.
+
+| | **Event time** | **Receipt time** |
+|---|---|---|
+| Field | `eventTime` (`event_time` in ClickHouse and OpenSearch, `eventtime` in Athena) | `timestamp` |
+| Means | when the audited action **happened** at the source | when AuditFlow **received** the event |
+| Set by | the publisher; AuditFlow fills in the receipt time when it is omitted | AuditFlow only (a client value is ignored) |
+| Use it for | reports, trends, "when did it happen" | arrival order, deduplication (the later copy wins), an archive's date folders |
+| Trust | the publisher's claim, kept as sent | AuditFlow's own clock |
+
+They are equal for a publisher that reports as it acts, and differ for a **backfill**, a queued or
+retried publish, or a publisher whose clock is off. **Report on event time, never on receipt time:** a
+backfill of two years of history would land in today's bucket. **Lay storage out by receipt time:** a
+publisher must not be able to choose where its data lands. No third time is part of an event: delivery to a
+sink happens later (hours later with retries, days after a DLQ replay) and is never recorded in it.
+
+### What ingest does
+
+- `timestamp` is stamped with the server clock; any client value is ignored.
+- `eventTime` is kept as sent. When it is omitted it becomes the receipt time, so **every consumer finds
+  it set** and needs no fallback of its own.
+- An `eventTime` outside a window around the receipt time is rejected with `400 VALIDATION_ERROR` (in a
+  batch: that event only, and it spends no quota), so a wrong clock cannot create stray partitions or rows
+  that expire at once. The window is `auditflow.event-time.max-future` (default `PT5M`, clock skew) and
+  `max-age` (default `P1095D`, the shipped ClickHouse retention); keep `max-age` at or below the shortest
+  retention among your tenants' sinks.
+- A 400 says which limit was hit. Fix the publisher's clock, or **omit `eventTime`** to use the receipt time.
+
+Implemented once, in `EventTimePolicy` (backend); the contract text is in `openapi-audit-v1.yaml`.
+
+### Which time each destination uses
+
+| Destination | Time | Notes |
+|---|---|---|
+| ClickHouse (`audit_clickhouse` + `clickhouse_sink`) | `event_time` = event time: partition, sort, TTL, every report. `timestamp` = receipt time: dedup version only | |
+| OpenSearch (`audit_opensearch` + `opensearch_sink`) | both, as `event_time` and `timestamp` | build dashboards on `event_time` |
+| Loki (`audit_loki`, `loki_sink`) | the line sits at the event time | Loki rejects samples older than its `reject_old_samples_max_age` |
+| Splunk (`splunk_sink`) | HEC `time` = event time | Splunk indexes the event at when it happened |
+| Syslog (`syslog_sink`) | header time = event time (UTC) | |
+| CloudWatch Logs (`aws_cloudwatch_sink`) | entry at the **receipt** time of the newest event of the call | CloudWatch refuses entries older than 14 days and unordered calls; `eventTime` stays in the message. An event replayed after 13 days is placed 13 days back |
+| S3, GCS, Azure Blob (`aws_s3_sink`, `gcs_sink`, `azure_blob_sink`) | date folders and object names = **receipt** day (UTC) | append-only layout a publisher cannot influence; a backfill lands in today's folder. `eventTime` is inside the object; object metadata carries both (`received-at`, `event-time`) |
+| PostgreSQL (`postgres_sink`) | both inside `event_data`; `inserted_at` is the delivery time | never report on `inserted_at` |
+| Datadog, webhook, logging, Snowflake, NetLicensing sinks | the event as it is, both times inside | the destination's own date handling applies: to date a Datadog log by event time, point its Log Date remapper at `eventTime` |
+
+Reading the S3 archive (Athena): the `year/month/day` partitions are the **receipt** day; `eventtime` is the
+event time. A report "per day it happened" selects the receipt days it needs (a late arrival is in a later
+folder) and filters `eventtime` itself.
+
+### For authors of transformers and sinks
+
+Never read `timestamp` or `eventTime` directly and never read the clock to stamp an entry. Use
+`auditflow_sdk.event_time(event)` for "the time of this entry" and, in a sink, `received_at(event)` for storage
+layout (the transformer SDK has the same two names, returning the ISO string). Tests enforce this for every
+module in `transformers/` and `sinks/` (`tests/test_time_fields.py`): a new module is covered on arrival. A
+destination that stamps its own arrival time (a `DEFAULT now()` column) says so in its name (`inserted_at`).
+
+**Rolling upgrade.** An event queued before ingest started setting `eventTime` has none; the SDK helpers fall back
+to its receipt time, so such events still land correctly. After the queues drain the fallback is never used.
 
 ---
 
@@ -278,9 +343,9 @@ NetLicensing or the Payment Gateway emits, and the queries built on them — is
 Worth knowing when evaluating ClickHouse here:
 
 - **Aggregate on `event_time`, not `timestamp`.** `timestamp` is when AuditFlow received the event;
-  `event_time` is when the business action happened. The table is partitioned, sorted and expired on
+  `event_time` is when the action happened. The table is partitioned, sorted and expired on
   `event_time` for that reason. Group revenue on `timestamp` and a backfill of two years of history
-  lands every euro of it in today's bucket.
+  lands every euro of it in today's bucket. (Both times: [Time fields](#time-fields-event-time-and-receipt-time).)
 - `tenant_id` is the **leading `ORDER BY` column**. A tenantless event stores an empty string —
   routing maps a null tenant to `_platform`, but the event *body* the transformer reads keeps its
   null `tenantId`. Publish with an explicit `tenantId` for representative partition pruning.
@@ -434,7 +499,7 @@ curl -s -X POST http://localhost:8080/audit/publish \
        "extra":{"userId":"alice","apiKey":"super-secret","durationMs":12}}'
 
 just ch "SELECT user_id, duration_ms, has(extra,'apiKey') AS has_api_key
-         FROM audit_events ORDER BY timestamp DESC LIMIT 1"
+         FROM audit_events ORDER BY event_time DESC LIMIT 1"
 ```
 Expect `user_id = '***'` (masked), `has_api_key = 0` (dropped before the pipeline ever saw it),
 and `duration_ms` intact. This confirms redaction runs in the backend, before the broker, and
@@ -635,7 +700,9 @@ Properties, schema and tuning are in [ClickHouse (analytics sink)](#clickhouse-a
 Inserts the event as JSON into the `event_data` column of a table you create:
 
 ```sql
-CREATE TABLE audit_events (id BIGSERIAL PRIMARY KEY, received_at TIMESTAMPTZ NOT NULL DEFAULT now(), event_data JSONB NOT NULL);
+CREATE TABLE audit_events (id BIGSERIAL PRIMARY KEY, inserted_at TIMESTAMPTZ NOT NULL DEFAULT now(), event_data JSONB NOT NULL);
+-- inserted_at is the delivery time. Report on the event's own times: event_data->>'eventTime' (when it happened)
+-- and event_data->>'timestamp' (when AuditFlow received it).
 -- optional: a redelivered event becomes a no-op instead of a second row
 CREATE UNIQUE INDEX audit_events_event_id ON audit_events ((event_data->>'eventId'));
 ```
@@ -1306,6 +1373,15 @@ Check the current claim TTL (default 5 minutes):
 ```bash
 curl -s http://localhost:8080/actuator/metrics | grep deduplicated
 ```
+
+### Publish returns 400 "eventTime ... is in the future" / "too old"
+
+`eventTime` is when the action happened, and ingest only accepts a plausible one: not later than the receipt
+time plus `auditflow.event-time.max-future` (5 minutes of clock skew) and not older than `max-age` (1095 days).
+A future value means the publisher's clock is ahead (or it sent a deadline, which belongs in `extra`); a too-old
+one is a backfill beyond what the sinks keep. Fix the clock, or omit `eventTime` to use the receipt time. A
+backfill that is legitimate and older than three years needs `max-age` raised **and** a sink retention that
+keeps it (ClickHouse expires rows 1095 days after `event_time`). See [Time fields](#time-fields-event-time-and-receipt-time).
 
 ---
 

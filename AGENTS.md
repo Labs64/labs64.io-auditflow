@@ -148,9 +148,10 @@ editing either. Invariants to preserve when touching any of this:
   half-works — the sink inserts with `input_format_skip_unknown_fields=1`, so a key with no column
   is dropped rather than rejected. `test_audit_clickhouse_netlicensing.py` asserts the round trip
   across all three files of the layer.
-- **`event_time` is the analytics axis**, `timestamp` is ingest time. Partitioning, sorting, TTL
+- **`event_time` is the analytics axis**, `timestamp` is receipt time. Partitioning, sorting, TTL
   and every KPI query group on `event_time`; grouping on `timestamp` silently breaks any backfill
-  or replay. The transformer falls back to `timestamp` so `event_time` is never null.
+  or replay. Ingest sets an omitted `eventTime` to the receipt time, so `event_time` is never null (the transformer
+  keeps a fallback for events queued before that).
 - **`audit_events` is a `ReplacingMergeTree`** keyed on `event_id` — money queries use `FINAL`.
   A materialized view is an insert trigger and never sees that dedup, which is why only the
   high-volume operational metrics are rolled up and revenue is not.
@@ -200,7 +201,14 @@ a unique `extra.op` discriminator so at most one probe can ever match a given te
 - **Java 25, Maven 3.6.3+** enforced by maven-enforcer-plugin.
 - **Versions and the build parent.** The backend inherits `io.labs64:labs64io-parent` (`labs64.io-commons`): the Spring Boot line, BOM security overrides, shared dependency/plugin versions and the commons libraries all come from that one parent version — never re-pin them here. No pom carries a version (`<version>${revision}</version>`, default `0.0.0-SNAPSHOT`): a release is a GitHub Release whose tag `X.Y.Z` becomes the jar, image and chart `appVersion`. A release build refuses `-SNAPSHOT` inputs, so the parent must point at a released version before tagging.
   The same release publishes `io.labs64:auditflow-api` at that version (`labs64io-docker-publish.yml`); `auditflow-api` is a standalone pom on purpose (a plain client for Java 17 consumers).
-- **`timestamp` is server-assigned** (`readOnly`) — set in controller, never trust client input.
+- **Two times, no third** (DEVELOPERS.md "Time fields"). `eventTime` = **event time**: when the action happened, the
+  publisher's claim, the axis of every report; `timestamp` = **receipt time**: when AuditFlow received the event,
+  server-assigned (`readOnly`, never trust client input), for arrival order, dedup versions and an archive's date
+  folders. Ingest (`EventTimePolicy`, the one place) stamps `timestamp`, defaults an omitted `eventTime` to it and
+  rejects an `eventTime` outside `auditflow.event-time.max-future` / `max-age` with 400. Transformers and sinks never
+  read the two keys or the clock themselves: `auditflow_sdk.event_time` / `received_at` (sink and transformer SDK).
+  A destination's own arrival time is named for what it is (`inserted_at`) and never reported on. Enforced by
+  `tests/test_time_fields.py` in both Python services — keep new modules inside it, don't add exceptions.
 - **Credentials from env vars only** — `RABBITMQ_USERNAME`/`RABBITMQ_PASSWORD` have no defaults.
 - Backend tests: JUnit 5 + Spring Boot Test in `auditflow-be/src/test/java/`.
 - Python tests: pytest in `tests/` directories, run via `just test-transformer` / `just test-sink`.

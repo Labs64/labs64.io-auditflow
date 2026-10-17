@@ -183,6 +183,34 @@ def collision_free_name(field: str, taken: Iterable[str]) -> str:
     return candidate
 
 
+# ── The two times of an event ───────────────────────────────────────────────────────────────────
+#
+# An event carries exactly two times, and a module uses them the same way as every other one:
+#
+#   event time    ``eventTime``  when the audited action HAPPENED, as the publisher says. The axis of every
+#                                report. AuditFlow's ingest sets it on every event (the receipt time when
+#                                the publisher omitted it) and rejects an implausible one.
+#   receipt time  ``timestamp``  when AuditFlow RECEIVED the event. Its own clock, never the publisher's.
+#                                Orders events by arrival and versions duplicates; not for reporting.
+#
+# A module never invents a third time: delivery happens later, possibly hours later with retries, and is
+# not part of the event. Use these two helpers instead of reading the keys, so the rule lives here once.
+
+def event_time(event: Dict[str, Any]) -> Optional[str]:
+    """The event time (``eventTime``, ISO 8601) the event's reports are grouped on.
+
+    Falls back to the receipt time only for an event that was queued before ingest started setting
+    ``eventTime`` on every event (a rolling upgrade); once such events have drained, ``eventTime`` is
+    always set. None when the event carries neither.
+    """
+    return event.get('eventTime') or event.get('timestamp') or None
+
+
+def received_at(event: Dict[str, Any]) -> Optional[str]:
+    """The receipt time (``timestamp``, ISO 8601): when AuditFlow received the event."""
+    return event.get('timestamp') or None
+
+
 def stringify_value(value: Any) -> str:
     """Render a value for a string-typed map (a ClickHouse Map(String, String), Loki structured
     metadata, a CEF extension). JSON-encodes anything that is not a scalar."""

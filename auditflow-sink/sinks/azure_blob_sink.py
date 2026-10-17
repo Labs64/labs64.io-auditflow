@@ -6,10 +6,9 @@ This sink uploads audit events to Azure Blob Storage as JSON objects.
 import logging
 import json
 import gzip
-from datetime import datetime, timezone
 import uuid
 
-from auditflow_sdk import batch_object_name, event_datetime, jsonl_body
+from auditflow_sdk import batch_object_name, event_time, jsonl_body, received_at
 
 __version__ = "1.1.0"
 
@@ -20,8 +19,9 @@ PROPERTIES = {
     "account-key": "Storage account key (required if not using connection-string)",
     "prefix": "Blob prefix/folder (default: auditflow/)",
     "compress": "Enable gzip compression: true/false (default: false)",
-    "partition-by-date": "Partition blobs by date: true/false (default: true)",
-    "partition-format": "strftime pattern for date partitioning (default: year=%Y/month=%m/day=%d/)",
+    "partition-by-date": "Partition blobs by RECEIPT date, not event date: the UTC day AuditFlow received the event "
+                         "(its timestamp); eventTime stays inside the blob. true/false (default: true)",
+    "partition-format": "strftime pattern applied to the receipt time (default: year=%Y/month=%m/day=%d/)",
     "content-type": "Content-Type for the uploaded blob (default: application/json)",
 }
 
@@ -48,8 +48,8 @@ def process(event_data: dict, properties: dict) -> dict:
             - account-key: Storage account key (required if using account-key)
             - prefix: Blob prefix/folder (default: auditflow/)
             - compress: Enable gzip compression (default: false)
-            - partition-by-date: Partition by date (default: true)
-            - partition-format: Date format for partitioning (default: year=%Y/month=%m/day=%d/)
+            - partition-by-date: Partition by receipt date, UTC (default: true)
+            - partition-format: strftime pattern of the receipt time (default: year=%Y/month=%m/day=%d/)
             - content-type: Content type (default: application/json)
 
     Returns:
@@ -124,7 +124,8 @@ def process(event_data: dict, properties: dict) -> dict:
         metadata = {
             'event_type': event_data.get('eventType', 'unknown'),
             'source_system': event_data.get('sourceSystem', 'unknown'),
-            'timestamp': datetime.now(timezone.utc).isoformat()
+            'received_at': received_at(event_data).isoformat(),
+            'event_time': event_time(event_data).isoformat(),
         }
 
         # Upload
@@ -237,9 +238,10 @@ def build_blob_name(
     """Build blob name with optional date partitioning."""
     name_parts = [prefix.rstrip('/')]
 
-    # The event's own receipt time, not the upload time: a redelivered event then gets the same
-    # name and rewrites its blob instead of adding a copy.
-    now = event_datetime(event_data)
+    # The RECEIPT time (AuditFlow's clock), not the upload time and not eventTime: where an event lands never
+    # depends on a publisher's claim, and a redelivered event gets the same name and rewrites its blob
+    # instead of adding a copy.
+    now = received_at(event_data)
 
     # Add date partition
     if partition_by_date:

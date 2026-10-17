@@ -153,7 +153,7 @@ ORDER BY failures DESC
 LIMIT 20;
 ```
 
-Daily call volume per subsystem. `event_time` is the business time — grouping on `timestamp`
+Daily call volume per subsystem. `event_time` is the event time (when it happened) — grouping on `timestamp`
 would move a backfill into today:
 
 ```sql

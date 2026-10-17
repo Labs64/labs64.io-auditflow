@@ -6,10 +6,9 @@ This sink sends transformed audit events to an OpenSearch cluster.
 import json
 import logging
 import requests
-from datetime import datetime, timezone
 from requests.auth import HTTPBasicAuth
 
-from auditflow_sdk import RejectedEvent, deliver_each
+from auditflow_sdk import RejectedEvent, deliver_each, with_receipt_time
 
 __version__ = "1.1.0"
 
@@ -60,10 +59,8 @@ def process(event_data: dict, properties: dict) -> dict:
         'Content-Type': 'application/json'
     }
 
-    # Add timestamp if not present; copy first to avoid mutating the caller's dict
-    if 'timestamp' not in event_data:
-        event_data = dict(event_data)
-        event_data['timestamp'] = datetime.now(timezone.utc).isoformat()
+    # timestamp is the receipt time; AuditFlow always sets it, a hand-made test event gets it now.
+    event_data = with_receipt_time(event_data)
 
     # Prepare authentication
     auth = None
@@ -132,10 +129,9 @@ def process_batch(events: list, properties: dict) -> list:
     auth = HTTPBasicAuth(username, password) if username and password else None
     verify_ssl = properties.get('verify-ssl', 'true').lower() == 'true'
 
-    now = datetime.now(timezone.utc).isoformat()
     lines = []
     for event in events:
-        document = event if 'timestamp' in event else {**event, 'timestamp': now}
+        document = with_receipt_time(event)
         lines.append(json.dumps({action: {}}))
         lines.append(json.dumps(document))
     body = ('\n'.join(lines) + '\n').encode('utf-8')

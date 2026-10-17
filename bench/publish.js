@@ -14,8 +14,9 @@ function uuid() {
 const headers = { 'Content-Type': 'application/json', 'X-Auth-User': 'bench-client',
   'X-Auth-Tenant': 'loadtest', 'X-Auth-Scopes': 'audit-event:write' };
 export default function () {
+  // No eventTime: published as it happens, so AuditFlow uses the receipt time.
   const event = { eventId: uuid(), eventType: 'api.call', sourceSystem: 'labs64io/loadtest',
-    eventTime: new Date().toISOString(), correlationId: `loadtest-${__VU}-${__ITER}`,
+    correlationId: `loadtest-${__VU}-${__ITER}`,
     extra: { vendorNumber: 'V00000000', actionMethod: 'loadtest/publish', statusCode: 200,
       actionStatus: 'SUCCESS', durationMs: 1 } };
   const res = http.post('http://backend:8080/audit/publish', JSON.stringify(event), { headers });

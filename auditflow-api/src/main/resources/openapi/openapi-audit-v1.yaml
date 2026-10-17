@@ -94,7 +94,9 @@ paths:
                 type: string
                 format: uuid
             X-Audit-Received-At:
-              description: Server receipt time of the event, in ISO 8601 format.
+              description: >-
+                The event's receipt time, in ISO 8601 format: the same value the event carries as
+                `timestamp`.
               schema:
                 type: string
                 format: date-time
@@ -106,7 +108,9 @@ paths:
               schema:
                 type: string
         "400":
-          description: Invalid request payload
+          description: >-
+            Invalid request payload, including an `eventTime` outside the accepted window (see
+            `AuditEvent.eventTime`).
           content:
             application/json:
               schema:
@@ -215,7 +219,9 @@ paths:
         event was not stored; its `error.code` says why. Retry rejected events with
         `TENANT_RATE_LIMITED` or `PUBLISH_FAILED` after the `Retry-After` delay, keeping their
         `eventId` so a retry never creates a duplicate. Events without an `eventId` get a
-        server-generated one, returned in their result. The whole request is rejected (no per-event
+        server-generated one, returned in their result. All events of a batch share one receipt time
+        (`timestamp`); an `eventTime` outside the accepted window (see `AuditEvent.eventTime`) rejects
+        that event with `VALIDATION_ERROR`. The whole request is rejected (no per-event
         results) only when the request itself is invalid, unauthorized or too large, or the tenant is
         not provisioned.
       x-labs64:
@@ -309,7 +315,22 @@ components:
   schemas:
     AuditEvent:
       type: object
-      description: Represents an audit event.
+      description: |-
+        Represents an audit event.
+
+        **Two times, two meanings.** An event has exactly two times, and everything downstream
+        (transformers, sinks, queries) uses them the same way:
+
+        | Field | Meaning | Set by | Use it for |
+        |---|---|---|---|
+        | `eventTime` | **Event time**: when the audited action happened at the source | the publisher; AuditFlow fills in the receipt time when it is omitted | reports, trends, "when did it happen" |
+        | `timestamp` | **Receipt time**: when AuditFlow received the event | AuditFlow only | ingest order, deduplication (the later copy wins), the archive's date folders |
+
+        The two are equal for a publisher that reports as it acts, and differ for a backfill, a queued
+        or retried publish, or a publisher whose clock is off. Never report on `timestamp`: a backfill
+        would land in the wrong period. Never trust `eventTime` for anything but reporting: it is the
+        publisher's claim, kept as sent. No other time is part of the event (delivery to a sink happens
+        later, possibly hours later with retries, and is not recorded in it).
       required:
         - eventType
         - sourceSystem
@@ -317,7 +338,11 @@ components:
         timestamp:
           type: string
           format: date-time
-          description: The precise time the audit event was received by the server, in ISO 8601 format. Set server-side; any client-supplied value is ignored.
+          description: >-
+            **Receipt time**: when AuditFlow received the event, in ISO 8601 format. Set
+            server-side; any client-supplied value is ignored. It orders events by arrival, versions
+            duplicates (the later copy wins) and names the archive's date folders (UTC). It is not
+            when the action happened: that is `eventTime`. Returned as the `X-Audit-Received-At` header.
           example: "2025-11-30T10:15:30Z"
         eventId:
           type: string
@@ -334,9 +359,15 @@ components:
           type: string
           format: date-time
           description: >-
-            Client-supplied time the audited action actually occurred at the source, in ISO 8601
-            format. Distinct from `timestamp` (the server receipt time). Optional; when omitted,
-            consumers fall back to `timestamp`. Pass-through — the server does not modify it.
+            **Event time**: when the audited action happened at the source, in ISO 8601 format.
+            Distinct from `timestamp` (the receipt time). Optional on input: when omitted, AuditFlow
+            sets it to the receipt time, so every consumer finds it set and needs no fallback of its
+            own. It is the time every report is grouped on. The value is kept as sent (the server does
+            not modify it), but it must be plausible: not later than the receipt time plus 5 minutes
+            (clock skew) and not older than 1095 days (3 years, the shipped ClickHouse retention); both
+            limits are configurable (`auditflow.event-time.max-future`, `auditflow.event-time.max-age`).
+            Outside that window the event is rejected with 400 `VALIDATION_ERROR` (in a batch, that
+            event only), so a wrong clock cannot create stray partitions or rows that expire at once.
           example: "2025-11-30T10:14:55Z"
         correlationId:
           type: string
@@ -555,7 +586,9 @@ components:
         timestamp:
           type: string
           format: date-time
-          description: Time when the error occurred.
+          description: >-
+            When this error response was produced. Unrelated to an event's `eventTime` and
+            `timestamp`.
         traceId:
           type: string
           nullable: true

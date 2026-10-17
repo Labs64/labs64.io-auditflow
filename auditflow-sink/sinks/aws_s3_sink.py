@@ -9,10 +9,9 @@ import json
 import gzip
 import re
 import threading
-from datetime import datetime, timezone
 import uuid
 
-from auditflow_sdk import batch_object_name, event_datetime, jsonl_body
+from auditflow_sdk import batch_object_name, event_time, jsonl_body, received_at
 
 __version__ = "1.0.0"
 
@@ -23,8 +22,10 @@ PROPERTIES = {
     "access-key-id": "AWS access key ID (optional, uses default credential chain if omitted)",
     "secret-access-key": "AWS secret access key (optional)",
     "compress": "Enable gzip compression: true/false (default: false)",
-    "partition-by-date": "Partition objects by event date: true/false (default: true)",
-    "partition-format": "strftime pattern for partitioning (default: year=%Y/month=%m/day=%d/). "
+    "partition-by-date": "Partition objects by RECEIPT date, not event date: the UTC day AuditFlow received the event "
+                         "(its timestamp), so a publisher cannot choose where its data lands and a backfill lands in "
+                         "today's folder; eventTime stays inside the object. true/false (default: true)",
+    "partition-format": "strftime pattern applied to the receipt time (default: year=%Y/month=%m/day=%d/). "
                         "{field} placeholders insert an event field, e.g. "
                         "vendor_number={extra.vendorNumber}/year=%Y/month=%m/day=%d/; values are sanitized to "
                         "[A-Za-z0-9._-] and a missing value becomes 'unknown'",
@@ -64,8 +65,8 @@ def process(event_data: dict, properties: dict) -> dict:
             - access-key-id: AWS access key (optional, uses default credentials if not provided)
             - secret-access-key: AWS secret key (optional)
             - compress: Enable gzip compression (default: false)
-            - partition-by-date: Partition by date (default: true)
-            - partition-format: strftime pattern, may contain {field} placeholders (default: year=%Y/month=%m/day=%d/)
+            - partition-by-date: Partition by receipt date, UTC (default: true)
+            - partition-format: strftime pattern of the receipt time, may contain {field} placeholders (default: year=%Y/month=%m/day=%d/)
             - file-format: File format - json or jsonl (default: json)
             - endpoint-url: Custom S3 endpoint URL (optional, for S3-compatible storage)
 
@@ -130,7 +131,8 @@ def process(event_data: dict, properties: dict) -> dict:
             ContentType=content_type,
             **_checksum_args(properties),
             Metadata={
-                'timestamp': event_data.get('timestamp', datetime.now(timezone.utc).isoformat()),
+                'received-at': received_at(event_data).isoformat(),
+                'event-time': event_time(event_data).isoformat(),
                 'event-id': event_data.get('eventId', 'unknown'),
                 'event-type': event_data.get('eventType', 'unknown'),
                 'source-system': event_data.get('sourceSystem', 'unknown'),
@@ -231,11 +233,6 @@ def batch_object_key(key_prefix: str, group: list, compress: bool) -> str:
     return f"{key_prefix}/{batch_object_name(group, compress)}"
 
 
-def _event_datetime(event_data: dict) -> datetime:
-    """The event's server receipt time (``timestamp``); now when absent or unparseable."""
-    return event_datetime(event_data)
-
-
 def build_object_key(
     prefix: str,
     partition_by_date: bool,
@@ -252,9 +249,11 @@ def build_object_key(
     if tenant_id:
         key_parts.append(f"tenant={tenant_id}")
 
-    dt = _event_datetime(event_data)
+    # The RECEIPT time (AuditFlow's clock): where an event lands never depends on a publisher's claim, and a
+    # redelivery of the same event gets the same key. Not eventTime: that is inside the object.
+    dt = received_at(event_data)
 
-    # Add date partition using the event timestamp
+    # Add date partition from the receipt time
     if partition_by_date:
         date_part = _fill_placeholders(dt.strftime(partition_format), event_data)
         key_parts.append(date_part.rstrip('/'))

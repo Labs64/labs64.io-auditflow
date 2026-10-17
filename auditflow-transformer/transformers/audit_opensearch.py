@@ -77,7 +77,7 @@ The index mapping gains four fields in total, not two: those same two moved-out 
 1.x never emitted `eventTime` or `correlationId` at all, promoted or not.
 """
 
-from auditflow_sdk import WELL_KNOWN_EXTRA, resolve_promoted
+from auditflow_sdk import WELL_KNOWN_EXTRA, event_time, resolve_promoted
 
 __version__ = "2.0.0"
 
@@ -140,6 +140,12 @@ def make_transform(extra_promoted=None, module_id=None):
             value = input_data.get(source_key)
             if value is not None:
                 document[field] = value
+
+        # event_time = when the action happened (the field reports use), never absent; timestamp, copied
+        # above, is the receipt time (auditflow_sdk).
+        when = event_time(input_data)
+        if when is not None:
+            document["event_time"] = when
 
         # Promoted keys become top-level fields; absent ones are simply omitted.
         for source_key, field in promoted.items():

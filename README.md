@@ -151,7 +151,7 @@ You get `HTTP/1.1 200` and the event id in the `X-Audit-Event-Id` header. (The b
 
 ```bash
 docker compose exec clickhouse clickhouse-client --user auditflow --password auditflow \
-  --query "SELECT event_type, source_system, tenant_id, user_id FROM audit.audit_events ORDER BY timestamp DESC LIMIT 5"
+  --query "SELECT event_type, source_system, tenant_id, user_id FROM audit.audit_events ORDER BY event_time DESC LIMIT 5"
 ```
 
 ```

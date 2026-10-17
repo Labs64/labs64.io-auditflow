@@ -66,7 +66,7 @@ Example output:
 """
 from datetime import datetime, timezone
 
-from auditflow_sdk import WELL_KNOWN_EXTRA, resolve_promoted, stringify_value
+from auditflow_sdk import WELL_KNOWN_EXTRA, event_time, resolve_promoted, stringify_value
 
 __version__ = "2.0.0"
 
@@ -207,9 +207,10 @@ def make_transform(extra_promoted=None, module_id=None):
             line = input_data.get("eventType")
         line = "" if line is None else stringify_value(line)
 
-        # eventTime is the business time reports group on; fall back to server receipt time. Loki
-        # rejects a zero timestamp as out of range, so an event carrying neither gets now().
-        nano = _unix_nano(input_data.get("eventTime")) or _unix_nano(input_data.get("timestamp"))
+        # The log line is placed at the event time (when the action happened), like every report.
+        # Loki rejects a zero timestamp as out of range, so an event carrying no time at all (it never
+        # leaves AuditFlow's ingest without one) gets now().
+        nano = _unix_nano(event_time(input_data))
         if nano is None:
             nano = str(int(datetime.now(timezone.utc).timestamp() * 1_000_000_000))
 

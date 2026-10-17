@@ -6,10 +6,9 @@ This sink sends transformed audit events to Grafana Loki.
 import logging
 import requests
 import json
-import time
 from requests.auth import HTTPBasicAuth
 
-from auditflow_sdk import deliver_each
+from auditflow_sdk import deliver_each, event_time
 
 __version__ = "1.1.0"
 
@@ -154,7 +153,9 @@ def _to_loki(event_data: dict) -> dict:
     ``streams``), wrapped in one stream otherwise."""
     if 'streams' in event_data:
         return event_data
-    timestamp_ns = str(int(time.time() * 1000000000))  # nanoseconds
+    # The line sits at the event time (when the action happened), like the audit_loki transformer places it;
+    # not at the moment of delivery, which retries can push hours back.
+    timestamp_ns = str(int(event_time(event_data).timestamp() * 1000000000))  # nanoseconds
     labels = {
         'job': 'auditflow',
         'event_type': event_data.get('eventType', 'unknown'),
