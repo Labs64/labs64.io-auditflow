@@ -1180,7 +1180,13 @@ event never fails the others.
   tenants. `GET /actuator/pipelines/<tenantId>` shows it as `batch.effectiveMaxSize`. For larger sink
   batches raise `AUDITFLOW_DELIVERY_BATCH_SIZE` together with `maxSize`.
 - **When a batch closes.** When it is full, or after `auditflow.delivery.batch-receive-timeout` (1 s)
-  without new messages. Under light load batches are small and add up to 1 s of latency.
+  without new messages, or, when `auditflow.delivery.batch-window` is set (off by default), once that
+  long has passed since its first message (checked between messages, so up to one receive timeout later).
+  Under light load batches are small and add up to 1 s of latency. The window trades latency for fewer,
+  larger sink objects, for EVERY pipeline (they share one queue); the consumer also waits up to the
+  receive timeout on shutdown, so keep that one short (seconds) and the window under a few minutes.
+  Messages of a batch that is still gathering stay unacked, so a stopping pod hands them back to the
+  broker; nothing is lost, and delivery marks keep a repeat from duplicating work.
 - **Never across tenants.** Two tenants with a pipeline of the same name get separate calls.
 - **One slot, one call.** A batch takes one slot of the tenant's in-flight cap and is one call for
   the bulkhead. The call has the same 10 s response timeout as a single event.

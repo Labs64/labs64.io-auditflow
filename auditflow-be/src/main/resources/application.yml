@@ -226,8 +226,14 @@ auditflow:
     # Consumers on the delivery queue per pod; each takes up to batch-size messages at a time.
     concurrency: ${AUDITFLOW_DELIVERY_CONCURRENCY:4}
     batch-size: ${AUDITFLOW_DELIVERY_BATCH_SIZE:50}
-    # A consumer closes its batch after this long without new messages (latency bound when idle).
+    # A consumer closes its batch after this long without new messages (latency bound when idle). It is
+    # also how long a stopping consumer can keep waiting, so keep it well under the shutdown budget.
     batch-receive-timeout: PT1S
+    # Hard bound on how long a batch is gathered, counted from its first message; the batch closes at the
+    # first check after it (so up to batch-receive-timeout later). A longer window gives sinks that write
+    # an object per batch (S3, GCS, Azure) fewer, larger objects at the price of that much delivery
+    # latency for EVERY pipeline: they share this queue. PT0S = off (only the silence rule above).
+    batch-window: PT0S
     # Deliveries of one received batch run concurrently up to this bound.
     unit-concurrency: 16
     # Defaults of the per-pipeline `retry` block in tenant files: retried with growing delays

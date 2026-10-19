@@ -83,6 +83,28 @@ class DeliveryWorkerTest {
         lenient().doCallRealMethod().when(idempotencyService).markPipelinesDone(anyList());
     }
 
+    @Test
+    void containerGathersABatchForTheConfiguredWindowAndWaitsOnlyTheReceiveTimeoutPerMessage() {
+        org.springframework.amqp.rabbit.listener.SimpleMessageListenerContainer container =
+                worker.deliveryListenerContainer(mock(org.springframework.amqp.rabbit.connection.ConnectionFactory.class),
+                        4, 50, Duration.ofSeconds(10), Duration.ofSeconds(60), false);
+
+        org.springframework.beans.DirectFieldAccessor fields = new org.springframework.beans.DirectFieldAccessor(container);
+        assertEquals(10_000L, fields.getPropertyValue("receiveTimeout"));
+        assertEquals(60_000L, fields.getPropertyValue("batchReceiveTimeout"));
+        assertEquals(50, fields.getPropertyValue("batchSize"));
+    }
+
+    @Test
+    void containerHasNoWindowByDefault() {
+        org.springframework.amqp.rabbit.listener.SimpleMessageListenerContainer container =
+                worker.deliveryListenerContainer(mock(org.springframework.amqp.rabbit.connection.ConnectionFactory.class),
+                        4, 50, Duration.ofSeconds(1), Duration.ZERO, false);
+
+        assertEquals(0L, new org.springframework.beans.DirectFieldAccessor(container)
+                .getPropertyValue("batchReceiveTimeout"));
+    }
+
     private DeliveryWorker newWorker(TenantConcurrencyLimiter limiter) {
         return new DeliveryWorker(registry, executor, deliveryQueue, deadLetters, idempotencyService, quarantineService,
                 rateLimiters, limiter, new ObjectMapper(), new SimpleMeterRegistry(), 5, Duration.ofHours(24), 8);

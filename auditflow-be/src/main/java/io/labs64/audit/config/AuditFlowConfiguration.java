@@ -200,8 +200,9 @@ public class AuditFlowConfiguration {
     /**
      * Sink-side batching of one pipeline: the delivery worker hands the sink up to {@code maxSize}
      * events of this pipeline in one call (sink {@code /sink/<id>/batch}). A batch closes when it is
-     * full or when the worker's receive window ends ({@code auditflow.delivery.batch-receive-timeout}),
-     * so latency stays bounded under light load.
+     * full, after {@code auditflow.delivery.batch-receive-timeout} without new messages, or when
+     * {@code auditflow.delivery.batch-window} (if set) has passed since its first message, so latency
+     * stays bounded under light load.
      */
     public static class BatchProperties {
         private boolean enabled;

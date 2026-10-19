@@ -110,6 +110,7 @@ public class DeliveryWorker {
             @Value("${auditflow.delivery.concurrency:4}") int concurrency,
             @Value("${auditflow.delivery.batch-size:50}") int batchSize,
             @Value("${auditflow.delivery.batch-receive-timeout:PT1S}") Duration receiveTimeout,
+            @Value("${auditflow.delivery.batch-window:PT0S}") Duration batchWindow,
             @Value("${auditflow.delivery.enabled:true}") boolean enabled) {
         SimpleMessageListenerContainer container = new SimpleMessageListenerContainer(connectionFactory);
         container.setQueueNames(BrokerTopology.DELIVERY_QUEUE);
@@ -118,6 +119,9 @@ public class DeliveryWorker {
         container.setBatchSize(Math.max(1, batchSize));
         container.setPrefetchCount(Math.max(1, batchSize));
         container.setReceiveTimeout(receiveTimeout.toMillis());
+        // The receive timeout alone closes a batch after that much silence, so a steady trickle keeps one
+        // open until it is full. The window is the hard bound from its first message (0 = off).
+        container.setBatchReceiveTimeout(Math.max(0, batchWindow.toMillis()));
         container.setAcknowledgeMode(AcknowledgeMode.MANUAL);
         container.setShutdownTimeout(25_000);
         container.setMissingQueuesFatal(false);
