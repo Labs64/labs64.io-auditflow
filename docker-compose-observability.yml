@@ -50,7 +50,7 @@ services:
       - auditflow-net
 
   loki:
-    image: grafana/loki:3.7.8
+    image: grafana/loki:3.7.9
     container_name: auditflow-loki
     command: ["-config.file=/etc/loki/loki.yaml"]
     user: "0:0"
