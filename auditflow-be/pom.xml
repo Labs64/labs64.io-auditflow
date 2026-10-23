@@ -25,7 +25,7 @@
         <!-- DEPENDENCIES (shared versions and Spring Boot BOM overrides come from labs64io-parent) -->
         <spring-cloud.version>2025.1.3</spring-cloud.version>
         <kubernetes-client.version>8.0.0</kubernetes-client.version>
-        <aws-sdk.version>2.56.0</aws-sdk.version>
+        <aws-sdk.version>2.57.3</aws-sdk.version>
         <bouncycastle.version>1.86</bouncycastle.version>
         <vertx.version>5.2.1</vertx.version>
         <opentelemetry-api.version>1.67.0</opentelemetry-api.version>
