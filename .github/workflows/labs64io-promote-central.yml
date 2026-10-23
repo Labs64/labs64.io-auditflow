@@ -1,0 +1,35 @@
+name: Labs64.IO - AuditFlow - Promote API client to Maven Central
+
+# Stages a released io.labs64:auditflow-api, already on Labs64 Nexus, in Maven Central.
+#
+# Manual by design: every release goes to Nexus, only the ones worth publishing go to Central
+# (its deployment quota is limited). Run it from master with the released version X.Y.Z; the tag
+# of that name is built. The upload is NOT published: press Publish (or Drop) in the Central
+# Portal afterwards, https://central.sonatype.com/publishing/deployments.
+#
+# Needs OSS_USER / OSS_PASS (Central Portal user token) besides the release secrets.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Released version to promote (X.Y.Z, must be tagged and on Nexus)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auditflow-promote-central
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Promote auditflow-api ${{ inputs.version }}
+    uses: Labs64/labs64.io-workspace/.github/workflows/maven-promote-central.yml@v1
+    with:
+      working-directory: auditflow-api
+      version: ${{ inputs.version }}
+      java-version: "17"
+    secrets: inherit
