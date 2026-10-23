@@ -132,6 +132,17 @@ public class GlobalExceptionHandler {
                 .body(buildError(ErrorCode.PUBLISH_FAILED, ex.getMessage()));
     }
 
+    /**
+     * Handle {@link EventTooLargeException} — the event is larger than the message broker accepts
+     * (e.g. 1 MiB on Amazon SQS). HTTP 413, never retried.
+     */
+    @ExceptionHandler(EventTooLargeException.class)
+    public ResponseEntity<ErrorResponse> handleEventTooLarge(EventTooLargeException ex) {
+        logger.warn("Audit event too large for the message broker: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.CONTENT_TOO_LARGE)
+                .body(buildError(ErrorCode.VALIDATION_ERROR, ex.getMessage()));
+    }
+
     // -------------------------------------------------------------------------
     // Backing store (Redis/Valkey) failure
     // -------------------------------------------------------------------------

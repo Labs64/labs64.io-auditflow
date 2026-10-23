@@ -1,4 +1,4 @@
-package io.labs64.audit.delivery;
+package io.labs64.audit.broker.rabbit;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -13,18 +13,19 @@ import org.springframework.amqp.core.Declarables;
 import org.springframework.amqp.core.DirectExchange;
 import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.TopicExchange;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
+
+import io.labs64.audit.broker.Destination;
+import io.labs64.audit.delivery.RetryPolicy;
 
 /**
- * Broker objects of the two-stage delivery model, declared by the application (RabbitAdmin) so the
+ * RabbitMQ objects of the two-stage delivery model, declared by the application (RabbitAdmin) so the
  * same topology exists on the in-cluster broker and on Amazon MQ.
  *
  * <pre>
  * publish ─▶ labs64-audit-topic ─▶ ingest queue ─▶ router (AuditService)
- *                                                    │ one message per matching pipeline
- *                                                    ▼
- *            labs64-audit-delivery (exchange) ─▶ labs64-audit-delivery (queue) ─▶ DeliveryWorker
+ *                                     │ retries used up       │ one message per matching pipeline
+ *                                     ▼                       ▼
+ *            DLX ─▶ ingest DLQ (legacy)   labs64-audit-delivery (exchange) ─▶ labs64-audit-delivery (queue) ─▶ DeliveryWorker
  *                     ▲                                                       │ retry / throttled
  *                     └──── TTL expiry (DLX) ◀── labs64-audit-delay.&lt;tier&gt; ◀──┘
  *                                                                             │ exhausted / poison
@@ -37,11 +38,19 @@ import org.springframework.context.annotation.Configuration;
  * <p>Delays use one queue per tier with a fixed queue TTL that dead-letters back to the delivery
  * exchange. Unlike per-message TTL this never blocks behind a longer-lived head message, and unlike
  * the delayed-message plugin it is available on Amazon MQ. Per-tenant DLQ queues are declared on
- * first use by {@link DeadLetterPublisher}.</p>
+ * first use by {@link RabbitMessageBroker#ensureTenantDlq}.</p>
+ *
+ * <p>The ingest objects carry exactly the names and arguments the Spring Cloud Stream binder declared
+ * for the former {@code audit-in-0} binding (group {@code labs64.io-auditflow}, {@code autoBindDlq}),
+ * so brokers that already have them accept the declaration.</p>
  */
-@Configuration
-public class BrokerTopology {
+public class RabbitTopology {
 
+    public static final String INGEST_EXCHANGE = "labs64-audit-topic";
+    public static final String INGEST_ROUTING_KEY = "audit.event";
+    public static final String INGEST_QUEUE = "labs64-audit-topic.labs64.io-auditflow";
+    public static final String INGEST_DLX = "DLX";
+    public static final String INGEST_DLQ = INGEST_QUEUE + ".dlq";
     public static final String DELIVERY_EXCHANGE = "labs64-audit-delivery";
     public static final String DELIVERY_QUEUE = "labs64-audit-delivery";
     public static final String DELIVERY_ROUTING_KEY = "deliver";
@@ -52,16 +61,14 @@ public class BrokerTopology {
     public static final String QUARANTINE_QUEUE = "labs64-audit-quarantine.quarantine";
     public static final String QUARANTINE_ROUTING_KEY = "labs64-audit-quarantine";
 
-    /** Redelivery delays, shortest first. Attempt n waits {@code TIERS[min(n-1, last)]}. */
-    public static final List<Duration> TIERS = List.of(
-            Duration.ofSeconds(5), Duration.ofSeconds(30), Duration.ofMinutes(2), Duration.ofMinutes(10),
-            Duration.ofMinutes(30), Duration.ofHours(1), Duration.ofHours(3));
+    /** Exchange + routing key of a publish. */
+    public record Address(String exchange, String routingKey) {
+    }
 
-    /** Queue type of the new queues: {@code classic} (default) or {@code quorum} (replicated, multi-node brokers). */
+    /** Queue type of the delivery, delay and DLQ queues: {@code classic} (default) or {@code quorum}. */
     private final String queueType;
 
-    public BrokerTopology(@org.springframework.beans.factory.annotation.Value(
-            "${auditflow.broker.queue-type:classic}") String queueType) {
+    public RabbitTopology(String queueType) {
         this.queueType = queueType;
     }
 
@@ -74,22 +81,69 @@ public class BrokerTopology {
         return DLQ_QUEUE_PREFIX + tenantId;
     }
 
+    /** The shortest delay tier that is at least {@code delay} (the longest tier if none is). */
+    static Duration tierFor(Duration delay) {
+        for (Duration tier : RetryPolicy.TIERS) {
+            if (tier.compareTo(delay) >= 0) {
+                return tier;
+            }
+        }
+        return RetryPolicy.TIERS.get(RetryPolicy.TIERS.size() - 1);
+    }
+
+    /** Where a publish to {@code destination} goes. */
+    public static Address address(Destination destination) {
+        return switch (destination.kind()) {
+            case INGEST -> new Address(INGEST_EXCHANGE, INGEST_ROUTING_KEY);
+            // The binder bound the ingest DLQ to DLX with the ingest queue's name.
+            case INGEST_DLQ -> new Address(INGEST_DLX, INGEST_QUEUE);
+            case DELIVERY -> new Address(DELIVERY_EXCHANGE, DELIVERY_ROUTING_KEY);
+            case DELAY -> new Address("", delayQueueName(tierFor(destination.delay())));
+            case TENANT_DLQ -> new Address(DLX_EXCHANGE, destination.tenantId());
+            case QUARANTINE -> new Address(QUARANTINE_EXCHANGE, QUARANTINE_ROUTING_KEY);
+        };
+    }
+
+    /** The queue a DLQ scan reads. */
+    public static String queueName(Destination destination) {
+        return switch (destination.kind()) {
+            case TENANT_DLQ -> dlqQueueName(destination.tenantId());
+            case INGEST_DLQ -> INGEST_DLQ;
+            default -> throw new IllegalArgumentException("Not a scannable queue: " + destination.kind());
+        };
+    }
+
     Map<String, Object> queueArguments() {
         Map<String, Object> args = new HashMap<>();
         args.put("x-queue-type", queueType);
         return args;
     }
 
-    @Bean
-    public Declarables deliveryTopology() {
+    public Declarables declarables() {
         List<Declarable> declarables = new ArrayList<>();
+
+        // Ingest, as the binder declared it: no queue-type argument (it would not match).
+        TopicExchange ingest = new TopicExchange(INGEST_EXCHANGE, true, false);
+        Map<String, Object> ingestArgs = new HashMap<>();
+        ingestArgs.put("x-dead-letter-exchange", INGEST_DLX);
+        ingestArgs.put("x-dead-letter-routing-key", INGEST_QUEUE);
+        Queue ingestQueue = new Queue(INGEST_QUEUE, true, false, false, ingestArgs);
+        DirectExchange ingestDlx = new DirectExchange(INGEST_DLX, true, false);
+        Queue ingestDlq = new Queue(INGEST_DLQ, true, false, false);
+        declarables.add(ingest);
+        declarables.add(ingestQueue);
+        declarables.add(BindingBuilder.bind(ingestQueue).to(ingest).with("#"));
+        declarables.add(ingestDlx);
+        declarables.add(ingestDlq);
+        declarables.add(BindingBuilder.bind(ingestDlq).to(ingestDlx).with(INGEST_QUEUE));
+
         DirectExchange delivery = new DirectExchange(DELIVERY_EXCHANGE, true, false);
         Queue deliveryQueue = new Queue(DELIVERY_QUEUE, true, false, false, queueArguments());
         declarables.add(delivery);
         declarables.add(deliveryQueue);
         declarables.add(BindingBuilder.bind(deliveryQueue).to(delivery).with(DELIVERY_ROUTING_KEY));
 
-        for (Duration tier : TIERS) {
+        for (Duration tier : RetryPolicy.TIERS) {
             Map<String, Object> args = queueArguments();
             args.put("x-message-ttl", tier.toMillis());
             args.put("x-dead-letter-exchange", DELIVERY_EXCHANGE);

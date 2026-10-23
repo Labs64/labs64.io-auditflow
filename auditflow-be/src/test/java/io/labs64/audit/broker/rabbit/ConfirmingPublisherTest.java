@@ -1,4 +1,4 @@
-package io.labs64.audit.delivery;
+package io.labs64.audit.broker.rabbit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -19,6 +19,8 @@ import org.springframework.amqp.core.MessageProperties;
 import org.springframework.amqp.core.ReturnedMessage;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+
+import io.labs64.audit.delivery.BrokerPublishException;
 
 class ConfirmingPublisherTest {
 

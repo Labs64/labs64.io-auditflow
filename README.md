@@ -114,7 +114,7 @@ Along the way you watch AuditFlow accept a real audit event through the gateway,
 
 ### 2. Kubernetes: on your own cluster
 
-You have a cluster and a RabbitMQ broker (self-hosted or managed). Install AuditFlow from its chart and tell it where the broker is:
+You have a cluster and a message broker: RabbitMQ (self-hosted or managed) or Amazon SQS. Install AuditFlow from its chart and tell it where the broker is:
 
 ```bash
 helm repo add labs64io https://labs64.github.io/labs64.io-helm-charts
@@ -122,9 +122,14 @@ helm repo update
 
 helm install my-auditflow labs64io/auditflow -n labs64io --create-namespace \
   --set global.rabbitmq.host=rabbitmq.mycompany.internal
+
+# or on Amazon SQS, with the pod's IAM role (IRSA) instead of broker credentials
+helm install my-auditflow labs64io/auditflow -n labs64io --create-namespace \
+  --set applicationYaml.auditflow.broker.type=sqs \
+  --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=arn:aws:iam::<account>:role/<auditflow-role>
 ```
 
-Broker credentials go in a Kubernetes Secret (see the chart's values), and a Redis-compatible store is recommended once you run more than one replica. The `preflight` chart can check the broker from inside your cluster before you install. Guides: [Deploy to your Kubernetes cluster](https://labs64.io/docs/getting-started/deploy-to-kubernetes.html) · [AuditFlow deployment](https://labs64.io/docs/modules/auditflow/deployment/) · [Helm chart on Artifact Hub](https://artifacthub.io/packages/helm/labs64io-helm-charts/auditflow).
+RabbitMQ credentials go in a Kubernetes Secret (see the chart's values); for SQS the role needs the policy in [Choose a message broker](https://labs64.io/docs/modules/auditflow/deployment/#choose-a-message-broker), and a Redis-compatible store is recommended once you run more than one replica. The `preflight` chart can check the broker from inside your cluster before you install. Guides: [Deploy to your Kubernetes cluster](https://labs64.io/docs/getting-started/deploy-to-kubernetes.html) · [AuditFlow deployment](https://labs64.io/docs/modules/auditflow/deployment/) · [Helm chart on Artifact Hub](https://artifacthub.io/packages/helm/labs64io-helm-charts/auditflow).
 
 ### 3. Docker: on your machine
 
@@ -192,7 +197,7 @@ Something not working? [Troubleshooting your first run](https://labs64.io/docs/g
 
 - **Pipeline-as-configuration**: destinations and conditions live in YAML; adding or rerouting one needs no rebuild and no restart.
 - **Intelligent routing**: field-level conditions (nested paths, AND/OR groups, CIDR, regex, wildcard) plus a dry run that shows which pipelines a sample event would reach.
-- **Asynchronous by design**: events are buffered on RabbitMQ before processing, so API latency stays flat under bursts.
+- **Asynchronous by design**: events are buffered on the message broker (RabbitMQ or Amazon SQS, a configuration choice) before processing, so API latency stays flat under bursts.
 - **Multi-destination fan-out**: one publish can reach search, archive, SIEM and webhooks; pipelines fail independently.
 - **Redaction at ingest**: sensitive fields are masked, hashed or dropped before they reach the broker.
 - **Multi-tenant by construction**: every tenant owns its pipelines, quota and credentials; there is no cross-tenant fall-through.
@@ -211,7 +216,7 @@ The complete list is in the [Features documentation](https://labs64.io/docs/modu
   └──────────────┘                          └───────┬────────────────────────▲──────────┘
                                                     │ publish                │ consume
                                             ┌───────▼────────────────────────┴──────────┐
-                                            │ RabbitMQ   delivery queue · delay tiers   │
+                                            │ RabbitMQ / SQS   delivery queue · delays  │
                                             │            per-tenant DLQ                 │
                                             └───────────────────────────────────────────┘
                                                     │ one delivery per matching pipeline
@@ -253,7 +258,7 @@ AuditFlow gives an agent a durable record of what it did, with one HTTP call per
 
 - **Emit audit events from an agent.** `POST /audit/publish` (or `/audit/publish/batch`, up to 100 events) with `eventType` (for example `agent.tool.called`), `sourceSystem` (the agent's name) and the details in `extra`. Fields listed in your redaction rules are removed before the event is stored anywhere.
 - **Machine-readable contract.** The OpenAPI v1 spec is served at `/v3/api-docs` and lives in [`openapi-audit-v1.yaml`](auditflow-api/src/main/resources/openapi/openapi-audit-v1.yaml). It is additive-only within v1, so generated clients and tool definitions stay valid.
-- **Errors an agent can act on.** `400` invalid event, `403 TENANT_NOT_PROVISIONED` / `TENANT_DISABLED`, `429` with `Retry-After`, `503` when the broker has not confirmed (retry with the same `eventId`; duplicates are suppressed).
+- **Errors an agent can act on.** `400` invalid event, `403 TENANT_NOT_PROVISIONED` / `TENANT_DISABLED`, `429` with `Retry-After`, `413` when the event is larger than the broker accepts (about 1 MiB on SQS), `503` when the broker has not confirmed (retry with the same `eventId`; duplicates are suppressed).
 - **Check routing before relying on it.** `POST /actuator/pipelines/<tenantId>/dry-run` shows which pipelines a sample event would reach and why.
 - **Working on the code with an agent?** [`AGENTS.md`](AGENTS.md) and [`CLAUDE.md`](CLAUDE.md) describe the layout, conventions and test commands.
 

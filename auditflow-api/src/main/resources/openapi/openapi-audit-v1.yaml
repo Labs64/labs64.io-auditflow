@@ -151,7 +151,8 @@ paths:
                 timestamp: "2025-11-30T10:15:30Z"
         "413":
           description: >-
-            Request body exceeds the limit.
+            Request body exceeds the limit: the gateway's request size limit, or the size the
+            configured message broker accepts for one event (about 1 MiB on Amazon SQS).
           content:
             application/json:
               schema:
@@ -294,7 +295,10 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "413":
-          description: Request body exceeds the limit.
+          description: >-
+            Request body exceeds the gateway's request size limit. An event of the batch that is
+            larger than the configured message broker accepts (about 1 MiB on Amazon SQS) is
+            rejected on its own with `VALIDATION_ERROR` instead.
           content:
             application/json:
               schema:

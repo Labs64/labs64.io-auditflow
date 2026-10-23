@@ -1,11 +1,10 @@
 package io.labs64.audit.delivery;
 
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
-import org.springframework.amqp.core.Message;
-import org.springframework.amqp.core.MessageDeliveryMode;
-import org.springframework.amqp.core.MessageProperties;
+import io.labs64.audit.broker.BrokerMessage;
 
 /**
  * Headers of a delivery message: one event bound for ONE pipeline. The body is the event exactly as
@@ -29,60 +28,55 @@ public final class DeliveryHeaders {
     public static final String DLQ_REASON = "x-auditflow-dlq-reason";
     public static final String DLQ_AT = "x-auditflow-dlq-at";
 
+    /** The headers a re-published copy carries over; anything else (broker bookkeeping) is dropped. */
+    private static final String[] CARRIED = { TENANT, PIPELINE, EVENT_ID, ATTEMPTS, FIRST_ENQUEUED_AT, THROTTLED,
+            LAST_ERROR, DLQ_REASON, DLQ_AT };
+
     private static final int MAX_ERROR_LENGTH = 500;
 
     private DeliveryHeaders() {
     }
 
-    public static Message newDelivery(String eventJson, String tenantId, String pipeline, String eventId, long now) {
-        MessageProperties props = new MessageProperties();
-        props.setContentType(MessageProperties.CONTENT_TYPE_JSON);
-        props.setContentEncoding(StandardCharsets.UTF_8.name());
-        props.setDeliveryMode(MessageDeliveryMode.PERSISTENT);
-        props.setHeader(TENANT, tenantId);
-        props.setHeader(PIPELINE, pipeline);
+    public static BrokerMessage newDelivery(String eventJson, String tenantId, String pipeline, String eventId, long now) {
+        Map<String, Object> headers = new LinkedHashMap<>();
+        headers.put(TENANT, tenantId);
+        headers.put(PIPELINE, pipeline);
         if (eventId != null) {
-            props.setHeader(EVENT_ID, eventId);
-            props.setMessageId(eventId + "/" + pipeline);
+            headers.put(EVENT_ID, eventId);
         }
-        props.setHeader(ATTEMPTS, 0);
-        props.setHeader(FIRST_ENQUEUED_AT, now);
-        props.setHeader(THROTTLED, 0);
-        return new Message(eventJson.getBytes(StandardCharsets.UTF_8), props);
+        headers.put(ATTEMPTS, 0);
+        headers.put(FIRST_ENQUEUED_AT, now);
+        headers.put(THROTTLED, 0);
+        return new BrokerMessage(eventJson.getBytes(StandardCharsets.UTF_8), headers,
+                eventId == null ? null : eventId + "/" + pipeline);
     }
 
     /** A copy for re-publishing (retry, defer, dead-letter) with selected headers overridden. */
-    public static Message copy(Message original, Map<String, Object> overrides) {
-        MessageProperties source = original.getMessageProperties();
-        MessageProperties props = new MessageProperties();
-        props.setContentType(source.getContentType());
-        props.setContentEncoding(source.getContentEncoding());
-        props.setDeliveryMode(MessageDeliveryMode.PERSISTENT);
-        props.setMessageId(source.getMessageId());
-        for (String key : new String[] { TENANT, PIPELINE, EVENT_ID, ATTEMPTS, FIRST_ENQUEUED_AT, THROTTLED,
-                LAST_ERROR, DLQ_REASON, DLQ_AT }) {
-            Object value = source.getHeaders().get(key);
+    public static BrokerMessage copy(BrokerMessage original, Map<String, Object> overrides) {
+        Map<String, Object> headers = new LinkedHashMap<>();
+        for (String key : CARRIED) {
+            Object value = original.header(key);
             if (value != null) {
-                props.setHeader(key, value);
+                headers.put(key, value);
             }
         }
         overrides.forEach((k, v) -> {
             if (v == null) {
-                props.getHeaders().remove(k);
+                headers.remove(k);
             } else {
-                props.setHeader(k, v);
+                headers.put(k, v);
             }
         });
-        return new Message(original.getBody(), props);
+        return new BrokerMessage(original.body(), headers, original.messageId());
     }
 
-    public static String string(Message message, String header) {
-        Object value = message.getMessageProperties().getHeaders().get(header);
+    public static String string(BrokerMessage message, String header) {
+        Object value = message.header(header);
         return value == null ? null : value.toString();
     }
 
-    public static int intHeader(Message message, String header) {
-        Object value = message.getMessageProperties().getHeaders().get(header);
+    public static int intHeader(BrokerMessage message, String header) {
+        Object value = message.header(header);
         if (value instanceof Number n) {
             return n.intValue();
         }
@@ -93,8 +87,8 @@ public final class DeliveryHeaders {
         }
     }
 
-    public static long longHeader(Message message, String header, long fallback) {
-        Object value = message.getMessageProperties().getHeaders().get(header);
+    public static long longHeader(BrokerMessage message, String header, long fallback) {
+        Object value = message.header(header);
         if (value instanceof Number n) {
             return n.longValue();
         }

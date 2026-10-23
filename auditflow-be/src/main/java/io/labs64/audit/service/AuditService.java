@@ -29,9 +29,10 @@ import jakarta.annotation.PostConstruct;
  * per matching pipeline on {@code labs64-audit-delivery}. It never calls a transformer or a sink, so a
  * slow or failing destination cannot hold up routing or the other pipelines.
  *
- * <p>The ingest message is acked only after every delivery message is confirmed by the broker. If that
- * fails, the event is released and redelivered by the binder (and dead-lettered to the legacy ingest
- * DLQ after its retries); pipelines whose delivery already succeeded are skipped on the next pass.</p>
+ * <p>The ingest message is acked only after every delivery message is stored by the broker. If that
+ * fails, the event is released and retried by {@link io.labs64.audit.broker.IngestConsumer} (and moved to
+ * the ingest DLQ after its retries); pipelines whose delivery already succeeded are skipped on the next
+ * pass.</p>
  */
 @Service
 public class AuditService {
@@ -158,7 +159,7 @@ public class AuditService {
             consumerHealthIndicator.recordEventProcessed();
         } catch (RuntimeException e) {
             consumerHealthIndicator.recordEventFailed();
-            // Release the claim so the binder's redelivery can route the event again.
+            // Release the claim so the retry or redelivery can route the event again.
             if (StringUtils.hasText(eventId)) {
                 idempotencyService.release(eventId);
             }

@@ -2,15 +2,12 @@ package io.labs64.audit.delivery;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doCallRealMethod;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -30,11 +27,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.amqp.core.Message;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.rabbitmq.client.Channel;
 
+import io.labs64.audit.broker.BrokerMessage;
 import io.labs64.audit.config.AuditFlowConfiguration.BatchProperties;
 import io.labs64.audit.config.AuditFlowConfiguration.PipelineProperties;
 import io.labs64.audit.config.AuditFlowConfiguration.RetryProperties;
@@ -83,28 +79,6 @@ class DeliveryWorkerTest {
         lenient().doCallRealMethod().when(idempotencyService).markPipelinesDone(anyList());
     }
 
-    @Test
-    void containerGathersABatchForTheConfiguredWindowAndWaitsOnlyTheReceiveTimeoutPerMessage() {
-        org.springframework.amqp.rabbit.listener.SimpleMessageListenerContainer container =
-                worker.deliveryListenerContainer(mock(org.springframework.amqp.rabbit.connection.ConnectionFactory.class),
-                        4, 50, Duration.ofSeconds(10), Duration.ofSeconds(60), false);
-
-        org.springframework.beans.DirectFieldAccessor fields = new org.springframework.beans.DirectFieldAccessor(container);
-        assertEquals(10_000L, fields.getPropertyValue("receiveTimeout"));
-        assertEquals(60_000L, fields.getPropertyValue("batchReceiveTimeout"));
-        assertEquals(50, fields.getPropertyValue("batchSize"));
-    }
-
-    @Test
-    void containerHasNoWindowByDefault() {
-        org.springframework.amqp.rabbit.listener.SimpleMessageListenerContainer container =
-                worker.deliveryListenerContainer(mock(org.springframework.amqp.rabbit.connection.ConnectionFactory.class),
-                        4, 50, Duration.ofSeconds(1), Duration.ZERO, false);
-
-        assertEquals(0L, new org.springframework.beans.DirectFieldAccessor(container)
-                .getPropertyValue("batchReceiveTimeout"));
-    }
-
     private DeliveryWorker newWorker(TenantConcurrencyLimiter limiter) {
         return new DeliveryWorker(registry, executor, deliveryQueue, deadLetters, idempotencyService, quarantineService,
                 rateLimiters, limiter, new ObjectMapper(), new SimpleMeterRegistry(), 5, Duration.ofHours(24), 8);
@@ -125,14 +99,14 @@ class DeliveryWorkerTest {
         registry.upsert(new TenantConfig(id, true, TenantConfig.Quota.DEFAULT, List.of(pipelines)), "test");
     }
 
-    private static Message delivery(String tenant, String pipeline, String eventId, int attempts, long firstEnqueuedAt) {
-        Message m = DeliveryHeaders.newDelivery("{\"eventId\":\"" + eventId + "\",\"tenantId\":\"" + tenant + "\"}",
+    private static BrokerMessage delivery(String tenant, String pipeline, String eventId, int attempts, long firstEnqueuedAt) {
+        BrokerMessage m = DeliveryHeaders.newDelivery("{\"eventId\":\"" + eventId + "\",\"tenantId\":\"" + tenant + "\"}",
                 tenant, pipeline, eventId, firstEnqueuedAt);
-        m.getMessageProperties().setHeader(DeliveryHeaders.ATTEMPTS, attempts);
+        m.headers().put(DeliveryHeaders.ATTEMPTS, attempts);
         return m;
     }
 
-    private static Message delivery(String tenant, String pipeline, String eventId) {
+    private static BrokerMessage delivery(String tenant, String pipeline, String eventId) {
         return delivery(tenant, pipeline, eventId, 0, System.currentTimeMillis());
     }
 
@@ -260,8 +234,8 @@ class DeliveryWorkerTest {
         tenant("acme", pipeline("archive"));
         tenant("globex", pipeline("archive"));
         outcome(Outcome.SUCCESS);
-        Message m = delivery("acme", "archive", "e1");
-        m.getMessageProperties().setHeader(DeliveryHeaders.TENANT, "globex");
+        BrokerMessage m = delivery("acme", "archive", "e1");
+        m.headers().put(DeliveryHeaders.TENANT, "globex");
 
         worker.process(List.of(m));
 
@@ -280,8 +254,8 @@ class DeliveryWorkerTest {
 
     @Test
     void anUnparseableDeliveryIsDeadLetteredAsMalformed() {
-        Message m = new Message("{nope".getBytes(), DeliveryHeaders.newDelivery("{}", "acme", "archive", "e1", 0)
-                .getMessageProperties());
+        BrokerMessage m = new BrokerMessage("{nope".getBytes(), DeliveryHeaders.newDelivery("{}", "acme", "archive", "e1", 0)
+                .headers(), null);
 
         worker.process(List.of(m));
 
@@ -426,38 +400,6 @@ class DeliveryWorkerTest {
 
         verify(idempotencyService, times(1)).markPipelinesDone(List.of(new PipelineDelivery("e1", "archive"),
                 new PipelineDelivery("e3", "archive")));
-    }
-
-    @Test
-    void theBatchIsAckedOnceEverythingIsSettled() throws Exception {
-        tenant("acme", pipeline("archive"));
-        outcome(Outcome.SUCCESS);
-        Channel channel = mock(Channel.class);
-        Message first = delivery("acme", "archive", "e1");
-        Message last = delivery("acme", "archive", "e2");
-        first.getMessageProperties().setDeliveryTag(7);
-        last.getMessageProperties().setDeliveryTag(8);
-
-        worker.onBatch(List.of(first, last), channel);
-
-        verify(channel).basicAck(8, true);
-        verify(channel, never()).basicNack(anyLong(), anyBoolean(), anyBoolean());
-    }
-
-    @Test
-    void ifAnOutcomeCannotBeStoredTheWholeBatchIsRequeued() throws Exception {
-        tenant("acme", pipeline("archive"));
-        outcome(new Outcome(Outcome.Kind.POISON, "400"));
-        doThrow(new BrokerPublishException("no broker confirm within timeout"))
-                .when(deadLetters).deadLetter(any(), anyString(), any(), any());
-        Channel channel = mock(Channel.class);
-        Message m = delivery("acme", "archive", "e1");
-        m.getMessageProperties().setDeliveryTag(3);
-
-        worker.onBatch(List.of(m), channel);
-
-        verify(channel).basicNack(3, true, true);
-        verify(channel, never()).basicAck(anyLong(), anyBoolean());
     }
 
     @Test

@@ -1,6 +1,5 @@
 package io.labs64.audit.delivery;
 
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -9,22 +8,14 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.amqp.core.AcknowledgeMode;
-import org.springframework.amqp.core.Message;
-import org.springframework.amqp.rabbit.connection.ConnectionFactory;
-import org.springframework.amqp.rabbit.listener.SimpleMessageListenerContainer;
-import org.springframework.amqp.rabbit.listener.api.ChannelAwareBatchMessageListener;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
+import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.rabbitmq.client.Channel;
 
+import io.labs64.audit.broker.BrokerMessage;
 import io.labs64.audit.config.AuditFlowConfiguration.PipelineProperties;
 import io.labs64.audit.config.PipelineRateLimiterRegistry;
 import io.labs64.audit.service.IdempotencyService;
@@ -42,7 +33,7 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 /**
- * Second stage: consumes {@code labs64-audit-delivery} (one message = one event for one pipeline) and
+ * Second stage: handles the delivery queue (one message = one event for one pipeline) and
  * settles every message exactly one way before it is acked:
  *
  * <ul>
@@ -54,19 +45,18 @@ import reactor.core.scheduler.Schedulers;
  *       entry in the tenant's own DLQ.</li>
  * </ul>
  *
- * <p>Messages are received in batches (up to {@code batch-size}, or whatever arrived within
- * {@code batch-receive-timeout}). Events of a pipeline with {@code batch.enabled} go to its sink in one
- * call; the rest are delivered one by one, concurrently. The whole batch is acked only after every
- * outcome is stored (a retry/DLQ publish is confirmed); if storing fails, the batch is requeued and
- * the already delivered entries are skipped on redelivery via their done markers.</p>
+ * <p>The broker adapter receives messages in batches (up to {@code batch-size}, or whatever arrived
+ * within {@code batch-receive-timeout}) and hands each batch to {@link #process}. Events of a pipeline
+ * with {@code batch.enabled} go to its sink in one call; the rest are delivered one by one,
+ * concurrently. The adapter acks the whole batch only after {@link #process} returned, i.e. every
+ * outcome is stored (a retry/DLQ publish is confirmed); if it throws, the adapter requeues the batch
+ * and the already delivered entries are skipped on redelivery via their done markers.</p>
  */
-@Configuration
+@Component
 public class DeliveryWorker {
 
-    private static final Logger logger = LoggerFactory.getLogger(DeliveryWorker.class);
-
     /** One unit of work: a message for one pipeline of one tenant, with its parsed event. */
-    record Delivery(Message message, String tenantId, String eventId, PipelineProperties pipeline, JsonNode event) {
+    record Delivery(BrokerMessage message, String tenantId, String eventId, PipelineProperties pipeline, JsonNode event) {
     }
 
     private final TenantPipelineRegistry tenantRegistry;
@@ -104,58 +94,10 @@ public class DeliveryWorker {
         this.unitConcurrency = Math.max(1, unitConcurrency);
     }
 
-    @Bean
-    public SimpleMessageListenerContainer deliveryListenerContainer(
-            ConnectionFactory connectionFactory,
-            @Value("${auditflow.delivery.concurrency:4}") int concurrency,
-            @Value("${auditflow.delivery.batch-size:50}") int batchSize,
-            @Value("${auditflow.delivery.batch-receive-timeout:PT1S}") Duration receiveTimeout,
-            @Value("${auditflow.delivery.batch-window:PT0S}") Duration batchWindow,
-            @Value("${auditflow.delivery.enabled:true}") boolean enabled) {
-        SimpleMessageListenerContainer container = new SimpleMessageListenerContainer(connectionFactory);
-        container.setQueueNames(BrokerTopology.DELIVERY_QUEUE);
-        container.setConcurrentConsumers(Math.max(1, concurrency));
-        container.setConsumerBatchEnabled(true);
-        container.setBatchSize(Math.max(1, batchSize));
-        container.setPrefetchCount(Math.max(1, batchSize));
-        container.setReceiveTimeout(receiveTimeout.toMillis());
-        // The receive timeout alone closes a batch after that much silence, so a steady trickle keeps one
-        // open until it is full. The window is the hard bound from its first message (0 = off).
-        container.setBatchReceiveTimeout(Math.max(0, batchWindow.toMillis()));
-        container.setAcknowledgeMode(AcknowledgeMode.MANUAL);
-        container.setShutdownTimeout(25_000);
-        container.setMissingQueuesFatal(false);
-        container.setAutoStartup(enabled);
-        container.setMessageListener((ChannelAwareBatchMessageListener) this::onBatch);
-        return container;
-    }
-
-    /** Settle every message of the batch, then ack them all; on a storage failure requeue them all. */
-    void onBatch(List<Message> messages, Channel channel) {
-        if (messages.isEmpty()) {
-            return;
-        }
-        long lastTag = messages.get(messages.size() - 1).getMessageProperties().getDeliveryTag();
-        try {
-            try {
-                process(messages);
-            } catch (RuntimeException e) {
-                logger.error("Could not settle a delivery batch of {} message(s); requeueing it: {}",
-                        messages.size(), e.getMessage(), e);
-                channel.basicNack(lastTag, true, true);
-                return;
-            }
-            channel.basicAck(lastTag, true);
-        } catch (java.io.IOException e) {
-            // The channel is gone: the broker requeues every unacked message of this batch itself.
-            throw new org.springframework.amqp.AmqpIOException(e);
-        }
-    }
-
     /** Settle every message (deliver, defer, retry or dead-letter). Throws if an outcome cannot be stored. */
-    void process(List<Message> messages) {
+    public void process(List<BrokerMessage> messages) {
         List<Delivery> resolved = new ArrayList<>(messages.size());
-        for (Message message : messages) {
+        for (BrokerMessage message : messages) {
             resolve(message).ifPresent(resolved::add);
         }
         Map<String, List<Delivery>> batchGroups = new LinkedHashMap<>();
@@ -194,12 +136,12 @@ public class DeliveryWorker {
     }
 
     /** Parse and route one message to its pipeline, or settle it right here (empty result). */
-    private Optional<Delivery> resolve(Message message) {
+    private Optional<Delivery> resolve(BrokerMessage message) {
         String pipelineName = DeliveryHeaders.string(message, DeliveryHeaders.PIPELINE);
         String headerTenant = TenantIds.resolve(DeliveryHeaders.string(message, DeliveryHeaders.TENANT));
         JsonNode event;
         try {
-            event = objectMapper.readTree(new String(message.getBody(), StandardCharsets.UTF_8));
+            event = objectMapper.readTree(message.bodyAsString());
         } catch (Exception e) {
             deadLetters.deadLetter(message, headerTenant, DeadLetterReason.MALFORMED, "Unparseable body: " + e.getMessage());
             return Optional.empty();
@@ -213,7 +155,7 @@ public class DeliveryWorker {
         Optional<PipelineSet> set = tenantRegistry.pipelinesFor(tenantId);
         if (set.isEmpty()) {
             // Offboarded or disabled since routing: never another tenant's sink, never this tenant's DLQ.
-            quarantineService.quarantine(new String(message.getBody(), StandardCharsets.UTF_8),
+            quarantineService.quarantine(message.bodyAsString(),
                     "TENANT_UNRESOLVED: tenant '" + tenantId + "' state=" + tenantRegistry.stateFor(tenantId));
             return Optional.empty();
         }

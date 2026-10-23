@@ -5,6 +5,7 @@
 # Quick start:
 #   just up          → start stack (default)
 #   just up otel     → start stack + observability
+#   just up sqs      → start stack on Amazon SQS (ElasticMQ) instead of RabbitMQ
 #   just test        → run all tests
 #   just down        → stop everything
 #   just clean       → stop + remove volumes (full reset)
@@ -30,6 +31,7 @@ _urls:
     @echo "  Transformer API:    http://localhost:8081/docs"
     @echo "  Sink API:           http://localhost:8082/docs"
     @echo "  RabbitMQ UI:        http://localhost:15673  (guest/guest)"
+    @echo "  SQS (just up sqs):  http://localhost:9324   (ElasticMQ; aws --endpoint-url ... sqs list-queues)"
     @echo "  ClickHouse Play:    http://localhost:8123/play  (auditflow/auditflow)"
     @echo ""
     @echo "  ClickHouse round trip: just notebook-getting-started  (section 6)"
@@ -42,7 +44,7 @@ _urls:
 
 # Stop all known stacks to free ports
 _stop-all:
-    @docker compose -f docker-compose.yml -f docker-compose-observability.yml down 2>/dev/null || true
+    @docker compose -f docker-compose.yml -f docker-compose-observability.yml -f docker-compose-sqs.yml down 2>/dev/null || true
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Stack
@@ -51,6 +53,7 @@ _stop-all:
 # Build JAR, images, start stack.
 # Args (any order, space-separated, case-sensitive):
 #   obs | otel | yes | true | 1  → add the observability overlay (docker-compose-observability.yml)
+#   sqs                          → run the backend on Amazon SQS (ElasticMQ, docker-compose-sqs.yml)
 # Unrecognized tokens (e.g. wrong case, typos) are ignored but print a warning to stderr.
 #
 # Build the JAR, then build and start the stack, optionally with the observability overlay
@@ -58,13 +61,14 @@ up *args: build-be
     @just _stop-all
     @for token in {{ args }}; do \
         case "$token" in \
-            obs|otel|yes|true|1) ;; \
-            *) echo "WARN: just up: unrecognized argument '$token' (accepted: obs, otel, yes, true, 1)" >&2 ;; \
+            obs|otel|yes|true|1|sqs) ;; \
+            *) echo "WARN: just up: unrecognized argument '$token' (accepted: obs, otel, yes, true, 1, sqs)" >&2 ;; \
         esac; \
     done
     @docker compose \
         -f docker-compose.yml \
         {{ if args =~ '(^|\s)(obs|otel|yes|true|1)(\s|$)' { "-f docker-compose-observability.yml" } else { "" } }} \
+        {{ if args =~ '(^|\s)sqs(\s|$)' { "-f docker-compose-sqs.yml" } else { "" } }} \
         up --build -d
     @just _urls
 
@@ -74,7 +78,7 @@ down:
 
 # Stop and remove all containers and volumes
 clean:
-    @docker compose -f docker-compose.yml -f docker-compose-observability.yml down -v --remove-orphans 2>/dev/null || true
+    @docker compose -f docker-compose.yml -f docker-compose-observability.yml -f docker-compose-sqs.yml down -v --remove-orphans 2>/dev/null || true
 
 # Show current container status
 status:

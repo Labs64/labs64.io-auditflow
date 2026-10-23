@@ -1,0 +1,37 @@
+# AuditFlow — Amazon SQS overlay
+#
+# Runs the backend with the SQS broker adapter (auditflow.broker.type=sqs) against ElasticMQ, an
+# SQS-compatible server, instead of RabbitMQ. Same queues and semantics as on AWS; the backend
+# creates them on first use (auditflow.broker.sqs.create-queues). RabbitMQ still starts (the base
+# stack depends on it) but is not used.
+#
+#   just up sqs        # stack on SQS (combine with obs: just up sqs obs)
+#
+# ElasticMQ REST/SQS: http://localhost:9324   UI-less; inspect with the AWS CLI, e.g.
+#   aws --endpoint-url http://localhost:9324 --region eu-west-1 sqs list-queues
+#
+# Pin: softwaremill/elasticmq-native, the latest release of github.com/softwaremill/elasticmq.
+
+services:
+
+  elasticmq:
+    image: softwaremill/elasticmq-native:1.7.1
+    container_name: auditflow-elasticmq
+    ports:
+      - "9324:9324"
+    # No healthcheck: the native image has no shell tools. The backend retries SQS on its own
+    # (consumers back off; /actuator/health reports `sqs` DOWN until it answers).
+    networks:
+      - auditflow-net
+
+  backend:
+    environment:
+      AUDITFLOW_BROKER_TYPE: sqs
+      AUDITFLOW_BROKER_SQS_ENDPOINT: http://elasticmq:9324
+      AUDITFLOW_BROKER_SQS_REGION: eu-west-1
+      # ElasticMQ accepts any credentials; the SDK still wants some.
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local
+    depends_on:
+      elasticmq:
+        condition: service_started

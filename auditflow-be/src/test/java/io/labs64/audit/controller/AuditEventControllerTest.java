@@ -63,7 +63,7 @@ class AuditEventControllerTest {
 
     @Test
     void returnsGeneratedEventIdInResponseHeader() {
-        when(publisherService.publishMessage(any())).thenReturn(true);
+        when(publisherService.publishMessage(any())).thenReturn(null);
         AuditEventController controller = controller();
 
         ResponseEntity<String> response = controller.publishEvent(newEvent());
@@ -81,7 +81,7 @@ class AuditEventControllerTest {
 
     @Test
     void preservesClientSuppliedEventIdInHeader() {
-        when(publisherService.publishMessage(any())).thenReturn(true);
+        when(publisherService.publishMessage(any())).thenReturn(null);
         AuditEventController controller = controller();
         UUID clientId = UUID.randomUUID();
 
@@ -92,7 +92,7 @@ class AuditEventControllerTest {
 
     @Test
     void autoPopulatesCorrelationIdFromMdcWhenAbsent() {
-        when(publisherService.publishMessage(any())).thenReturn(true);
+        when(publisherService.publishMessage(any())).thenReturn(null);
         AuditEventController controller = controller();
         MDC.put(CorrelationIdFilter.CORRELATION_ID_MDC_KEY, "corr-123");
 
@@ -105,7 +105,7 @@ class AuditEventControllerTest {
 
     @Test
     void preservesClientSuppliedCorrelationId() {
-        when(publisherService.publishMessage(any())).thenReturn(true);
+        when(publisherService.publishMessage(any())).thenReturn(null);
         AuditEventController controller = controller();
         MDC.put(CorrelationIdFilter.CORRELATION_ID_MDC_KEY, "corr-mdc");
 
@@ -118,7 +118,7 @@ class AuditEventControllerTest {
 
     @Test
     void leavesCorrelationIdNullWhenAbsentFromClientAndMdc() {
-        when(publisherService.publishMessage(any())).thenReturn(true);
+        when(publisherService.publishMessage(any())).thenReturn(null);
         AuditEventController controller = controller();
         // MDC is cleared by @AfterEach; ensure it's empty here too
         MDC.clear();
@@ -133,7 +133,7 @@ class AuditEventControllerTest {
     @Test
     @WithAuthContext(user = "jdoe", tenant = "t_100")
     void gatewayTenantOverridesClientSuppliedTenant() {
-        when(publisherService.publishMessage(any())).thenReturn(true);
+        when(publisherService.publishMessage(any())).thenReturn(null);
         AuditEventController controller = controller();
 
         ArgumentCaptor<AuditEvent> captor = ArgumentCaptor.forClass(AuditEvent.class);
@@ -146,7 +146,7 @@ class AuditEventControllerTest {
     @Test
     @WithAuthContext(user = "jdoe", tenant = "-")
     void tenantlessContextDropsClientSuppliedTenant() {
-        when(publisherService.publishMessage(any())).thenReturn(true);
+        when(publisherService.publishMessage(any())).thenReturn(null);
         AuditEventController controller = controller();
 
         ArgumentCaptor<AuditEvent> captor = ArgumentCaptor.forClass(AuditEvent.class);
@@ -160,7 +160,7 @@ class AuditEventControllerTest {
 
     @Test
     void noContextPreservesClientSuppliedTenant() {
-        when(publisherService.publishMessage(any())).thenReturn(true);
+        when(publisherService.publishMessage(any())).thenReturn(null);
         AuditEventController controller = controller();
 
         ArgumentCaptor<AuditEvent> captor = ArgumentCaptor.forClass(AuditEvent.class);
@@ -184,7 +184,7 @@ class AuditEventControllerTest {
     @Test
     @WithAuthContext(user = "jdoe", tenant = "t_100")
     void gateChecksTheStampedGatewayTenantNotTheClientOne() {
-        when(publisherService.publishMessage(any())).thenReturn(true);
+        when(publisherService.publishMessage(any())).thenReturn(null);
         AuditEventController controller = controller();
 
         controller.publishEvent(newEvent().tenantId("t_spoofed"));
@@ -257,6 +257,29 @@ class AuditEventControllerTest {
     }
 
     @Test
+    void anEventTooLargeForTheBrokerIsA413NotARetryable503() {
+        when(publisherService.publishMessage(any()))
+                .thenReturn(AuditPublisherService.TOO_LARGE + "the event is 2000000 bytes after redaction");
+
+        assertThrows(io.labs64.audit.exception.EventTooLargeException.class,
+                () -> controller().publishEvent(newEvent()));
+    }
+
+    @Test
+    void aBatchEntryTooLargeForTheBrokerIsRejectedAsInvalidWithoutRetryAfter() {
+        when(tenantGate.tryAcquireQuota(any())).thenReturn(true);
+        when(publisherService.publishMessages(any())).thenReturn(java.util.Arrays.asList(null,
+                AuditPublisherService.TOO_LARGE + "the event is 2000000 bytes after redaction"));
+
+        var response = controller().publishEvents(batch(entry("a", null), entry("b", null)));
+
+        var r = response.getBody().getResults();
+        assertEquals("ACCEPTED", r.get(0).getStatus().getValue());
+        assertEquals(io.labs64.auditflow.model.ErrorCode.VALIDATION_ERROR, r.get(1).getError().getCode());
+        assertNull(response.getHeaders().getFirst("Retry-After"));
+    }
+
+    @Test
     @WithAuthContext(tenant = "acme")
     void batchStampsTheTrustedTenantOnEveryEvent() {
         when(tenantGate.tryAcquireQuota(any())).thenReturn(true);
@@ -300,7 +323,7 @@ class AuditEventControllerTest {
 
     @Test
     void anEventWithoutEventTimeGetsTheReceiptTimeAsEventTime() {
-        when(publisherService.publishMessage(any())).thenReturn(true);
+        when(publisherService.publishMessage(any())).thenReturn(null);
 
         controller().publishEvent(newEvent());
 
@@ -312,7 +335,7 @@ class AuditEventControllerTest {
 
     @Test
     void aSuppliedEventTimeIsPublishedAsSentWhileTheReceiptTimeIsTheServers() {
-        when(publisherService.publishMessage(any())).thenReturn(true);
+        when(publisherService.publishMessage(any())).thenReturn(null);
         java.time.OffsetDateTime sent = java.time.OffsetDateTime.now().minusDays(40);
 
         controller().publishEvent(newEvent().eventTime(sent).timestamp(sent));

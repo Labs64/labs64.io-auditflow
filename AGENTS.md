@@ -15,23 +15,23 @@ For codebase questions, run `graphify query "<question>"` when graphify-out/grap
 | `auditflow-sink/` | Sink | Python 3.14, FastAPI | 8082 |
 | `auditflow-api/` | API contract + client (shared, validated models) | Java 17, Maven | n/a |
 
-Root files: `justfile` (task runner), `docker-compose.yml` (local stack), `docker-compose-observability.yml` (observability overlay via `just up obs`).
+Root files: `justfile` (task runner), `docker-compose.yml` (local stack), `docker-compose-observability.yml` (observability overlay via `just up obs`), `docker-compose-sqs.yml` (backend on Amazon SQS via ElasticMQ, `just up sqs`).
 
 ## Data flow
 
 ```
 POST /audit/publish  (direct; via gateway: /auditflow/api/v1/audit/publish — Traefik owns and strips the version prefix)
-    → AuditPublisherService → RabbitMQ topic
-    → AuditSubscriberService → AuditService.processAuditEvent()
+    → AuditPublisherService → broker (RabbitMQ or Amazon SQS) ingest
+    → IngestConsumer → AuditService.processAuditEvent()
     → for each enabled pipeline:
         TransformationService → POST http://transformer:8081/transform/{name}
         SinkService → POST http://sink:8082/sink/{name}
 ```
 
 - **AuditFlow is a router/pipeline, NOT a system of record — settled decision, do not reopen.** It has **no database of its own**: no Postgres, no event store. Do not propose or add one. AuditFlow ingests → redacts → routes → delivers; the configured **sinks** (OpenSearch, ClickHouse, S3/GCS/Azure Blob, Splunk, Snowflake, Database, …) are the systems of record and own persistence/retention/query. Durability = confirmed broker buffering + per-pipeline retries over hours + per-tenant DLQ (`/actuator/dlq/<tenantId>`, replayable or purgeable) + the sink. Redis is dedup-only (idempotency TTL), not storage. "Store audit events in AuditFlow" is out of scope by design — point a pipeline at a durable sink instead.
-- Backend is both producer and consumer of the same topic. **RabbitMQ only** (Kafka is not supported).
-- Two stages (`delivery/BrokerTopology`): the router (`AuditService`) turns an event into one delivery message per matching pipeline on `labs64-audit-delivery`; `DeliveryWorker` delivers via `PipelineExecutor` and settles each message as delivered, deferred (backpressure, no attempt spent), retried (delay tiers 5s…3h, TTL + dead-letter exchange) or dead-lettered to `labs64-audit-dlq.<tenant>`.
-- Every publish waits for the broker confirm (`ConfirmingPublisher`); `/audit/publish` answers 200 only after it. Ack a consumed message only after its outcome is confirmed.
+- Backend is both producer and consumer of the same broker. **Brokers: RabbitMQ (default) or Amazon SQS**, picked by `auditflow.broker.type` (Kafka is not supported). Everything outside `broker/` talks to the port `broker/MessageBroker` (`BrokerMessage`, `Destination`: ingest, ingest DLQ, delivery, delay, tenant DLQ, quarantine); broker types and SDKs appear only in the adapters `broker/rabbit/` and `broker/sqs/`, each a `@ConditionalOnProperty` configuration with its own consumers feeding `IngestConsumer` and `DeliveryWorker.process`. A new broker is a new adapter package, nothing else. `BrokerEnvironmentPostProcessor` keeps Boot's RabbitMQ auto-configuration out when the broker is not RabbitMQ.
+- Two stages: the router (`AuditService`) turns an event into one delivery message per matching pipeline on the delivery queue; `DeliveryWorker` delivers via `PipelineExecutor` and settles each message as delivered, deferred (backpressure, no attempt spent), retried (delay tiers 5s…3h, `RetryPolicy.TIERS`) or dead-lettered to the tenant's DLQ. RabbitMQ (`broker/rabbit/RabbitTopology`): delay queues with TTL + dead-letter exchange, DLQ `labs64-audit-dlq.<tenant>`; the ingest queue/DLQ keep the exact names and arguments the former Spring Cloud Stream binder declared — never change them, existing brokers reject a different declaration. SQS (`broker/sqs/SqsQueueNames`): `<prefix>ingest|ingest-dlq|delivery|quarantine|dlq-<tenant>`, delays as per-message delays (> 15 min re-parked via a not-before header), all headers in one JSON message attribute, 1 MiB per message (ingest answers 413 above it), 14-day retention.
+- Every publish waits until the broker stored it (`MessageBroker.publishEach`: RabbitMQ publisher confirm via `ConfirmingPublisher`, SQS a successful `SendMessage`); `/audit/publish` answers 200 only after it. Ack a consumed message only after its outcome is stored. An ingest message the router cannot handle is retried 3× in place, then moved to the ingest DLQ (`IngestConsumer`, header `x-exception-message`).
 - Per-pipeline `retry` (`maxAttempts`, `maxAge`) and `batch` (`enabled`, `maxSize`) in tenant files. Poison (4xx, malformed transformer output) is dead-lettered, never dropped.
 - Pipelines are independent — one failing never delays or repeats delivery to the others.
 
@@ -44,7 +44,7 @@ Multi-tenant by construction: every pipeline belongs to exactly one tenant, and 
 - **Ingest gate** (`TenantGate`, at `POST /audit/publish`): unprovisioned → `403 TENANT_NOT_PROVISIONED`, disabled → `403 TENANT_DISABLED`, over per-tenant quota → `429 TENANT_RATE_LIMITED` + `Retry-After`. Rate-limit backend: `tenants.ratelimit.backend` = `in-memory` (default, single replica) or `redis` (multi-replica, Lua token bucket; Helm sets it).
 - **Legacy `auditflow.pipelines` fails startup** by design — move pipelines into `tenants/_platform.yaml`.
 - **Sink credentials**: `${secretRef:<key>}` in sink properties, resolved at delivery from the tenant's own store — `secretRef.resolver` = `env` (default, `AUDITFLOW_TENANT_<ID>_<KEY>`) or `k8s-secret` (Secret `auditflow-tenant-<id>-creds`). Missing key ⇒ retryable failure → DLQ, never a blank or another tenant's credential.
-- **Tenant-scoped DLQ**: one queue per tenant (`labs64-audit-dlq.<tenant>`, one entry per failed pipeline) plus the legacy shared ingest DLQ filtered by tenant. `/actuator/dlq/<tenantId>` — GET to inspect (by pipeline and reason), POST to replay, **DELETE to purge (irreversible — discards entries instead of replaying them)**, both optionally for one `pipeline`; only that tenant's messages are touched, and there is no un-scoped DLQ operation.
+- **Tenant-scoped DLQ**: one queue per tenant (RabbitMQ `labs64-audit-dlq.<tenant>`, SQS `<prefix>dlq-<tenant>`; one entry per failed pipeline) plus the legacy shared ingest DLQ filtered by tenant. `/actuator/dlq/<tenantId>` — GET to inspect (by pipeline and reason), POST to replay, **DELETE to purge (irreversible — discards entries instead of replaying them)**, both optionally for one `pipeline`; only that tenant's messages are touched, and there is no un-scoped DLQ operation.
 - **Telemetry**: `auditflow.tenant.events{tenant,provider,outcome}` counter (outcomes: routed/delivered/quarantined/rejected:*) + Grafana `tenant` variable in the overview dashboard.
 - Core stays a router: it is read-only on tenant config in every profile and still has no database (see the settled decision above).
 
@@ -95,6 +95,7 @@ Both use the same plugin pattern — keep symmetric when editing one.
 ```bash
 just up          # build + start stack (incl. ClickHouse; `full` additionally starts Redis)
 just up obs      # stack + OTel + Tempo + Loki + Prometheus + Grafana
+just up sqs      # stack with the backend on Amazon SQS (ElasticMQ, docker-compose-sqs.yml)
 just log sink    # tail a service (backend|transformer|sink|rabbitmq|clickhouse)
 just down        # stop   |   just clean = also remove volumes
 ```
@@ -166,7 +167,7 @@ cd auditflow-transformer && just run-local   # uvicorn :8081
 cd auditflow-sink        && just run-local   # uvicorn :8082
 ```
 
-Local URLs: Swagger `:8080/swagger-ui.html`, transformer/sink `:8081/docs` / `:8082/docs`, RabbitMQ `:15673` (guest/guest), Grafana `:3000` (admin/admin).
+Local URLs: Swagger `:8080/swagger-ui.html`, transformer/sink `:8081/docs` / `:8082/docs`, RabbitMQ `:15673` (guest/guest), ElasticMQ (SQS, `just up sqs`) `:9324`, Grafana `:3000` (admin/admin).
 
 ## Gateway-edge regression suite (`tests/e2e/`)
 
@@ -209,7 +210,7 @@ a unique `extra.op` discriminator so at most one probe can ever match a given te
   read the two keys or the clock themselves: `auditflow_sdk.event_time` / `received_at` (sink and transformer SDK).
   A destination's own arrival time is named for what it is (`inserted_at`) and never reported on. Enforced by
   `tests/test_time_fields.py` in both Python services — keep new modules inside it, don't add exceptions.
-- **Credentials from env vars only** — `RABBITMQ_USERNAME`/`RABBITMQ_PASSWORD` have no defaults.
+- **Credentials from env vars only** — `RABBITMQ_USERNAME`/`RABBITMQ_PASSWORD` have no defaults. SQS takes no credentials from configuration: the AWS SDK default chain (IRSA / Pod Identity on EKS).
 - Backend tests: JUnit 5 + Spring Boot Test in `auditflow-be/src/test/java/`.
 - Python tests: pytest in `tests/` directories, run via `just test-transformer` / `just test-sink`.
 - Logging: SLF4J/Logback with logstash JSON encoder to stdout; `io.labs64` at DEBUG. trace_id/span_id MDC populated by the OTel Java Agent when observability is enabled.
@@ -220,6 +221,7 @@ a unique `extra.op` discriminator so at most one probe can ever match a given te
 |------|-------|
 | API contract | `auditflow-api/src/main/resources/openapi/openapi-audit-v1.yaml` |
 | Java client | `auditflow-api/src/main/java/io/labs64/auditflow/client/` |
+| Message broker (port, adapters, a new broker) | `auditflow-be/.../broker/` — `MessageBroker` + `broker/rabbit/`, `broker/sqs/`; config `auditflow.broker.*` in `application.yml`; tests use `InMemoryBroker` (port) and `FakeSqs` (SQS adapter) |
 | Pipeline config | per-tenant `tenants/<tenantId>.yaml` (local-dir; compose mounts `./tenants`) or labelled ConfigMap (k8s) — legacy global `auditflow.pipelines` fails startup |
 | Tenant model (registry/gate/providers) | `auditflow-be/src/main/java/io/labs64/audit/tenant/` |
 | Condition operator | `auditflow-be/.../service/ConditionEvaluator.java` |

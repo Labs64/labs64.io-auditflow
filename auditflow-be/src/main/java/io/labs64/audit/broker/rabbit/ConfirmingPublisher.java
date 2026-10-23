@@ -1,4 +1,4 @@
-package io.labs64.audit.delivery;
+package io.labs64.audit.broker.rabbit;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -11,8 +11,8 @@ import java.util.concurrent.TimeoutException;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Component;
+
+import io.labs64.audit.delivery.BrokerPublishException;
 
 /**
  * Publishes and waits for the broker's publisher confirm. A message counts as stored only when the
@@ -23,7 +23,6 @@ import org.springframework.stereotype.Component;
  * <p>Requires {@code spring.rabbitmq.publisher-confirm-type=correlated},
  * {@code spring.rabbitmq.publisher-returns=true} and {@code spring.rabbitmq.template.mandatory=true}.</p>
  */
-@Component
 public class ConfirmingPublisher {
 
     /** One message to publish. */
@@ -33,8 +32,7 @@ public class ConfirmingPublisher {
     private final RabbitTemplate rabbitTemplate;
     private final Duration confirmTimeout;
 
-    public ConfirmingPublisher(RabbitTemplate rabbitTemplate,
-                               @Value("${auditflow.broker.confirm-timeout:PT5S}") Duration confirmTimeout) {
+    public ConfirmingPublisher(RabbitTemplate rabbitTemplate, Duration confirmTimeout) {
         this.rabbitTemplate = rabbitTemplate;
         this.confirmTimeout = confirmTimeout;
     }

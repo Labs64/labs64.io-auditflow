@@ -9,40 +9,7 @@ spring:
   application:
     name: auditflow-backend
 
-  # Spring Cloud Stream Configuration
-  cloud:
-    stream:
-      default-binder: rabbit
-      bindings:
-        # Ingest is published by AuditPublisherService through ConfirmingPublisher (broker confirm),
-        # not through a binder output binding; the consumer binding below declares the exchange.
-        audit-in-0:
-          destination: labs64-audit-topic
-          # Named group → durable queue survives restarts; required for autoBindDlq / republishToDlq
-          # to take effect. Queue name: <destination>.<group> = labs64-audit-topic.labs64.io-auditflow
-          group: labs64.io-auditflow
-          content-type: application/json
-          consumer:
-            # Router threads per pod (ingest queue). Routing only evaluates conditions and enqueues
-            # delivery messages; the transformer/sink work runs in the delivery stage
-            # (auditflow.delivery.*), so a few threads go a long way.
-            concurrency: ${AUDITFLOW_CONSUMER_CONCURRENCY:8}
-        # Quarantine (exchange labs64-audit-quarantine, queue labs64-audit-quarantine.quarantine) is
-        # declared by BrokerTopology and published by QuarantineService through ConfirmingPublisher.
-      binders:
-        rabbit:
-          type: rabbit
-      rabbit:
-        bindings:
-          audit-in-0:
-            consumer:
-              autoBindDlq: true
-              republishToDlq: true
-              requeueRejected: false
-              maxConcurrency: ${AUDITFLOW_CONSUMER_CONCURRENCY:8}
-              prefetch: ${AUDITFLOW_CONSUMER_CONCURRENCY:8}
-
-  # RabbitMQ Configuration
+  # RabbitMQ connection (auditflow.broker.type=rabbitmq; ignored with sqs)
   rabbitmq:
     host: rabbitmq.default.svc.cluster.local
     port: 5672
@@ -56,9 +23,6 @@ spring:
     # means the broker stored the event (ConfirmingPublisher).
     publisher-confirm-type: correlated
     publisher-returns: true
-    listener:
-      simple:
-        observation-enabled: true
     template:
       observation-enabled: true
       mandatory: true
@@ -135,13 +99,11 @@ logging:
   level:
     root: INFO
     io.labs64: INFO
-    org.springframework.cloud.stream: INFO
     org.springframework.amqp: WARN
-    # Suppress verbose stack traces from the framework when intentional DLQ redelivery is exhausted.
-    # AuditService already logs the root cause cleanly.
-    org.springframework.integration.handler.advice.ErrorMessageSendingRecoverer: OFF
+    # A failing ingest message is logged once by AuditService/IngestConsumer; the container's own
+    # stack trace for the same failure is noise.
     org.springframework.amqp.rabbit.listener: OFF
-    org.springframework.integration.handler.LoggingHandler: OFF
+    software.amazon.awssdk: WARN
 
 # Transformer Discovery Configuration
 transformer:
@@ -213,13 +175,49 @@ auditflow:
   event-time:
     max-future: PT5M     # clock skew between publisher and server
     max-age: P1095D      # oldest backfill accepted (the shipped ClickHouse retention)
-  # Broker topology of the two-stage delivery model (delivery/BrokerTopology).
+  # Message broker of the two-stage delivery model (package broker/; topology: broker/rabbit/RabbitTopology,
+  # broker/sqs/SqsQueueNames).
   broker:
-    # classic (default) or quorum (replicated; for multi-node brokers such as an Amazon MQ cluster).
-    # Applies to the delivery, delay and DLQ queues; changing it needs the queues deleted first.
+    # rabbitmq (default; spring.rabbitmq.* above) or sqs (Amazon SQS; auditflow.broker.sqs.* below).
+    type: ${AUDITFLOW_BROKER_TYPE:rabbitmq}
+    # RabbitMQ: classic (default) or quorum (replicated; for multi-node brokers such as an Amazon MQ
+    # cluster). Applies to the delivery, delay and DLQ queues; changing it needs the queues deleted first.
     queue-type: ${AUDITFLOW_BROKER_QUEUE_TYPE:classic}
-    # How long a publish waits for the broker's confirm before it counts as failed (503 at ingest).
+    # How long a publish waits for the broker to store it before it counts as failed (503 at ingest):
+    # the RabbitMQ publisher confirm, or the SQS SendMessage call including the SDK's own retries.
     confirm-timeout: PT5S
+    # Amazon SQS (type=sqs). Credentials and region: AWS SDK default chain (IRSA / EKS Pod Identity sets
+    # both). Differences to RabbitMQ: at most 1 MiB per event (ingest answers 413 above it), messages
+    # (also DLQ entries) are kept at most 14 days, delays over 15 minutes are re-parked in 15-minute steps.
+    sqs:
+      region: ${AUDITFLOW_BROKER_SQS_REGION:}
+      # Endpoint override for an SQS-compatible server (ElasticMQ, LocalStack); empty = AWS.
+      endpoint: ${AUDITFLOW_BROKER_SQS_ENDPOINT:}
+      # Queues: <prefix>ingest, <prefix>ingest-dlq, <prefix>delivery, <prefix>quarantine, <prefix>dlq-<tenant>.
+      queue-prefix: ${AUDITFLOW_BROKER_SQS_QUEUE_PREFIX:labs64-audit-}
+      # Create missing queues (IAM sqs:CreateQueue on <prefix>*). Tenant DLQs are created on first use,
+      # so with false they must exist beforehand.
+      create-queues: true
+      # Retention of the queues created here (SQS maximum: 14 days).
+      message-retention: P14D
+      # Long-poll wait per receive (1-20 s).
+      wait-time: PT10S
+      # A received message stays invisible this long before SQS hands it out again. The delivery value
+      # must cover one whole batch (sink calls with their retries).
+      ingest-visibility-timeout: PT1M
+      delivery-visibility-timeout: PT10M
+      # How long a DLQ inspect/replay/purge holds the entries it looked at.
+      scan-visibility-timeout: PT5M
+      max-connections: 100
+  # Ingest stage (router). A message the router cannot handle is retried here, then moved to the
+  # ingest DLQ (/actuator/dlq/<tenant> lists it as a legacy entry).
+  ingest:
+    # Router threads per pod (ingest queue). Routing only evaluates conditions and enqueues delivery
+    # messages; the transformer/sink work runs in the delivery stage, so a few threads go a long way.
+    concurrency: ${AUDITFLOW_CONSUMER_CONCURRENCY:8}
+    retry:
+      max-attempts: 3
+      initial-backoff: PT1S
   # Delivery stage (delivery/DeliveryWorker): one message per event and pipeline.
   delivery:
     enabled: true

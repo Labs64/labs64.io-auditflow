@@ -6,8 +6,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.springframework.amqp.core.Message;
 import org.springframework.stereotype.Component;
+
+import io.labs64.audit.broker.BrokerMessage;
+import io.labs64.audit.broker.Destination;
+import io.labs64.audit.broker.MessageBroker;
 
 /**
  * The delivery side of the broker: enqueue, retry later, defer, replay. Every operation is a
@@ -16,40 +19,40 @@ import org.springframework.stereotype.Component;
 @Component
 public class DeliveryQueue {
 
-    private final ConfirmingPublisher publisher;
+    private final MessageBroker broker;
 
-    public DeliveryQueue(ConfirmingPublisher publisher) {
-        this.publisher = publisher;
+    public DeliveryQueue(MessageBroker broker) {
+        this.broker = broker;
     }
 
     /** One delivery message per pipeline, all confirmed before returning. */
     public void enqueue(String eventJson, String tenantId, List<String> pipelines, String eventId) {
         long now = System.currentTimeMillis();
-        List<ConfirmingPublisher.Outgoing> out = new ArrayList<>(pipelines.size());
+        List<MessageBroker.Outgoing> out = new ArrayList<>(pipelines.size());
         for (String pipeline : pipelines) {
-            out.add(new ConfirmingPublisher.Outgoing(BrokerTopology.DELIVERY_EXCHANGE, BrokerTopology.DELIVERY_ROUTING_KEY,
+            out.add(new MessageBroker.Outgoing(Destination.delivery(),
                     DeliveryHeaders.newDelivery(eventJson, tenantId, pipeline, eventId, now)));
         }
-        publisher.publishAll(out);
+        broker.publishAll(out);
     }
 
     /** Park a failed delivery in the delay tier; it returns to the delivery queue after {@code delay}. */
-    public void retryLater(Message delivery, int failedAttempts, String error, Duration delay) {
+    public void retryLater(BrokerMessage delivery, int failedAttempts, String error, Duration delay) {
         Map<String, Object> headers = new HashMap<>();
         headers.put(DeliveryHeaders.ATTEMPTS, failedAttempts);
         headers.put(DeliveryHeaders.LAST_ERROR, DeliveryHeaders.truncateError(error));
-        publisher.publish("", BrokerTopology.delayQueueName(delay), DeliveryHeaders.copy(delivery, headers));
+        broker.publish(Destination.delay(delay), DeliveryHeaders.copy(delivery, headers));
     }
 
     /** Backpressure: come back after the shortest delay, WITHOUT spending an attempt. */
-    public void defer(Message delivery) {
+    public void defer(BrokerMessage delivery) {
         int throttled = DeliveryHeaders.intHeader(delivery, DeliveryHeaders.THROTTLED) + 1;
-        publisher.publish("", BrokerTopology.delayQueueName(RetryPolicy.throttleDelay()),
+        broker.publish(Destination.delay(RetryPolicy.throttleDelay()),
                 DeliveryHeaders.copy(delivery, Map.of(DeliveryHeaders.THROTTLED, throttled)));
     }
 
     /** Re-deliver a DLQ entry as a fresh delivery: attempts and age start over, DLQ headers removed. */
-    public void replay(Message dlqEntry) {
+    public void replay(BrokerMessage dlqEntry) {
         Map<String, Object> headers = new HashMap<>();
         headers.put(DeliveryHeaders.ATTEMPTS, 0);
         headers.put(DeliveryHeaders.THROTTLED, 0);
@@ -57,7 +60,6 @@ public class DeliveryQueue {
         headers.put(DeliveryHeaders.DLQ_REASON, null);
         headers.put(DeliveryHeaders.DLQ_AT, null);
         headers.put(DeliveryHeaders.LAST_ERROR, null);
-        publisher.publish(BrokerTopology.DELIVERY_EXCHANGE, BrokerTopology.DELIVERY_ROUTING_KEY,
-                DeliveryHeaders.copy(dlqEntry, headers));
+        broker.publish(Destination.delivery(), DeliveryHeaders.copy(dlqEntry, headers));
     }
 }

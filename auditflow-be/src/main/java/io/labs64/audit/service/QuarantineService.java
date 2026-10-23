@@ -1,17 +1,13 @@
 package io.labs64.audit.service;
 
-import java.nio.charset.StandardCharsets;
-
+import io.labs64.audit.broker.BrokerMessage;
+import io.labs64.audit.broker.Destination;
+import io.labs64.audit.broker.MessageBroker;
 import io.labs64.audit.delivery.BrokerPublishException;
-import io.labs64.audit.delivery.BrokerTopology;
-import io.labs64.audit.delivery.ConfirmingPublisher;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.amqp.core.Message;
-import org.springframework.amqp.core.MessageBuilder;
-import org.springframework.amqp.core.MessageProperties;
 import org.springframework.stereotype.Service;
 
 /**
@@ -24,11 +20,11 @@ public class QuarantineService {
     private static final Logger logger = LoggerFactory.getLogger(QuarantineService.class);
     public static final String REASON_HEADER = "x-quarantine-reason";
 
-    private final ConfirmingPublisher publisher;
+    private final MessageBroker broker;
     private final Counter quarantinedCounter;
 
-    public QuarantineService(ConfirmingPublisher publisher, MeterRegistry meterRegistry) {
-        this.publisher = publisher;
+    public QuarantineService(MessageBroker broker, MeterRegistry meterRegistry) {
+        this.broker = broker;
         this.quarantinedCounter = meterRegistry.counter("auditflow.events.quarantined");
     }
 
@@ -44,12 +40,8 @@ public class QuarantineService {
      */
     public void quarantine(String rawMessage, String reason) {
         logger.warn("Quarantining audit event; reason='{}'", reason);
-        Message message = MessageBuilder
-                .withBody(rawMessage.getBytes(StandardCharsets.UTF_8))
-                .setContentType(MessageProperties.CONTENT_TYPE_JSON)
-                .setHeader(REASON_HEADER, reason)
-                .build();
-        publisher.publish(BrokerTopology.QUARANTINE_EXCHANGE, BrokerTopology.QUARANTINE_ROUTING_KEY, message);
+        BrokerMessage message = BrokerMessage.of(rawMessage).withHeader(REASON_HEADER, reason);
+        broker.publish(Destination.quarantine(), message);
         quarantinedCounter.increment();
     }
 }

@@ -33,14 +33,16 @@ POST /audit/publish  (direct; via gateway: /auditflow/api/v1/audit/publish)
         │
         ▼
     Backend (Java / Spring Boot :8080)
-        │  publishes to RabbitMQ, answers 200 after the broker confirm
+        │  publishes to the broker, answers 200 once the broker stored it
         ▼
-    RabbitMQ  labs64-audit-topic
+    Broker  ingest           (RabbitMQ labs64-audit-topic · SQS <prefix>ingest)
         │
         ▼  router: AuditService.processAuditEvent()
         │  one delivery message per ENABLED pipeline whose condition matches
-    RabbitMQ  labs64-audit-delivery ◄── labs64-audit-delay.<5s…3h> (retry / defer)
-        │                          ──► labs64-audit-dlq.<tenant>   (exhausted / poison)
+    Broker  delivery ◄── delay 5s…3h (retry / defer)
+        │            ──► tenant DLQ    (exhausted / poison)
+        │  RabbitMQ: labs64-audit-delivery, labs64-audit-delay.<n>s, labs64-audit-dlq.<tenant>
+        │  SQS:      <prefix>delivery (per-message delays), <prefix>dlq-<tenant>
         ▼  DeliveryWorker (batched) → PipelineExecutor
         ├─► Transformer (Python / FastAPI :8081)  POST /transform/{name}
         └─► Sink        (Python / FastAPI :8082)  POST /sink/{name}[/batch]
@@ -1135,15 +1137,16 @@ A rate-limited delivery is deferred (back in a few seconds) without spending a r
 
 ### Delivery model: confirms, retries, backpressure and the DLQ
 
-Two stages on RabbitMQ, both in the backend:
+Two stages on the message broker (RabbitMQ or Amazon SQS, see [Message broker](#message-broker-rabbitmq-or-amazon-sqs)), both in the backend:
 
 1. **Ingest and route.** `POST /audit/publish` (or `/audit/publish/batch`) redacts the event and
-   publishes it to `labs64-audit-topic`, then waits for the broker's **publisher confirm**: 200 means
-   the broker stored it; no confirm within `auditflow.broker.confirm-timeout` (5 s) is a 503 the
-   client retries with the same `eventId`. The router consumes the ingest queue and publishes **one
-   delivery message per matching pipeline** to `labs64-audit-delivery`, again confirmed, before it
-   acks the event.
-2. **Deliver.** The delivery worker consumes `labs64-audit-delivery` in batches and settles every
+   publishes it to the ingest queue, then waits until the broker **stored** it (RabbitMQ publisher
+   confirm, SQS `SendMessage`): 200 means the broker has it; nothing within
+   `auditflow.broker.confirm-timeout` (5 s) is a 503 the client retries with the same `eventId`. The
+   router consumes the ingest queue and publishes **one delivery message per matching pipeline** to
+   the delivery queue, again confirmed, before it acks the event. A message the router cannot handle
+   is retried 3 times in place, then moved to the ingest DLQ (listed as `legacy` by the DLQ endpoint).
+2. **Deliver.** The delivery worker consumes the delivery queue in batches and settles every
    message one way before acking it:
 
 | Outcome | When | What happens |
@@ -1154,8 +1157,9 @@ Two stages on RabbitMQ, both in the backend:
 | dead-lettered | poison (4xx, malformed transformer output), `maxAttempts` used up, `maxAge` passed, pipeline removed | one entry in `labs64-audit-dlq.<tenant>` with reason, attempts and last error |
 | quarantined | unparseable event, or the tenant was removed or disabled after ingest | kept in `labs64-audit-quarantine.quarantine` with an `x-quarantine-reason` header; never delivered to a sink, not replayed by the DLQ endpoint |
 
-Delays are queues with a fixed TTL that dead-letter back to the delivery exchange (`labs64-audit-delay.<seconds>s`),
-so no broker plugin is needed and it works the same on Amazon MQ. Per pipeline, in the tenant file:
+On RabbitMQ delays are queues with a fixed TTL that dead-letter back to the delivery exchange
+(`labs64-audit-delay.<seconds>s`), so no broker plugin is needed and it works the same on Amazon MQ. On
+SQS a delay is the message's own delivery delay. Per pipeline, in the tenant file:
 
 ```yaml
 pipelines:
@@ -1226,7 +1230,7 @@ rate (CPU-based autoscaling does not react to a backlog).
 | `auditflow.circuitbreaker.bulkhead-max-concurrent-calls` | `128` | Concurrent calls per transformer/sink target; keep >= concurrency x unit-concurrency |
 | `tenants.consumer.max-in-flight-per-tenant` | `32` | One tenant's deliveries at once per pod (fairness); over it, a delivery waits up to `max-wait-millis` (2 s), then is deferred |
 | `AUDITFLOW_CONSUMER_CONCURRENCY` (env) | `8` | Router threads on the ingest queue (light work) |
-| `AUDITFLOW_BROKER_QUEUE_TYPE` (env) / `auditflow.broker.queue-type` | `classic` | `quorum` for replicated queues on a multi-node broker |
+| `AUDITFLOW_BROKER_QUEUE_TYPE` (env) / `auditflow.broker.queue-type` | `classic` | RabbitMQ: `quorum` for replicated queues on a multi-node broker |
 
 A local run (one pod, single-process transformer and sink) delivered 3,000 events, half of them
 through a batching pipeline, in about 6 s end to end. Fairness between tenants comes first from the
@@ -1237,6 +1241,35 @@ duplicate), `auditflow.delivery.deadlettered{tenant,pipeline,reason}`, `auditflo
 `auditflow.pipeline.duration{pipeline,outcome,mode}`. Alert on `deadlettered` > 0 and on the depth of
 `labs64-audit-dlq.*` queues.
 
+
+### Message broker: RabbitMQ or Amazon SQS
+
+`auditflow.broker.type` (`AUDITFLOW_BROKER_TYPE`) picks the broker: `rabbitmq` (default) or `sqs`.
+The code outside `auditflow-be/.../broker/` only knows the port `MessageBroker`; each broker is an
+adapter package with its own consumers (`broker/rabbit/`, `broker/sqs/`). Users' setup (queues, IAM
+policy, Helm values, limits): the public docs, [Choose a message broker](https://labs64.io/docs/modules/auditflow/deployment/#choose-a-message-broker).
+
+| | RabbitMQ | SQS |
+|---|---|---|
+| Settings | `spring.rabbitmq.*`, `RABBITMQ_USERNAME`/`RABBITMQ_PASSWORD` | `auditflow.broker.sqs.*`: `region`, `queue-prefix`, `create-queues`, `endpoint`, `wait-time`, visibility timeouts; credentials from the AWS SDK default chain |
+| Topology | Declared on startup (`RabbitTopology`) | `<prefix>ingest`, `-ingest-dlq`, `-delivery`, `-quarantine`, `-dlq-<tenant>`; missing ones created when `create-queues` |
+| Confirm | Publisher confirm + mandatory return | `SendMessageBatch` result per entry |
+| Delays | One TTL queue per tier | Per-message `DelaySeconds`; over 15 min a `not-before` header and 15-minute hops |
+| Headers | AMQP headers | One JSON message attribute (`x-auditflow-headers`): SQS allows 10 attributes |
+| Event size | Gateway limit | 1 MiB per message: ingest rejects an event above 1 MiB minus 16 KiB with 413 |
+| DLQ scan | `basic.get` + nack | Receive with a visibility timeout, delete or release |
+| Retention | Until consumed | At most 14 days, DLQ entries included |
+
+Try the SQS adapter locally with `just up sqs`: the backend runs against ElasticMQ
+(`docker-compose-sqs.yml`, `localhost:9324`) and creates its queues on first use:
+
+```bash
+aws --endpoint-url http://localhost:9324 --region eu-west-1 sqs list-queues
+```
+
+A new broker is a new adapter: implement `MessageBroker` (publish with a durable confirm, tenant DLQ
+creation, a non-destructive scan), feed `IngestConsumer.consume` and `DeliveryWorker.process` from its
+consumers, and put both behind `@ConditionalOnProperty(name = "auditflow.broker.type", havingValue = "<type>")`.
 ### Graceful Shutdown
 
 The backend tracks in-flight events and drains them on shutdown (25s timeout). During shutdown, new events are rejected so in-flight work can complete.
@@ -1249,7 +1282,7 @@ The backend tracks in-flight events and drains them on shutdown (25s timeout). D
 
 **Symptom:** `APPLICATION FAILED TO START` in logs.
 
-1. **Check RabbitMQ is reachable:**
+1. **Check the broker is reachable** (on SQS: `/actuator/health` shows the `sqs` component, and the backend log names an `AccessDenied` or a missing queue). RabbitMQ:
    ```bash
    docker logs auditflow-rabbitmq | tail -5
    curl -s http://localhost:15673/api/overview | head

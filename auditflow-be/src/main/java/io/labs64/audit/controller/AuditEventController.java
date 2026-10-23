@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.labs64.audit.config.CorrelationIdFilter;
+import io.labs64.audit.exception.EventTooLargeException;
 import io.labs64.audit.exception.PublishException;
 import io.labs64.audit.publisher.AuditPublisherService;
 import io.labs64.audit.service.EventTimePolicy;
@@ -88,7 +89,12 @@ public class AuditEventController implements AuditEventApi {
         tenantGate.check(event.getTenantId());
 
         logger.debug("Received request to publish audit event; eventId={}", eventId);
-        if (!publisherService.publishMessage(event)) {
+        String failure = publisherService.publishMessage(event);
+        if (failure != null && failure.startsWith(AuditPublisherService.TOO_LARGE)) {
+            throw new EventTooLargeException("Audit event exceeds the message broker's size limit: "
+                    + failure.substring(AuditPublisherService.TOO_LARGE.length()) + "; eventId=" + eventId);
+        }
+        if (failure != null) {
             throw new PublishException("Failed to publish audit event to message broker; eventId=" + eventId);
         }
 
@@ -160,6 +166,10 @@ public class AuditEventController implements AuditEventApi {
                 if (failures.get(k) == null) {
                     results[i] = new BatchPublishEntryResult().index(i).eventId(eventId)
                             .status(BatchPublishEntryResult.StatusEnum.ACCEPTED);
+                } else if (failures.get(k).startsWith(AuditPublisherService.TOO_LARGE)) {
+                    // Permanent: no Retry-After for it.
+                    results[i] = rejected(i, eventId, ErrorCode.VALIDATION_ERROR, "Event exceeds the message broker's "
+                            + "size limit: " + failures.get(k).substring(AuditPublisherService.TOO_LARGE.length()));
                 } else {
                     results[i] = rejected(i, eventId, ErrorCode.PUBLISH_FAILED,
                             "The message broker did not store the event; retry with the same eventId");

@@ -10,9 +10,6 @@ import java.util.regex.Pattern;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.amqp.core.Message;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.amqp.rabbit.support.DefaultMessagePropertiesConverter;
 import org.springframework.boot.actuate.endpoint.annotation.DeleteOperation;
 import org.springframework.boot.actuate.endpoint.annotation.Endpoint;
 import org.springframework.boot.actuate.endpoint.annotation.ReadOperation;
@@ -22,10 +19,12 @@ import org.springframework.stereotype.Component;
 import org.jspecify.annotations.Nullable;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.rabbitmq.client.Channel;
-import com.rabbitmq.client.GetResponse;
 
-import io.labs64.audit.delivery.BrokerTopology;
+import io.labs64.audit.broker.BrokerMessage;
+import io.labs64.audit.broker.Destination;
+import io.labs64.audit.broker.IngestConsumer;
+import io.labs64.audit.broker.MessageBroker;
+import io.labs64.audit.broker.MessageBroker.ScanAction;
 import io.labs64.audit.delivery.DeadLetterPublisher;
 import io.labs64.audit.delivery.DeliveryHeaders;
 import io.labs64.audit.delivery.DeliveryQueue;
@@ -36,18 +35,18 @@ import io.labs64.audit.tenant.TenantIds;
  *
  * <p>Two sources per tenant:</p>
  * <ul>
- *   <li>the tenant's own DLQ queue {@code labs64-audit-dlq.<tenant>}: one entry per failed pipeline
+ *   <li>the tenant's own DLQ queue ({@link Destination#tenantDlq}): one entry per failed pipeline
  *       delivery, with reason, attempts and last error in headers. Only this tenant's entries are
  *       ever in it, so no other tenant's message is read;</li>
- *   <li>the legacy shared ingest DLQ, filtered by the body {@code tenantId}: events whose routing
- *       failed, and entries from before per-pipeline delivery.</li>
+ *   <li>the legacy shared ingest DLQ ({@link Destination#ingestDlq}), filtered by the body
+ *       {@code tenantId}: events whose routing failed, and entries from before per-pipeline delivery.</li>
  * </ul>
  *
  * <p>Replay re-enqueues a delivery entry as a fresh delivery for its pipeline (attempts and age start
  * over) and a legacy entry onto the ingest queue. Optional {@code pipeline} narrows replay and purge
- * to one pipeline. Safety: everything runs on one channel with manual acks; a message is acked only
- * after it was forwarded (replay, confirmed) or on purpose (purge). Unacked messages return to their
- * queue if the operation crashes.</p>
+ * to one pipeline. Safety: the broker adapter's {@link MessageBroker#scan} removes a message only
+ * after it was forwarded (replay, confirmed) or on purpose (purge); every other message stays, also
+ * when the operation crashes.</p>
  */
 @Endpoint(id = "dlq")
 @Component
@@ -55,19 +54,16 @@ public class DlqEndpoint {
 
     private static final Logger logger = LoggerFactory.getLogger(DlqEndpoint.class);
 
-    static final String LEGACY_DLQ_QUEUE_NAME = "labs64-audit-topic.labs64.io-auditflow.dlq";
-    static final String INGEST_QUEUE_NAME = "labs64-audit-topic.labs64.io-auditflow";
     private static final Pattern TENANT_ID = Pattern.compile("^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$");
 
-    private final RabbitTemplate rabbitTemplate;
+    private final MessageBroker broker;
     private final ObjectMapper objectMapper;
     private final DeadLetterPublisher deadLetters;
     private final DeliveryQueue deliveryQueue;
-    private final DefaultMessagePropertiesConverter propertiesConverter = new DefaultMessagePropertiesConverter();
 
-    public DlqEndpoint(RabbitTemplate rabbitTemplate, ObjectMapper objectMapper, DeadLetterPublisher deadLetters,
+    public DlqEndpoint(MessageBroker broker, ObjectMapper objectMapper, DeadLetterPublisher deadLetters,
                        DeliveryQueue deliveryQueue) {
-        this.rabbitTemplate = rabbitTemplate;
+        this.broker = broker;
         this.objectMapper = objectMapper;
         this.deadLetters = deadLetters;
         this.deliveryQueue = deliveryQueue;
@@ -101,22 +97,22 @@ public class DlqEndpoint {
             List<Map<String, Object>> entries = new ArrayList<>();
             Map<String, Integer> byPipeline = new TreeMap<>();
             Map<String, Integer> byReason = new TreeMap<>();
-            long tenantCount = scan(BrokerTopology.dlqQueueName(wanted), (channel, resp) -> {
+            long tenantCount = broker.scan(Destination.tenantDlq(wanted), resp -> {
                 byPipeline.merge(header(resp, DeliveryHeaders.PIPELINE), 1, Integer::sum);
                 byReason.merge(header(resp, DeliveryHeaders.DLQ_REASON), 1, Integer::sum);
                 if (entries.size() < max && (pipeline == null || pipeline.equals(header(resp, DeliveryHeaders.PIPELINE)))) {
                     entries.add(entry(resp, false));
                 }
-                return Action.KEEP_COUNTED;
+                return ScanAction.KEEP_COUNTED;
             });
-            long legacyCount = scan(LEGACY_DLQ_QUEUE_NAME, (channel, resp) -> {
-                if (!wanted.equals(tenantOf(resp.getBody()))) {
-                    return Action.KEEP;
+            long legacyCount = broker.scan(Destination.ingestDlq(), resp -> {
+                if (!wanted.equals(tenantOf(resp.body()))) {
+                    return ScanAction.KEEP;
                 }
                 if (entries.size() < max && pipeline == null) {
                     entries.add(entry(resp, true));
                 }
-                return Action.KEEP_COUNTED;
+                return ScanAction.KEEP_COUNTED;
             });
             info.put("tenantId", wanted);
             info.put("messageCount", tenantCount + legacyCount);
@@ -146,19 +142,21 @@ public class DlqEndpoint {
         logger.warn("DLQ replay requested for tenant '{}' pipeline='{}'", wanted, pipeline);
         try {
             deadLetters.ensureTenantDlq(wanted);
-            long replayed = scan(BrokerTopology.dlqQueueName(wanted), (channel, resp) -> {
+            long replayed = broker.scan(Destination.tenantDlq(wanted), resp -> {
                 if (pipeline != null && !pipeline.equals(header(resp, DeliveryHeaders.PIPELINE))) {
-                    return Action.KEEP;
+                    return ScanAction.KEEP;
                 }
-                deliveryQueue.replay(toMessage(resp)); // confirmed before the ack below
-                return Action.ACK_COUNTED;
+                deliveryQueue.replay(resp); // confirmed before the ack below
+                return ScanAction.ACK_COUNTED;
             });
-            long legacyReplayed = pipeline != null ? 0 : scan(LEGACY_DLQ_QUEUE_NAME, (channel, resp) -> {
-                if (!wanted.equals(tenantOf(resp.getBody()))) {
-                    return Action.KEEP;
+            long legacyReplayed = pipeline != null ? 0 : broker.scan(Destination.ingestDlq(), resp -> {
+                if (!wanted.equals(tenantOf(resp.body()))) {
+                    return ScanAction.KEEP;
                 }
-                channel.basicPublish("", INGEST_QUEUE_NAME, resp.getProps(), resp.getBody());
-                return Action.ACK_COUNTED;
+                BrokerMessage again = new BrokerMessage(resp.body(), resp.headers(), resp.messageId());
+                again.headers().remove(IngestConsumer.EXCEPTION_MESSAGE);
+                broker.publish(Destination.ingest(), again); // confirmed before the ack
+                return ScanAction.ACK_COUNTED;
             });
             Map<String, Object> result = new HashMap<>();
             result.put("status", "success");
@@ -190,17 +188,17 @@ public class DlqEndpoint {
                 wanted, pipeline);
         try {
             deadLetters.ensureTenantDlq(wanted);
-            long purged = scan(BrokerTopology.dlqQueueName(wanted), (channel, resp) -> {
+            long purged = broker.scan(Destination.tenantDlq(wanted), resp -> {
                 if (pipeline != null && !pipeline.equals(header(resp, DeliveryHeaders.PIPELINE))) {
-                    return Action.KEEP;
+                    return ScanAction.KEEP;
                 }
                 logger.warn("DLQ purge: discarding eventId={} pipeline={} reason={}",
                         header(resp, DeliveryHeaders.EVENT_ID), header(resp, DeliveryHeaders.PIPELINE),
                         header(resp, DeliveryHeaders.DLQ_REASON));
-                return Action.ACK_COUNTED;
+                return ScanAction.ACK_COUNTED;
             });
-            long legacyPurged = pipeline != null ? 0 : scan(LEGACY_DLQ_QUEUE_NAME,
-                    (channel, resp) -> wanted.equals(tenantOf(resp.getBody())) ? Action.ACK_COUNTED : Action.KEEP);
+            long legacyPurged = pipeline != null ? 0 : broker.scan(Destination.ingestDlq(),
+                    resp -> wanted.equals(tenantOf(resp.body())) ? ScanAction.ACK_COUNTED : ScanAction.KEEP);
             Map<String, Object> result = new HashMap<>();
             result.put("status", "success");
             result.put("tenantId", wanted);
@@ -214,63 +212,10 @@ public class DlqEndpoint {
         }
     }
 
-    private enum Action {
-        /** Leave in the queue, not counted. */
-        KEEP,
-        /** Leave in the queue, counted. */
-        KEEP_COUNTED,
-        /** Remove from the queue (forwarded or discarded), counted. */
-        ACK_COUNTED
-    }
-
-    @FunctionalInterface
-    private interface Visitor {
-        Action visit(Channel channel, GetResponse response) throws Exception;
-    }
-
-    /**
-     * Visit every message currently in {@code queue} once. Kept messages are nacked back only at the
-     * end: unacked messages are not handed out again on the same channel, so the loop terminates.
-     */
-    private long scan(String queue, Visitor visitor) {
-        Long count = rabbitTemplate.execute(channel -> {
-            long counted = 0;
-            List<Long> keep = new ArrayList<>();
-            try {
-                GetResponse resp;
-                while ((resp = channel.basicGet(queue, false)) != null) {
-                    long tag = resp.getEnvelope().getDeliveryTag();
-                    Action action;
-                    try {
-                        action = visitor.visit(channel, resp);
-                    } catch (Exception e) {
-                        keep.add(tag); // never leave it unacked on a cached channel: back to the queue
-                        throw e;
-                    }
-                    if (action == Action.ACK_COUNTED) {
-                        channel.basicAck(tag, false);
-                        counted++;
-                    } else {
-                        keep.add(tag);
-                        if (action == Action.KEEP_COUNTED) {
-                            counted++;
-                        }
-                    }
-                }
-            } finally {
-                for (long tag : keep) {
-                    channel.basicNack(tag, false, true);
-                }
-            }
-            return counted;
-        });
-        return count == null ? 0 : count;
-    }
-
     /** One DLQ entry for inspection; the body is returned as JSON when it parses, else as text. */
-    private Map<String, Object> entry(GetResponse resp, boolean legacy) {
+    private Map<String, Object> entry(BrokerMessage resp, boolean legacy) {
         Map<String, Object> entry = new java.util.LinkedHashMap<>();
-        String body = new String(resp.getBody(), StandardCharsets.UTF_8);
+        String body = resp.bodyAsString();
         // Plain maps and lists, not a JsonNode: the actuator serialises with its own JSON mapper.
         Object event;
         try {
@@ -281,8 +226,7 @@ public class DlqEndpoint {
         if (legacy) {
             entry.put("legacy", true);
             entry.put("eventId", event instanceof Map<?, ?> m && m.get("eventId") != null ? m.get("eventId").toString() : null);
-            Object death = resp.getProps() == null || resp.getProps().getHeaders() == null ? null
-                    : resp.getProps().getHeaders().get("x-exception-message");
+            Object death = resp.header(IngestConsumer.EXCEPTION_MESSAGE);
             entry.put("lastError", death == null ? null : death.toString());
         } else {
             entry.put("eventId", nullable(resp, DeliveryHeaders.EVENT_ID));
@@ -298,7 +242,7 @@ public class DlqEndpoint {
         return entry;
     }
 
-    private static String nullable(GetResponse resp, String name) {
+    private static String nullable(BrokerMessage resp, String name) {
         String value = header(resp, name);
         return "-".equals(value) ? null : value;
     }
@@ -311,14 +255,8 @@ public class DlqEndpoint {
         }
     }
 
-    private Message toMessage(GetResponse resp) {
-        return new Message(resp.getBody(), propertiesConverter.toMessageProperties(
-                resp.getProps(), resp.getEnvelope(), StandardCharsets.UTF_8.name()));
-    }
-
-    private static String header(GetResponse resp, String name) {
-        Map<String, Object> headers = resp.getProps() == null ? null : resp.getProps().getHeaders();
-        Object value = headers == null ? null : headers.get(name);
+    private static String header(BrokerMessage resp, String name) {
+        Object value = resp.header(name);
         return value == null ? "-" : value.toString();
     }
 
