@@ -25,7 +25,7 @@
 services:
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.161.0
+    image: otel/opentelemetry-collector-contrib:0.163.2
     container_name: auditflow-otel-collector
     command: ["--config=/etc/otel/config.yaml"]
     volumes:
