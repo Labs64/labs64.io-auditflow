@@ -1,4 +1,4 @@
-FROM python:3.14-alpine
+FROM python:3.15-alpine
 
 ARG GIT_REVISION=unknown
 # Release version (the git tag) for a published image, "edge" for master builds, "dev" locally.
