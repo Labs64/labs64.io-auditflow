@@ -64,7 +64,7 @@ services:
 
   prometheus:
     # quay.io, like the kube-prometheus-stack chart (not Docker Hub's prom/prometheus).
-    image: quay.io/prometheus/prometheus:v3.15.0-distroless
+    image: quay.io/prometheus/prometheus:v3.15.1-distroless
     container_name: auditflow-prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
