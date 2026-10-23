@@ -82,7 +82,7 @@ services:
       - auditflow-net
 
   grafana:
-    image: grafana/grafana:13.2.3
+    image: grafana/grafana:13.2.4
     container_name: auditflow-grafana
     environment:
       GF_SECURITY_ADMIN_PASSWORD: admin
