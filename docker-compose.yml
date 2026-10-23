@@ -160,7 +160,7 @@ services:
   # exec-plugin (--cerbos-output); mounted here read-only.
   # ─────────────────────────────────────────────────────────────────────────────
   cerbos:
-    image: ghcr.io/cerbos/cerbos:0.56.0
+    image: ghcr.io/cerbos/cerbos:0.57.0
     container_name: auditflow-cerbos
     command: ["server"]
     hostname: cerbos
