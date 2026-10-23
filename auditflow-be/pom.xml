@@ -27,7 +27,7 @@
         <kubernetes-client.version>8.0.0</kubernetes-client.version>
         <aws-sdk.version>2.55.12</aws-sdk.version>
         <bouncycastle.version>1.86</bouncycastle.version>
-        <vertx.version>5.2.0</vertx.version>
+        <vertx.version>5.2.1</vertx.version>
         <opentelemetry-api.version>1.66.0</opentelemetry-api.version>
         <!-- OpenAPI auth preprocessor paths -->
         <openapi.source>${project.basedir}/../auditflow-api/src/main/resources/openapi/openapi-audit-${audit.version}.yaml</openapi.source>
