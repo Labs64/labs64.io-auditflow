@@ -8,7 +8,7 @@ python-multipart==0.0.32
 boto3==1.43.114
 
 # Google Cloud sinks
-google-cloud-storage==3.16.0
+google-cloud-storage==3.17.1
 
 # Azure sinks
 azure-storage-blob==12.31.0
