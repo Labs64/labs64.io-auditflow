@@ -987,6 +987,7 @@ stack is running — the local-dir poller applies changes within ~5 seconds, no 
 | `GET /actuator/metrics/auditflow.pipeline.outcomes` | Router: per-pipeline ENQUEUED/SKIPPED counts |
 | `GET /actuator/metrics/auditflow.delivery.outcomes` | Delivery: delivered/deferred/retried/duplicate per tenant and pipeline |
 | `GET /actuator/metrics/auditflow.delivery.deadlettered` | DLQ entries written, per tenant, pipeline and reason |
+| `GET /actuator/metrics/auditflow.delivery.latency` | Delivery delay, from the router enqueuing a delivery to its sink accepting it (retries included), per tenant and pipeline; fixed buckets 1 s, 10 s, 1 min, 5 min, 15 min, 1 h, 3 h |
 | `GET /actuator/metrics/auditflow.pipeline.duration` | Per-pipeline processing duration |
 | `GET /actuator/dlq/{tenantId}[?limit=N&pipeline=<name>]` | Tenant DLQ inspect: total, counts by pipeline and by reason, legacy share; with `limit` (max 100) also the entries with event, reason, attempts, last error and timestamps; non-destructive |
 | `GET /actuator/pipelines/{tenantId}` | Deployed pipelines with effective retry/batch settings and configuration warnings |
@@ -1238,8 +1239,12 @@ ingest quota (`rateLimitPerSec`/`burst`), then from the in-flight cap.
 
 **Metrics:** `auditflow.delivery.outcomes{tenant,pipeline,outcome}` (delivered, deferred, retried,
 duplicate), `auditflow.delivery.deadlettered{tenant,pipeline,reason}`, `auditflow.delivery.batch.size`,
-`auditflow.pipeline.duration{pipeline,outcome,mode}`. Alert on `deadlettered` > 0 and on the depth of
-`labs64-audit-dlq.*` queues.
+`auditflow.pipeline.duration{pipeline,outcome,mode}`, `auditflow.delivery.latency{tenant,pipeline}` (enqueued to
+delivered, retries included; histogram buckets 1 s … 3 h). Alert on `deadlettered` > 0 and on the depth of the
+tenant DLQs; a delivery-freshness SLO reads the 5-minute bucket:
+`auditflow_delivery_latency_seconds_bucket{le="300.0"}` over `auditflow_delivery_latency_seconds_count` is the
+share delivered within 5 minutes. Every pipeline's `ENQUEUED` (`auditflow.pipeline.outcomes`) ends as delivered,
+duplicate or dead-lettered: a gap between the two over a few hours is deliveries lost without an error.
 
 
 ### Message broker: RabbitMQ or Amazon SQS

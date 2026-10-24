@@ -28,6 +28,7 @@ import io.labs64.audit.tenant.TenantConcurrencyLimiter;
 import io.labs64.audit.tenant.TenantIds;
 import io.labs64.audit.tenant.TenantPipelineRegistry;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -54,6 +55,11 @@ import reactor.core.scheduler.Schedulers;
  */
 @Component
 public class DeliveryWorker {
+
+    /** Bounds of auditflow.delivery.latency: 5 minutes is the freshness SLO's, the rest give the shape up to the 3 h retry. */
+    private static final Duration[] LATENCY_BUCKETS = {
+            Duration.ofSeconds(1), Duration.ofSeconds(10), Duration.ofMinutes(1), Duration.ofMinutes(5),
+            Duration.ofMinutes(15), Duration.ofHours(1), Duration.ofHours(3) };
 
     /** One unit of work: a message for one pipeline of one tenant, with its parsed event. */
     record Delivery(BrokerMessage message, String tenantId, String eventId, PipelineProperties pipeline, JsonNode event) {
@@ -260,6 +266,7 @@ public class DeliveryWorker {
                 meterRegistry.counter("auditflow.tenant.events", "tenant", d.tenantId(),
                         "provider", String.valueOf(tenantRegistry.providerFor(d.tenantId())),
                         "outcome", "delivered").increment();
+                recordLatency(d, pipelineName);
             }
             case POISON -> deadLetters.deadLetter(d.message(), d.tenantId(), DeadLetterReason.POISON, outcome.error());
             case THROTTLED -> {
@@ -284,6 +291,24 @@ public class DeliveryWorker {
                 }
             }
         }
+    }
+
+    /**
+     * How long a delivered event waited, from the router enqueuing it (the first time; retries keep that time) to its
+     * sink accepting it: the delivery-freshness SLO. Bucketed at fixed bounds only, so a "within 5 minutes" ratio is
+     * {@code auditflow_delivery_latency_seconds_bucket{le="300.0"}} over its count, per tenant and pipeline.
+     */
+    private void recordLatency(Delivery d, String pipeline) {
+        long firstEnqueuedAt = DeliveryHeaders.longHeader(d.message(), DeliveryHeaders.FIRST_ENQUEUED_AT, 0);
+        if (firstEnqueuedAt <= 0) {
+            return;
+        }
+        Timer.builder("auditflow.delivery.latency")
+                .description("From the router enqueuing a delivery to its sink accepting it, retries included")
+                .tags("tenant", d.tenantId(), "pipeline", pipeline)
+                .serviceLevelObjectives(LATENCY_BUCKETS)
+                .register(meterRegistry)
+                .record(Math.max(0, System.currentTimeMillis() - firstEnqueuedAt), java.util.concurrent.TimeUnit.MILLISECONDS);
     }
 
     private void timer(String pipeline, String outcome, String mode, long startNanos) {

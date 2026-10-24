@@ -1,6 +1,7 @@
 package io.labs64.audit.delivery;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -44,7 +45,10 @@ import io.labs64.audit.service.QuarantineService;
 import io.labs64.audit.tenant.TenantConcurrencyLimiter;
 import io.labs64.audit.tenant.TenantConfig;
 import io.labs64.audit.tenant.TenantPipelineRegistry;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.prometheusmetrics.PrometheusConfig;
+import io.micrometer.prometheusmetrics.PrometheusMeterRegistry;
 import reactor.core.publisher.Mono;
 
 @ExtendWith(MockitoExtension.class)
@@ -80,8 +84,12 @@ class DeliveryWorkerTest {
     }
 
     private DeliveryWorker newWorker(TenantConcurrencyLimiter limiter) {
+        return newWorker(limiter, new SimpleMeterRegistry());
+    }
+
+    private DeliveryWorker newWorker(TenantConcurrencyLimiter limiter, MeterRegistry meters) {
         return new DeliveryWorker(registry, executor, deliveryQueue, deadLetters, idempotencyService, quarantineService,
-                rateLimiters, limiter, new ObjectMapper(), new SimpleMeterRegistry(), 5, Duration.ofHours(24), 8);
+                rateLimiters, limiter, new ObjectMapper(), meters, 5, Duration.ofHours(24), 8);
     }
 
     private static PipelineProperties pipeline(String name) {
@@ -123,6 +131,22 @@ class DeliveryWorkerTest {
 
         verify(idempotencyService).markPipelineDone("e1", "archive");
         verifyNoInteractions(deliveryQueue, deadLetters);
+    }
+
+    @Test
+    void aDeliveredEventRecordsHowLongItWaitedSinceItWasFirstEnqueued() {
+        PrometheusMeterRegistry meters = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
+        worker = newWorker(concurrencyLimiter, meters);
+        tenant("acme", pipeline("archive"));
+        outcome(Outcome.SUCCESS);
+
+        worker.process(List.of(delivery("acme", "archive", "e1", 2, System.currentTimeMillis() - 90_000)));
+
+        // The freshness SLO's rule reads exactly this bucket: within 5 minutes, not within 1.
+        String scrape = meters.scrape();
+        assertTrue(scrape.contains("auditflow_delivery_latency_seconds_bucket{pipeline=\"archive\",tenant=\"acme\",le=\"300.0\"} 1"), scrape);
+        assertTrue(scrape.contains("auditflow_delivery_latency_seconds_bucket{pipeline=\"archive\",tenant=\"acme\",le=\"60.0\"} 0"), scrape);
+        assertTrue(scrape.contains("auditflow_delivery_latency_seconds_count{pipeline=\"archive\",tenant=\"acme\"} 1"), scrape);
     }
 
     @Test
