@@ -11,7 +11,7 @@
 
 <p align="center"><img src="docs/assets/auditflow-hero.svg" alt="AuditFlow: business applications, platform events, legacy systems and security tooling publish events; AuditFlow ingests, redacts, routes and delivers them to databases, log and stream platforms, archives and security platforms." width="880"></p>
 
-[**Get started**](https://labs64.io/docs/modules/auditflow/#quick-start) · [Built for enterprise landscapes](#built-for-enterprise-landscapes) · [Features](#features) · [Architecture](https://labs64.io/docs/modules/auditflow/#architecture) · [AI agents](#using-auditflow-with-ai-agents) · [Ecosystem](#the-labs64io-ecosystem) · [Documentation](https://labs64.io/docs/modules/auditflow/) · [labs64.io](https://labs64.io)
+[**Get started**](https://labs64.io/docs/modules/auditflow/#quick-start) · [Built for enterprise landscapes](#built-for-enterprise-landscapes) · [Features](#features) · [Architecture](https://labs64.io/docs/modules/auditflow/#architecture) · [AI agents](#using-it-with-ai-agents) · [Ecosystem](#the-labs64io-ecosystem) · [Documentation](https://labs64.io/docs/modules/auditflow/) · [labs64.io](https://labs64.io)
 
 > [!NOTE]
 > AuditFlow is a **router, not a system of record**. It has no database of its own by design; your destinations own retention and query.
@@ -93,15 +93,9 @@ They look alike (both capture events from your services and ship them somewhere)
 
 Both belong in a production system. AuditFlow is built around the assumption that **every event matters**, which is why it has idempotency, a dead-letter queue, retries and ingest-time redaction.
 
-## Using AuditFlow with AI agents
+## Using it with AI agents
 
-AuditFlow gives an agent a durable record of what it did, with one HTTP call per action and no SDK.
-
-- **Emit audit events from an agent.** `POST /audit/publish` (or `/audit/publish/batch`, up to 100 events) with `eventType` (for example `agent.tool.called`), `sourceSystem` (the agent's name) and the details in `extra`. Fields listed in your redaction rules are removed before the event is stored anywhere.
-- **Machine-readable contract.** The OpenAPI v1 spec is served at `/v3/api-docs` and lives in [`openapi-audit-v1.yaml`](auditflow-api/src/main/resources/openapi/openapi-audit-v1.yaml). It is additive-only within v1, so generated clients and tool definitions stay valid.
-- **Errors an agent can act on.** `400` invalid event, `403 TENANT_NOT_PROVISIONED` / `TENANT_DISABLED`, `429` with `Retry-After`, `413` when the event is larger than the broker accepts (about 1 MiB on SQS), `503` when the broker has not confirmed (retry with the same `eventId`; duplicates are suppressed).
-- **Check routing before relying on it.** `POST /actuator/pipelines/<tenantId>/dry-run` shows which pipelines a sample event would reach and why.
-- **Working on the code with an agent?** [`AGENTS.md`](AGENTS.md) and [`CLAUDE.md`](CLAUDE.md) describe the layout, conventions and test commands.
+An agent can record what it did with one HTTP call per action and no SDK. The [guide for AI agents](https://labs64.io/docs/introduction/ai-agents.html) covers authentication, retries and errors across all modules. Working on this repository with an agent? [`AGENTS.md`](AGENTS.md) and [`CLAUDE.md`](CLAUDE.md) describe the layout, conventions and test commands.
 
 ## The Labs64.IO Ecosystem
 
