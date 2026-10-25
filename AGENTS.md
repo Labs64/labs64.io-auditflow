@@ -10,9 +10,9 @@ For codebase questions, run `graphify query "<question>"` when graphify-out/grap
 
 | Path | Service | Stack | Port |
 |------|---------|-------|------|
-| `auditflow-be/` | Backend | Java 25, Spring Boot 4.1, Maven | 8080 |
-| `auditflow-transformer/` | Transformer | Python 3.14, FastAPI | 8081 |
-| `auditflow-sink/` | Sink | Python 3.14, FastAPI | 8082 |
+| `auditflow-be/` | Backend | Java, Spring Boot, Maven (versions: the `labs64io-parent` pom) | 8080 |
+| `auditflow-transformer/` | Transformer | Python, FastAPI | 8081 |
+| `auditflow-sink/` | Sink | Python, FastAPI | 8082 |
 | `auditflow-api/` | API contract + client (shared, validated models) | Java 17, Maven | n/a |
 
 Root files: `justfile` (task runner), `docker-compose.yml` (local stack), `docker-compose-observability.yml` (observability overlay via `just up obs`), `docker-compose-sqs.yml` (backend on Amazon SQS via ElasticMQ, `just up sqs`).
@@ -199,7 +199,7 @@ a unique `extra.op` discriminator so at most one probe can ever match a given te
 
 ## Conventions
 
-- **Java 25, Maven 3.6.3+** enforced by maven-enforcer-plugin.
+- Java and Maven versions are enforced by maven-enforcer-plugin; the numbers live in the poms and `tool-versions.env`, not here.
 - **Versions and the build parent.** The backend inherits `io.labs64:labs64io-parent` (`labs64.io-commons`): the Spring Boot line, BOM security overrides, shared dependency/plugin versions and the commons libraries all come from that one parent version — never re-pin them here. No pom carries a version (`<version>${revision}</version>`, default `0.0.0-SNAPSHOT`): a release is a GitHub Release whose tag `X.Y.Z` becomes the jar, image and chart `appVersion`. A release build refuses `-SNAPSHOT` inputs, so the parent must point at a released version before tagging.
   The same release publishes `io.labs64:auditflow-api` at that version (`labs64io-docker-publish.yml`); `auditflow-api` is a standalone pom on purpose (a plain client for Java 17 consumers).
 - **Two times, no third** (DEVELOPERS.md "Time fields"). `eventTime` = **event time**: when the action happened, the
@@ -233,3 +233,9 @@ a unique `extra.op` discriminator so at most one probe can ever match a given te
 | Observability toggle (local) | `docker-compose-observability.yml` (`just up obs`) — env-only, no rebuild |
 | Business telemetry | `auditflow-be` src/main/java/io/labs64/audit/telemetry/, transformer/sink `telemetry.py` |
 | CPU per event (before sizing requests, after a hot-path change) | `bench/bench.sh` (whole path in Docker at a fixed rate; JFR profiling notes in its header) |
+
+## Working rules for every change
+
+- Judge the change against the **Quality bar for every change** in `labs64.io-workspace/AGENTS.md` (stability of the ecosystem, no regression, no network surprises, performance, HA and resilience, testability, maintainability), and say in the pull request how each applies, or why it does not.
+- Every pull request is assigned to its author and added to the `Labs64.IO` GitHub Project (`labs64.io-workspace/AGENTS.md`, "Pull requests").
+- Before you push: `mvn -B verify -pl auditflow-be -am`, `just test-transformer` and `just test-sink`. AuditFlow is the audit trail of everything else: a change that can drop, duplicate or misroute an event, or leak one tenant's data to another, is a defect in every module that depends on it.
