@@ -71,7 +71,7 @@ services:
   # Query it with `just ch-events` / `just ch "<SQL>"`; the end-to-end round trip with
   # assertions is section 6 of examples/getting-started.ipynb.
   clickhouse:
-    image: clickhouse/clickhouse-server:26.9-alpine
+    image: clickhouse/clickhouse-server:26.10-alpine
     container_name: auditflow-clickhouse
     ports:
       - "8123:8123"    # HTTP interface  →  http://localhost:8123/play
