@@ -20,6 +20,9 @@
 -- Field vocabulary — which `extra` key each column is promoted from, and what it means to a
 -- publisher: the "Field vocabulary" section of NETLICENSING_EVENTS.md.
 
+-- The vendor the event belongs to: all vendors share one tenant, so every vendor report filters on it.
+ALTER TABLE audit.audit_events ADD COLUMN IF NOT EXISTS vendor_number LowCardinality(String);
+
 -- ─────────────────────────────────────────────────────────────────────────────────────────────
 -- Standard API call
 -- ─────────────────────────────────────────────────────────────────────────────────────────────

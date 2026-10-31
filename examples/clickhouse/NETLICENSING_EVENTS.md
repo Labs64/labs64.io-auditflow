@@ -67,6 +67,16 @@ Promoted by the **generic** layer, available to every deployment: `userId`, `act
 
 Promoted by **this** layer:
 
+### Vendor
+
+| `extra` key | Column | Meaning |
+|---|---|---|
+| `vendorNumber` | `vendor_number` | The vendor the event belongs to. All vendors share one tenant, so reports filter on this. |
+
+Request and response bodies (`extra.request.body`, `extra.response.body`) never reach ClickHouse: this
+layer drops them, and the S3 archive keeps them under the same `eventId`. `extra.response.status` also
+fills `response_status`. The rest of `extra.request` and `extra.response` stays in the `extra` map.
+
 ### Standard API call
 
 | `extra` key | Column | Meaning |
