@@ -85,6 +85,7 @@ FULL_EVENT = {
         "durationMs": 128,
         "responseStatus": 200,
         # standard API call
+        "vendorNumber": "V12345678",
         "actionMethod": "payments/pay",
         "statusCode": 200,
         # licensing / validation
@@ -234,7 +235,7 @@ def test_extension_schema_parses_to_a_plausible_column_set():
     core, netlicensing = core_columns(), alter_table_columns(SCHEMA_NETLICENSING_SQL)
     assert {"licensee_number", "gross_amount", "action_method", "validation_args"} <= netlicensing
     assert not core & netlicensing, "a column is declared in both schema files"
-    assert len(_schema_columns()) == 38
+    assert len(_schema_columns()) == 39
 
 
 def test_transformer_output_matches_both_schema_layers_exactly():
@@ -287,3 +288,51 @@ def test_promoted_keys_are_documented_for_publishers():
     doc = EVENTS_DOC.read_text()
     undocumented = sorted(k for k in audit_clickhouse_netlicensing.PROMOTED if f"`{k}`" not in doc)
     assert not undocumented, f"promoted but undocumented in NETLICENSING_EVENTS.md: {undocumented}"
+
+
+CORE_REQUEST_EVENT = {
+    "timestamp": "2026-08-07T10:15:30Z",
+    "eventId": "event-core",
+    "eventType": "netlicensing.request.completed",
+    "sourceSystem": "netlicensing/core",
+    "extra": {
+        "vendorNumber": "V1",
+        "actionName": "licensee/validate",
+        "request": {"method": "POST", "url": "/v", "header": {}, "body": "REQUEST-BODY", "bodyTruncated": True},
+        "response": {"status": 403, "header": {}, "body": "RESPONSE-BODY"},
+    },
+}
+
+
+def test_bodies_never_reach_a_row():
+    row = transform(CORE_REQUEST_EVENT)
+
+    assert "REQUEST-BODY" not in str(row)
+    assert "RESPONSE-BODY" not in str(row)
+    # The rest of the exchange stays queryable.
+    assert '"method":"POST"' in row["extra"]["request"]
+    assert '"bodyTruncated":true' in row["extra"]["request"]
+
+
+def test_core_event_fills_vendor_and_status_columns():
+    row = transform(CORE_REQUEST_EVENT)
+
+    assert row["vendor_number"] == "V1"
+    assert row["response_status"] == 403
+
+
+def test_an_explicit_response_status_wins_over_the_nested_one():
+    event = {"extra": {"responseStatus": 200, "response": {"status": 500}}}
+
+    assert transform(event)["response_status"] == 200
+
+
+def test_the_event_itself_is_left_alone():
+    transform(CORE_REQUEST_EVENT)
+
+    assert CORE_REQUEST_EVENT["extra"]["request"]["body"] == "REQUEST-BODY"
+    assert "responseStatus" not in CORE_REQUEST_EVENT["extra"]
+
+
+def test_a_request_that_is_not_an_object_is_kept():
+    assert transform({"extra": {"request": "plain"}})["extra"]["request"] == "plain"

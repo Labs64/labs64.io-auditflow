@@ -39,6 +39,9 @@ PROPERTIES = {}
 # vocabulary that `audit_clickhouse` promotes on its own (userId, action_*, durationMs,
 # responseStatus) — those are not repeated here.
 PROMOTED = {
+    # The vendor the event belongs to. All vendors share one tenant, so this is what reports filter on.
+    "vendorNumber": "vendor_number",
+
     # Standard API call. `actionMethod` is the wire endpoint (`licensee/validate`), which is a
     # different granularity from the generic `actionName` (the semantic action) — see the note in
     # schema-netlicensing.sql on why both columns exist.
@@ -74,4 +77,33 @@ PROMOTED = {
     "billingPeriod": "billing_period",
 }
 
-transform = make_transform(PROMOTED, module_id=__name__)
+_to_row = make_transform(PROMOTED, module_id=__name__)
+
+
+def _without_body(details):
+    """The HTTP details of one direction, without the body; anything but an object stays as it is."""
+    if not isinstance(details, dict):
+        return details
+    return {key: value for key, value in details.items() if key != "body"}
+
+
+def transform(input_data: dict) -> dict:
+    """One ClickHouse row, never with a request or response body: those stay in the S3 archive.
+
+    Rows and archive objects share `eventId`, so a body is fetched by that id. A dropped body is
+    deliberate, a domain exception to the generic "nothing is dropped": bodies are large, carry
+    customer data, and no query groups on them. `extra.response.status` also fills `response_status`.
+    """
+    extra = dict(input_data.get("extra") or {})
+    for direction in ("request", "response"):
+        if direction in extra:
+            extra[direction] = _without_body(extra[direction])
+
+    response = extra.get("response")
+    if extra.get("responseStatus") is None and isinstance(response, dict):
+        extra["responseStatus"] = response.get("status")
+
+    return _to_row({**input_data, "extra": extra})
+
+
+transform.promoted = _to_row.promoted
