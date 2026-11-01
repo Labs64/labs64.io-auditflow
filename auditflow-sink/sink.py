@@ -5,6 +5,8 @@ from concurrent.futures import ThreadPoolExecutor
 import sys
 import os
 import logging
+import asyncio
+import faulthandler
 
 from contextlib import asynccontextmanager
 from plugin_registry import PluginRegistry, PluginNotFoundError, VALID_ID
@@ -14,13 +16,32 @@ from health import set_ready, health, readiness, liveness, service_info, suppres
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 app_logger = logging.getLogger(__name__)
 
+# If the event loop stops answering (the liveness probe then fails and Kubernetes restarts the container within about
+# 30 s), the interpreter's own watchdog thread, which needs no GIL, writes every thread's stack to stderr. The loop
+# re-arms it every few seconds; without it a hang leaves only "no answer within 15000ms" in the backend's log.
+_WATCHDOG_REARM_SECONDS = 5
+_WATCHDOG_DUMP_AFTER_SECONDS = 20
+
+
+async def _event_loop_watchdog():
+    while True:
+        faulthandler.dump_traceback_later(_WATCHDOG_DUMP_AFTER_SECONDS, repeat=False)
+        await asyncio.sleep(_WATCHDOG_REARM_SECONDS)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Set service as ready after startup completes."""
     suppress_health_access_logs()
+    faulthandler.enable()  # a crash prints the stacks as well
+    watchdog = asyncio.create_task(_event_loop_watchdog())
     set_ready(True)
     app_logger.info("Sink service started and ready")
-    yield
+    try:
+        yield
+    finally:
+        watchdog.cancel()
+        faulthandler.cancel_dump_traceback_later()
 
 app = FastAPI(
     title="Labs64.IO :: AuditFlow - Event Sink Service",

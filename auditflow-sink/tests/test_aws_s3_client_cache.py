@@ -39,17 +39,26 @@ def test_credentials_and_endpoint_are_passed_to_boto3(fresh_cache):
                                       "endpoint-url": "http://minio:9000"})
     (args, kwargs), = fresh_cache
     assert args == ("s3",)
-    assert kwargs == {"region_name": "eu-west-1", "aws_access_key_id": "AK",
-                      "aws_secret_access_key": "SK", "endpoint_url": "http://minio:9000"}
+    assert {k: v for k, v in kwargs.items() if k != "config"} == {
+        "region_name": "eu-west-1", "aws_access_key_id": "AK", "aws_secret_access_key": "SK",
+        "endpoint_url": "http://minio:9000"}
 
 
 def test_default_credential_chain_when_no_keys(fresh_cache):
     aws_s3_sink.process(dict(EVENT), PROPS)
     (_, kwargs), = fresh_cache
-    assert kwargs == {"region_name": "eu-west-1"}
+    assert {k: v for k, v in kwargs.items() if k != "config"} == {"region_name": "eu-west-1"}
 
 
 def test_cache_is_bounded(fresh_cache):
     for i in range(aws_s3_sink._MAX_CLIENTS + 5):
         aws_s3_sink._get_s3_client(f"r{i}", None, None, None)
     assert len(aws_s3_sink._CLIENTS) <= aws_s3_sink._MAX_CLIENTS
+
+
+def test_the_client_gives_up_in_seconds_not_minutes(fresh_cache):
+    aws_s3_sink.process(dict(EVENT), PROPS)
+    (args, kwargs), = fresh_cache
+    config = kwargs["config"]
+    assert config.connect_timeout <= 3 and config.read_timeout <= 10
+    assert config.retries["max_attempts"] <= 3
