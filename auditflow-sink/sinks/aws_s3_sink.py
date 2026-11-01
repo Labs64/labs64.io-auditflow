@@ -9,6 +9,7 @@ import json
 import gzip
 import re
 import threading
+import time
 import uuid
 
 from auditflow_sdk import batch_object_name, event_time, jsonl_body, received_at
@@ -46,10 +47,20 @@ _DIGESTS = None
 
 try:
     import boto3
+    from botocore.config import Config
     from botocore.exceptions import ClientError
 except ImportError:
     logger.error("boto3 is not installed. Install with: pip install boto3")
     boto3 = None
+    Config = None
+
+# AuditFlow waits 15 s for a call to the sink. botocore's own defaults (60 s to connect and to read, retries on
+# top) would let one stuck connection hold a worker for minutes, so a PUT gives up after about 14 s at the
+# most, and a batch stops starting new PUTs once its budget is used: what is left is failed as retryable.
+_CONNECT_TIMEOUT_SECONDS = 2
+_READ_TIMEOUT_SECONDS = 5
+_MAX_ATTEMPTS = 2
+_BATCH_BUDGET_SECONDS = 10
 
 
 def process(event_data: dict, properties: dict) -> dict:
@@ -202,7 +213,14 @@ def process_batch(events: list, properties: dict) -> list:
         groups.setdefault(key.rsplit('/', 1)[0], []).append(index)
 
     outcomes = [None] * len(events)
+    deadline = time.monotonic() + _BATCH_BUDGET_SECONDS
     for key_prefix, indexes in groups.items():
+        if time.monotonic() > deadline:
+            logger.error("Batch time budget of %d s used up; %d event(s) left for the next delivery",
+                         _BATCH_BUDGET_SECONDS, len(indexes))
+            for i in indexes:
+                outcomes[i] = RuntimeError("Batch time budget used up before this group was written")
+            continue
         group = [events[i] for i in indexes]
         object_key = batch_object_key(key_prefix, group, compress)
         body = jsonl_body(group, compress)
@@ -330,7 +348,9 @@ def _get_s3_client(region, access_key_id, secret_access_key, endpoint_url):
     with _CLIENTS_LOCK:
         client = _CLIENTS.get(key)
         if client is None:
-            kwargs = {'region_name': region}
+            kwargs = {'region_name': region,
+                      'config': Config(connect_timeout=_CONNECT_TIMEOUT_SECONDS, read_timeout=_READ_TIMEOUT_SECONDS,
+                                       retries={'max_attempts': _MAX_ATTEMPTS, 'mode': 'standard'})}
             if access_key_id and secret_access_key:
                 kwargs['aws_access_key_id'] = access_key_id
                 kwargs['aws_secret_access_key'] = secret_access_key

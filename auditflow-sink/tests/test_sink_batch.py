@@ -148,6 +148,15 @@ def test_a_failed_put_fails_only_its_group(monkeypatch):
     assert isinstance(outcomes[1], Exception)
 
 
+def test_a_batch_stops_starting_puts_once_its_budget_is_used_and_fails_the_rest_as_retryable(monkeypatch, s3):
+    clock = iter([0, 0, 11, 11, 11])
+    monkeypatch.setattr(aws_s3_sink.time, "monotonic", lambda: next(clock))
+    outcomes = aws_s3_sink.process_batch([event(1, "V1"), event(2, "V2")], PROPS)
+    assert isinstance(outcomes[0], dict)
+    assert isinstance(outcomes[1], RuntimeError) and not isinstance(outcomes[1], ValueError)
+    assert len(s3.puts) == 1
+
+
 def test_missing_bucket_is_a_value_error():
     with pytest.raises(ValueError):
         aws_s3_sink.process_batch([event(1, "V1")], {})
