@@ -333,8 +333,10 @@ directory; the registry reports any other `.py` file as a broken plugin.
 
 Nothing fails if a layer is only half-applied: the sink inserts with
 `input_format_skip_unknown_fields=1`, so a promoted key with no column is dropped at insert time
-rather than dead-lettering the event, and applying only `schema.sql` stays supported. That
-tolerance is also why the pairing needs a test —
+rather than dead-lettering the event, and applying only `schema.sql` stays supported. A deployment that would
+rather hear about it sets the sink property `unknown-columns: reject`: the insert then fails, and the
+event is retried and dead-lettered, replayable once the column exists. That tolerance is also why the
+pairing needs a test —
 `auditflow-transformer/tests/test_audit_clickhouse_netlicensing.py` asserts that every promoted key
 has a column, every column has a key, and every key is documented for publishers.
 
@@ -390,8 +392,8 @@ environment:
 ```
 
 Either path needs the same second half: a matching column in the sink schema. ClickHouse inserts
-with `input_format_skip_unknown_fields=1`, so a promoted key with no column is **silently dropped at
-insert time**, not rejected — that is true of the module path and the config-only path equally;
+with `input_format_skip_unknown_fields=1` by default, so a promoted key with no column is **silently
+dropped at insert time**, not rejected, unless the sink sets `unknown-columns: reject` — that is true of the module path and the config-only path equally;
 neither one is schema-agnostic on its own.
 
 Precedence, lowest to highest: the module's built-in vocabulary → its `make_transform(extra_promoted)`

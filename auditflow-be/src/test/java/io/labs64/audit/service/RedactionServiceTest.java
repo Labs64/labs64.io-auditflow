@@ -194,4 +194,41 @@ class RedactionServiceTest {
         service(true, rule("extra.userEmail", RedactionProperties.Action.MASK)).redact(event);
         assertEquals("alice", event.path("actor").asText());
     }
+
+    @Test
+    @DisplayName("A rule that can never match stops the application at startup")
+    void aRuleWithoutAFieldOrActionFailsFast() {
+        for (String field : new String[] {null, "", "   ", "."}) {
+            assertThrows(IllegalStateException.class, () -> service(true, rule(field, RedactionProperties.Action.MASK)));
+        }
+        assertThrows(IllegalStateException.class, () -> service(true, rule("actor", null)));
+    }
+
+    @Test
+    @DisplayName("A rule failing at runtime stops the publish and does not quote the value")
+    void aFailingRuleFailsClosed() {
+        boolean[] broken = {false};
+        RedactionProperties.Rule failing = new RedactionProperties.Rule() {
+            @Override
+            public RedactionProperties.Action getAction() {
+                if (broken[0]) {
+                    throw new IllegalArgumentException("the value was s3cr3t");
+                }
+                return RedactionProperties.Action.MASK;
+            }
+        };
+        failing.setField("actor");
+        RedactionService service = service(true, failing);
+        broken[0] = true;
+
+        IllegalStateException e = assertThrows(IllegalStateException.class, () -> service.redact(node("{\"actor\":\"s3cr3t\"}")));
+        assertTrue(e.getMessage().contains("actor"), e.getMessage());
+        assertFalse(e.getMessage().contains("s3cr3t"), e.getMessage());
+    }
+
+    @Test
+    @DisplayName("A disabled policy is not validated: nothing of it runs")
+    void aDisabledPolicyIsNotValidated() {
+        service(false, rule(null, null));
+    }
 }

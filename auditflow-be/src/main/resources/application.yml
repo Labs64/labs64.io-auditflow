@@ -178,6 +178,8 @@ auditflow:
   # Message broker of the two-stage delivery model (package broker/; topology: broker/rabbit/RabbitTopology,
   # broker/sqs/SqsQueueNames).
   broker:
+    # guest/guest stops the start unless this is true, which only a local stack should set.
+    allow-default-credentials: ${AUDITFLOW_BROKER_ALLOW_DEFAULT_CREDENTIALS:false}
     # rabbitmq (default; spring.rabbitmq.* above) or sqs (Amazon SQS; auditflow.broker.sqs.* below).
     type: ${AUDITFLOW_BROKER_TYPE:rabbitmq}
     # RabbitMQ: classic (default) or quorum (replicated; for multi-node brokers such as an Amazon MQ

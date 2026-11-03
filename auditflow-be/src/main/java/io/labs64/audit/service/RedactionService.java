@@ -38,8 +38,26 @@ public class RedactionService {
     private final SecretKeySpec hashKey;
 
     public RedactionService(RedactionProperties properties) {
+        validate(properties);
         this.properties = properties;
         this.hashKey = hashKey(properties);
+    }
+
+    /**
+     * A rule that can never match stops the application: the operator believes a field is protected
+     * while its raw value reaches the broker. Only enabled rules count, as a disabled policy runs nothing.
+     */
+    private static void validate(RedactionProperties properties) {
+        if (!properties.isEnabled()) {
+            return;
+        }
+        for (int i = 0; i < properties.getRules().size(); i++) {
+            RedactionProperties.Rule rule = properties.getRules().get(i);
+            if (rule.getAction() == null || rule.getField() == null || rule.getField().isBlank()
+                    || parsePath(rule.getField()).isEmpty()) {
+                throw new IllegalStateException("auditflow.redaction.rules[" + i + "] needs a field and an action");
+            }
+        }
     }
 
     /**
@@ -75,20 +93,23 @@ public class RedactionService {
         return properties.isEnabled();
     }
 
-    /** Apply every configured rule to the event tree, mutating it in place. */
+    /**
+     * Apply every configured rule to the event tree, mutating it in place. A rule that fails stops the
+     * publish: the client sees an error and retries, while going on would put the raw value in the broker.
+     *
+     * @throws IllegalStateException when a rule could not be applied; names the field, never a value
+     */
     public void redact(JsonNode root) {
         if (!properties.isEnabled() || root == null) {
             return;
         }
         for (RedactionProperties.Rule rule : properties.getRules()) {
-            if (rule.getField() == null || rule.getField().isBlank()) {
-                continue;
-            }
             try {
                 applyRule(root, rule);
-            } catch (Exception e) {
-                // Never let a redaction rule break publishing; log and continue.
-                logger.warn("Redaction rule for field '{}' failed: {}", rule.getField(), e.getMessage());
+            } catch (RuntimeException e) {
+                // The cause's message may quote the value, so it goes neither in the exception nor the log.
+                throw new IllegalStateException("Redaction rule for field '" + rule.getField() + "' failed ("
+                        + e.getClass().getSimpleName() + "); the event was not published");
             }
         }
     }
@@ -156,7 +177,7 @@ public class RedactionService {
     }
 
     /** Split a path like {@code items[0].name} into {@code [items, 0, name]}. */
-    private List<String> parsePath(String path) {
+    private static List<String> parsePath(String path) {
         List<String> tokens = new ArrayList<>();
         for (String segment : path.split("\\.")) {
             if (segment.isEmpty()) {

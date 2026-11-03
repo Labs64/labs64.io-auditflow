@@ -195,4 +195,22 @@ class GlobalExceptionHandlerTest {
                 .andExpect(jsonPath("$.code").value("TENANT_RATE_LIMITED"));
     }
 
+    /** This runs before redaction, and the parser's own message quotes the value it rejected. */
+    @Test
+    void aMalformedBodyIsNotQuotedInTheLog() throws Exception {
+        ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(GlobalExceptionHandler.class);
+        ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> logs = new ch.qos.logback.core.read.ListAppender<>();
+        logs.start();
+        logger.addAppender(logs);
+        try {
+            mockMvc.perform(post("/audit/publish").contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"eventType\":\"e\",\"sourceSystem\":\"s\",\"eventId\":\"PLANTED-SECRET\"}"))
+                    .andExpect(status().isBadRequest());
+        } finally {
+            logger.detachAppender(logs);
+        }
+        org.junit.jupiter.api.Assertions.assertFalse(logs.list.isEmpty());
+        org.junit.jupiter.api.Assertions.assertFalse(
+                logs.list.stream().anyMatch(line -> line.getFormattedMessage().contains("PLANTED-SECRET")));
+    }
 }

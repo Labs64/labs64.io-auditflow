@@ -59,7 +59,7 @@ import requests
 
 from auditflow_sdk import deliver_each, require_properties, sql_identifier
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 PROPERTIES = {
     "service-url": "ClickHouse HTTP endpoint, e.g. http://clickhouse:8123 (required)",
@@ -79,6 +79,9 @@ PROPERTIES = {
     "async-insert-busy-timeout-min-ms": "Lower bound of the adaptive window in ms; no effect once "
                                         "async-insert-use-adaptive-busy-timeout is false "
                                         "(optional, ClickHouse default: 50)",
+    "unknown-columns": "A row key the table has no column for: drop (default) loses that value silently; "
+                       "reject fails the insert, so the event is retried and dead-lettered, replayable "
+                       "once the column exists. reject needs wait-for-async-insert",
     "timeout": "HTTP timeout in seconds; must stay comfortably above the flush window "
                "(default: 10)",
 }
@@ -89,6 +92,17 @@ logger = logging.getLogger(__name__)
 def _is_true(properties: dict, key: str, default: str = "true") -> bool:
     """Pipeline properties arrive as strings from YAML; parse booleans defensively."""
     return str(properties.get(key, default)).strip().lower() == "true"
+
+
+def _skip_unknown_fields(properties: dict) -> str:
+    """The setting for ``unknown-columns``. A typo must not fall back to losing data silently."""
+    mode = str(properties.get("unknown-columns", "drop")).strip().lower()
+    if mode not in ("drop", "reject"):
+        raise ValueError(f"unknown-columns must be drop or reject, not '{mode}'")
+    # Without the wait nobody hears of the refusal: the row would be lost, and silently, the very thing asked against.
+    if mode == "reject" and _is_true(properties, "async-insert") and not _is_true(properties, "wait-for-async-insert"):
+        raise ValueError("unknown-columns: reject needs wait-for-async-insert: true")
+    return "1" if mode == "drop" else "0"
 
 
 def process(event_data: dict, properties: dict) -> dict:
@@ -140,8 +154,8 @@ def _insert(rows: list, properties: dict) -> dict:
         "query": f"INSERT INTO {database}.{table} FORMAT JSONEachRow",
         # AuditFlow emits ISO-8601 with a trailing Z; best_effort is what lets DateTime64 read it.
         "date_time_input_format": "best_effort",
-        # Make transformer drift a dropped key rather than a failed delivery.
-        "input_format_skip_unknown_fields": "1",
+        # drop: transformer drift loses a key rather than failing the delivery. reject: it fails loudly.
+        "input_format_skip_unknown_fields": _skip_unknown_fields(properties),
     }
 
     if _is_true(properties, "async-insert"):
