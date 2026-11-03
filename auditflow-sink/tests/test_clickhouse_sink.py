@@ -180,3 +180,60 @@ def test_transport_error_becomes_a_runtime_error(mock_post):
 
     with pytest.raises(RuntimeError, match="Failed to reach ClickHouse"):
         clickhouse_sink.process(ROW, BASE_PROPERTIES)
+
+
+@patch("requests.post")
+def test_unknown_columns_are_dropped_by_default(mock_post):
+    mock_post.return_value = _ok_response()
+
+    clickhouse_sink.process(ROW, BASE_PROPERTIES)
+
+    assert mock_post.call_args.kwargs["params"]["input_format_skip_unknown_fields"] == "1"
+
+
+@pytest.mark.parametrize("value", ["reject", "REJECT", " reject "])
+@patch("requests.post")
+def test_unknown_columns_can_be_rejected(mock_post, value):
+    mock_post.return_value = _ok_response()
+
+    clickhouse_sink.process(ROW, {**BASE_PROPERTIES, "unknown-columns": value})
+
+    assert mock_post.call_args.kwargs["params"]["input_format_skip_unknown_fields"] == "0"
+
+
+@patch("requests.post")
+def test_a_rejected_row_fails_the_delivery(mock_post):
+    response = MagicMock()
+    response.status_code = 400
+    response.headers = {"X-ClickHouse-Exception-Code": "117"}
+    response.text = "Unknown field found while parsing JSONEachRow format: vendor_number"
+    response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=response)
+    mock_post.return_value = response
+
+    with pytest.raises(RuntimeError, match="vendor_number"):
+        clickhouse_sink.process(ROW, {**BASE_PROPERTIES, "unknown-columns": "reject"})
+
+
+@patch("requests.post")
+def test_a_misspelled_mode_is_poison_and_sends_nothing(mock_post):
+    with pytest.raises(ValueError, match="must be drop or reject"):
+        clickhouse_sink.process(ROW, {**BASE_PROPERTIES, "unknown-columns": "rejct"})
+    mock_post.assert_not_called()
+
+
+@patch("requests.post")
+def test_reject_without_waiting_for_the_insert_is_refused(mock_post):
+    with pytest.raises(ValueError, match="wait-for-async-insert"):
+        clickhouse_sink.process(ROW, {**BASE_PROPERTIES, "unknown-columns": "reject",
+                                      "wait-for-async-insert": "false"})
+    mock_post.assert_not_called()
+
+
+@patch("requests.post")
+def test_reject_needs_no_wait_on_a_synchronous_insert(mock_post):
+    mock_post.return_value = _ok_response()
+
+    clickhouse_sink.process(ROW, {**BASE_PROPERTIES, "unknown-columns": "reject", "async-insert": "false",
+                                  "wait-for-async-insert": "false"})
+
+    assert mock_post.call_args.kwargs["params"]["input_format_skip_unknown_fields"] == "0"

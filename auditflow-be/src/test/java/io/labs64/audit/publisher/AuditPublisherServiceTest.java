@@ -1,6 +1,7 @@
 package io.labs64.audit.publisher;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -69,5 +70,59 @@ class AuditPublisherServiceTest {
         broker.failWith("no broker confirm within timeout");
 
         assertEquals("no broker confirm within timeout", service.publishMessage(event(0)));
+    }
+
+    /**
+     * The golden test of the promise "raw PII never enters the broker". Everything after ingest (delivery, retries, DLQ)
+     * derives from this message body, so what is not here can't reach them.
+     */
+    @Test
+    void plantedSecretsReachNeitherTheBrokerNorTheLogs() {
+        RedactionProperties properties = new RedactionProperties();
+        properties.setEnabled(true);
+        properties.setHashKey("0123456789abcdef0123456789abcdef");
+        RedactionProperties.Rule mask = new RedactionProperties.Rule();
+        mask.setField("extra.mailbox");
+        mask.setAction(RedactionProperties.Action.MASK);
+        RedactionProperties.Rule hash = new RedactionProperties.Rule();
+        hash.setField("extra.account");
+        hash.setAction(RedactionProperties.Action.HASH);
+        RedactionProperties.Rule drop = new RedactionProperties.Rule();
+        drop.setField("extra.token");
+        drop.setAction(RedactionProperties.Action.DROP);
+        properties.setRules(List.of(mask, hash, drop));
+        AuditPublisherService redacting = new AuditPublisherService(broker, MAPPER, new RedactionService(properties));
+
+        ch.qos.logback.classic.Logger root = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger("io.labs64.audit");
+        ch.qos.logback.classic.Level level = root.getLevel();
+        ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> logs = new ch.qos.logback.core.read.ListAppender<>();
+        logs.start();
+        root.addAppender(logs);
+        root.setLevel(ch.qos.logback.classic.Level.TRACE);
+        try {
+            AuditEvent event = new AuditEvent().eventId(UUID.randomUUID()).eventType("user.login").sourceSystem("auth")
+                    .extra(java.util.Map.of("mailbox", "PLANTED-MAIL", "account", "PLANTED-ACCOUNT", "token", "PLANTED-TOKEN", "kept", "visible"));
+
+            assertNull(redacting.publishMessage(event));
+        } finally {
+            root.setLevel(level);
+            root.detachAppender(logs);
+        }
+
+        String body = new String(broker.published().get(0).message().body(), java.nio.charset.StandardCharsets.UTF_8);
+        assertTrue(body.contains("visible"), body);
+        assertFalse(body.contains("PLANTED"), body);
+        assertFalse(logs.list.stream().anyMatch(line -> line.getFormattedMessage().contains("PLANTED")));
+    }
+
+    @Test
+    void aRedactionFailureFailsTheWholeCallAndPublishesNothing() {
+        RedactionService failing = org.mockito.Mockito.mock(RedactionService.class);
+        org.mockito.Mockito.doThrow(new IllegalStateException("rule failed")).when(failing).redact(org.mockito.ArgumentMatchers.any());
+        AuditPublisherService publisher = new AuditPublisherService(broker, MAPPER, failing);
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class, () -> publisher.publishMessages(List.of(event(0), event(0))));
+
+        assertTrue(broker.published().isEmpty());
     }
 }

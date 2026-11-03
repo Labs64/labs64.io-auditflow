@@ -106,7 +106,8 @@ public class GlobalExceptionHandler {
         } else {
             message = "Malformed request body";
         }
-        logger.warn("Malformed request body: {}", ex.getMessage());
+        // Not ex.getMessage(): the parser quotes the rejected value, and this runs before redaction.
+        logger.warn("Malformed request body: {}", message);
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(buildError(ErrorCode.VALIDATION_ERROR, message));
     }

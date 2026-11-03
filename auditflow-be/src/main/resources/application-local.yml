@@ -1,3 +1,8 @@
+auditflow:
+  broker:
+    # This profile's guest/guest below; DefaultBrokerCredentialsGuard refuses them everywhere else.
+    allow-default-credentials: true
+
 spring:
   rabbitmq:
     host: localhost
