@@ -188,10 +188,11 @@ stack has no gateway in front of it.
 | `condition_operators.robot` | Every `ConditionEvaluator` operator branch + match:all/any |
 | `redaction.robot` | PII masking before publish (baseline + local-k8s content corroboration) |
 | `dlq_replay.robot` | DLQ inspect is non-destructive; replay drains and is tenant-scoped |
+| `pipeline_steps.robot` | A publisher-set `context` is refused (single and batch), an empty one accepted; a step's failure dead-letters with `stepsDone` (second step) or none (first step), once |
 | `quota_enforcement.robot` | Per-tenant token bucket: 429 + Retry-After, recovery |
 | `secret_ref_resolution.robot` | Resolvable vs. missing `${secretRef:...}` — fail-closed, never blank |
 
-The last six use a dedicated `t_regression`/`t_regression_quota` tenant pair (mock-oidc personas
+The last seven use a dedicated `t_regression`/`t_regression_quota` tenant pair (mock-oidc personas
 `auditflow-regression`/`auditflow-regression-quota`, provisioned in
 `overrides/auditflow/values.local.yaml` in `labs64.io-helm-charts`) — deliberately aggressive
 fixtures (tiny quotas, pipelines that always fail via an unresolvable secretRef) that must never
