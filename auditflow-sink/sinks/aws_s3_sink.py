@@ -348,14 +348,23 @@ def _placeholder_value(event_data: dict, field: str, raw_options: str) -> str:
     return options['default']
 
 
+class _NoTelemetry:
+    def partition_value_defaulted(self, sink_id, field):
+        pass
+
+
 _TELEMETRY = None
 
 
 def _telemetry():
+    """The sink service's business telemetry; a no-op where this module is loaded outside the service."""
     global _TELEMETRY
     if _TELEMETRY is None:
-        from telemetry import get_business_telemetry  # service root, like auditflow_sdk
-        _TELEMETRY = get_business_telemetry()
+        try:
+            from telemetry import get_business_telemetry  # service root, like auditflow_sdk
+            _TELEMETRY = get_business_telemetry()
+        except ImportError:
+            _TELEMETRY = _NoTelemetry()
     return _TELEMETRY
 
 
