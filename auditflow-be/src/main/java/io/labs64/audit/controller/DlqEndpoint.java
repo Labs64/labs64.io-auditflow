@@ -235,6 +235,11 @@ public class DlqEndpoint {
             String attempts = nullable(resp, DeliveryHeaders.ATTEMPTS);
             entry.put("attempts", attempts == null || !attempts.matches("\\d{1,9}") ? attempts : Integer.valueOf(attempts));
             entry.put("lastError", nullable(resp, DeliveryHeaders.LAST_ERROR));
+            // A pipeline with steps: how many were done; a replay continues at the next one.
+            String stepsDone = nullable(resp, DeliveryHeaders.STEPS_DONE);
+            if (stepsDone != null) {
+                entry.put("stepsDone", stepsDone.matches("\\d{1,9}") ? Integer.valueOf(stepsDone) : stepsDone);
+            }
             entry.put("deadLetteredAt", instant(nullable(resp, DeliveryHeaders.DLQ_AT)));
             entry.put("firstEnqueuedAt", instant(nullable(resp, DeliveryHeaders.FIRST_ENQUEUED_AT)));
         }

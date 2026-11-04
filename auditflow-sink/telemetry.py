@@ -13,6 +13,9 @@ class NoopBusinessTelemetry:
     def sink_completed(self, sink_id, success):
         pass
 
+    def partition_value_defaulted(self, sink_id, field):
+        pass
+
 
 class OtelBusinessTelemetry:
     """Adds business events to the current auto-instrumented span via opentelemetry-api.
@@ -28,6 +31,13 @@ class OtelBusinessTelemetry:
         self._trace.get_current_span().add_event(
             "auditflow.sink.completed",
             {"auditflow.sink": str(sink_id), "auditflow.success": bool(success)},
+        )
+
+    def partition_value_defaulted(self, sink_id, field):
+        """A key placeholder fell back to its default (value missing or not allowed). The field, never the value."""
+        self._trace.get_current_span().add_event(
+            "auditflow.partition.defaulted",
+            {"auditflow.sink": str(sink_id), "auditflow.field": str(field)},
         )
 
 

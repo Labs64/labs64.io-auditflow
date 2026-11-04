@@ -232,7 +232,11 @@ def _run_batch(process_function, events, properties):
             results.append({"index": i, "status": "error", "retryable": not isinstance(outcome, ValueError),
                             "error": str(outcome)[:500]})
         else:
-            results.append({"index": i, "status": "success"})
+            result = {"index": i, "status": "success"}
+            # What a sink returns as `context` goes back to AuditFlow for the next step of a pipeline with steps.
+            if isinstance(outcome, dict) and isinstance(outcome.get("context"), dict):
+                result["context"] = outcome["context"]
+            results.append(result)
     return results
 
 

@@ -160,3 +160,34 @@ def test_a_batch_stops_starting_puts_once_its_budget_is_used_and_fails_the_rest_
 def test_missing_bucket_is_a_value_error():
     with pytest.raises(ValueError):
         aws_s3_sink.process_batch([event(1, "V1")], {})
+
+
+# --- pipeline steps: the context a sink returns for the next step ---
+
+def test_each_event_of_a_batch_gets_the_key_of_the_object_that_holds_it_as_context(s3):
+    events = [event(1, "V1"), event(2, "V2"), event(3, "V1")]
+    outcomes = aws_s3_sink.process_batch(events, PROPS)
+    keys = {p["Key"].split("/")[2]: p["Key"] for p in s3.puts}  # vendor_number=... -> key
+    assert outcomes[0]["context"] == {"bucket": "b", "key": keys["vendor_number=V1"]}
+    assert outcomes[2]["context"] == outcomes[0]["context"]
+    assert outcomes[1]["context"]["key"] == keys["vendor_number=V2"]
+
+
+def test_a_single_event_write_returns_its_key_as_context(s3):
+    result = aws_s3_sink.process(event(1, "V1"), PROPS)
+    assert result["context"] == {"bucket": "b", "key": s3.puts[0]["Key"]}
+
+
+def test_the_batch_endpoint_passes_a_sinks_context_through_and_omits_it_when_there_is_none(monkeypatch):
+    def process(event, properties):
+        raise AssertionError("unused")
+
+    def process_batch(events, properties):
+        return [{"context": {"key": "k1"}}, {"sent": True}, {"context": "not an object"}]
+
+    _fake_sink_module(monkeypatch, "fake_sink_ctx", process, process_batch)
+    response = client.post("/sink/fake/batch", json={"events": [{"eventId": "1"}, {"eventId": "2"}, {"eventId": "3"}]})
+    results = response.json()["results"]
+    assert results[0]["context"] == {"key": "k1"}
+    assert "context" not in results[1]
+    assert "context" not in results[2]  # only a JSON object is a context

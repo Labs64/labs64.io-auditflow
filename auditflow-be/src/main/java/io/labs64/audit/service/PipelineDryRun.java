@@ -18,6 +18,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.labs64.audit.config.AuditFlowConfiguration.PipelineProperties;
+import io.labs64.audit.config.AuditFlowConfiguration.StepProperties;
 import io.labs64.audit.config.AuditFlowConfiguration.TransformerProperties;
 import io.labs64.audit.delivery.RetryPolicy;
 import io.labs64.audit.tenant.PipelineSet;
@@ -39,7 +40,16 @@ public class PipelineDryRun {
     /** One pipeline's verdict for one event. */
     public record PipelineReport(String name, boolean enabled, boolean matched, String reason, String sink,
                                  List<String> transformers, int maxAttempts, String maxAge, boolean batch,
-                                 Integer batchMaxSize, JsonNode transformed, String transformError) {
+                                 Integer batchMaxSize, JsonNode transformed, String transformError,
+                                 List<StepReport> steps) {
+    }
+
+    /**
+     * One step of a pipeline with {@code steps}. In a dry run no sink is called, so a later step's
+     * transformers run without the context its earlier steps would return ({@code withoutContext}).
+     */
+    public record StepReport(String name, List<String> transformers, String sink, JsonNode transformed,
+                             String transformError, boolean withoutContext) {
     }
 
     /** All pipelines for one event; {@code matched} lists the names it would be delivered to. */
@@ -147,24 +157,53 @@ public class PipelineDryRun {
         }
         JsonNode transformed = null;
         String transformError = null;
-        if (matched && transform) {
-            try {
-                JsonNode current = event;
-                for (String name : transformers) {
-                    if (TransformationService.isIdentity(name)) {
-                        continue;
+        List<StepReport> steps = null;
+        if (p.hasSteps()) {
+            steps = new ArrayList<>();
+            int index = 0;
+            for (StepProperties step : p.getSteps()) {
+                List<String> names = names(step.getEffectiveTransformers());
+                JsonNode stepOut = null;
+                String stepError = null;
+                if (matched && transform) {
+                    try {
+                        stepOut = transformAll(event, names);
+                    } catch (Exception ex) {
+                        stepError = ex.getMessage();
                     }
-                    String out = transformationService.transform(current, name).block(TRANSFORM_TIMEOUT);
-                    current = objectMapper.readTree(out);
                 }
-                transformed = current;
+                steps.add(new StepReport(step.getName(), names, step.getSink() == null ? null : step.getSink().getName(),
+                        stepOut, stepError, index > 0));
+                index++;
+            }
+        } else if (matched && transform) {
+            try {
+                transformed = transformAll(event, transformers);
             } catch (Exception ex) {
                 transformError = ex.getMessage();
             }
         }
         return new PipelineReport(p.getName(), p.isEnabled(), matched, reason,
                 p.getSink() == null ? null : p.getSink().getName(), transformers, policy.maxAttempts(),
-                policy.maxAge().toString(), batch, batch ? p.getBatch().getMaxSize() : null, transformed, transformError);
+                policy.maxAge().toString(), batch, batch ? p.getBatch().getMaxSize() : null, transformed, transformError,
+                steps);
+    }
+
+    private JsonNode transformAll(JsonNode event, List<String> transformers) throws Exception {
+        JsonNode current = event;
+        for (String name : transformers) {
+            if (TransformationService.isIdentity(name)) {
+                continue;
+            }
+            String out = transformationService.transform(current, name).block(TRANSFORM_TIMEOUT);
+            current = objectMapper.readTree(out);
+        }
+        return current;
+    }
+
+    private static List<String> names(List<TransformerProperties> stages) {
+        return stages.stream().filter(t -> t != null && StringUtils.hasText(t.getName()))
+                .map(TransformerProperties::getName).toList();
     }
 
     /** Configuration problems that do not fail parsing but make a pipeline misbehave silently. */
@@ -183,14 +222,18 @@ public class PipelineDryRun {
             for (String op : conditionEvaluator.unknownOperators(p.getCondition())) {
                 warnings.add("pipeline '" + name + "' uses unknown operator '" + op + "', which never matches");
             }
-            if (p.getSink() == null || !StringUtils.hasText(p.getSink().getName())) {
-                warnings.add("pipeline '" + name + "' has no sink");
-            } else if (!ID.matcher(p.getSink().getName()).matches()) {
-                warnings.add("pipeline '" + name + "' has an invalid sink name '" + p.getSink().getName() + "'");
-            }
-            for (TransformerProperties t : p.getEffectiveTransformers()) {
-                if (t != null && StringUtils.hasText(t.getName()) && !ID.matcher(t.getName()).matches()) {
-                    warnings.add("pipeline '" + name + "' has an invalid transformer name '" + t.getName() + "'");
+            for (StepProperties step : p.getEffectiveSteps()) {
+                String where = step.getName() == null ? "pipeline '" + name + "'"
+                        : "pipeline '" + name + "', step '" + step.getName() + "',";
+                if (step.getSink() == null || !StringUtils.hasText(step.getSink().getName())) {
+                    warnings.add(where + " has no sink");
+                } else if (!ID.matcher(step.getSink().getName()).matches()) {
+                    warnings.add(where + " has an invalid sink name '" + step.getSink().getName() + "'");
+                }
+                for (TransformerProperties t : step.getEffectiveTransformers()) {
+                    if (t != null && StringUtils.hasText(t.getName()) && !ID.matcher(t.getName()).matches()) {
+                        warnings.add(where + " has an invalid transformer name '" + t.getName() + "'");
+                    }
                 }
             }
         }

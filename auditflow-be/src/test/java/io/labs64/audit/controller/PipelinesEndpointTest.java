@@ -119,4 +119,29 @@ class PipelinesEndpointTest {
         assertEquals(Map.of("enabled", false), batch.get("size-without-enabled"));
         assertEquals(Map.of("enabled", false), batch.get("single"));
     }
+
+    @Test
+    void aPipelineWithStepsIsListedStepByStepWithoutSinkProperties() {
+        registry.upsert(new TenantConfigParser(mapper).parse("""
+                tenantId: acme
+                enabled: true
+                pipelines:
+                  - name: archive
+                    enabled: true
+                    steps:
+                      - name: original
+                        transformer: {name: zero}
+                        sink: {name: aws_s3_sink, properties: {bucket: "do-not-show"}}
+                      - name: index
+                        transformer: {name: audit_clickhouse}
+                        sink: {name: clickhouse_sink}
+                """), "test");
+
+        Map<String, Object> result = endpoint.pipelines("acme");
+
+        String listing = result.toString();
+        assertTrue(listing.contains("steps=[{name=original, transformers=[zero], sink=aws_s3_sink}, "
+                + "{name=index, transformers=[audit_clickhouse], sink=clickhouse_sink}]"), listing);
+        assertTrue(!listing.contains("do-not-show"));
+    }
 }

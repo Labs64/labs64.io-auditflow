@@ -61,3 +61,43 @@ def test_top_level_field_placeholder_after_the_day():
         "tenants/tenant=netlicensing/vendor_number=VDEMO/year=2026/month=10/day=02/"
         "eventType=netlicensing.request.completed/actionName=product_create/"
         f"20261002-142639-{EVENT_ID}.json")
+
+
+# --- placeholder options: default and allowed values (a key segment a lifecycle rule matches) ---
+
+CLASSES = "retention={extra.payloadRetentionDays|default=30|allowed=7,14,30,90,365}/year=%Y/"
+
+
+@pytest.mark.parametrize("value, segment", [(7, "7"), ("365", "365"), (30, "30")])
+def test_an_allowed_value_is_used(value, segment):
+    assert f"/retention={segment}/" in key({"payloadRetentionDays": value}, fmt=CLASSES)
+
+
+@pytest.mark.parametrize("extra", [{}, {"payloadRetentionDays": None}, {"payloadRetentionDays": 45},
+                                   {"payloadRetentionDays": "../x"}, {"payloadRetentionDays": {"a": 1}}])
+def test_a_missing_or_not_allowed_value_gets_the_default_and_is_counted(extra, monkeypatch, caplog):
+    seen = []
+    monkeypatch.setattr(aws_s3_sink, "_TELEMETRY", type("T", (), {
+        "partition_value_defaulted": lambda self, sink_id, field: seen.append(field)})())
+    assert "/retention=30/" in key(extra, fmt=CLASSES)
+    assert seen == ["extra.payloadRetentionDays"]
+    assert "using the default" in caplog.text
+    assert "../x" not in caplog.text  # the value is never logged
+
+
+def test_a_default_without_allowed_only_fills_a_missing_value():
+    fmt = "retention={extra.payloadRetentionDays|default=30}/"
+    assert "/retention=30/" in key({}, fmt=fmt)
+    assert "/retention=45/" in key({"payloadRetentionDays": 45}, fmt=fmt)
+
+
+@pytest.mark.parametrize("fmt", [
+    "r={extra.x|allowed=1,2}/",               # allowed without a default
+    "r={extra.x|default=3|allowed=1,2}/",     # default not allowed
+    "r={extra.x|default=a/b}/",               # default not key-safe
+    "r={extra.x|fallback=1}/",                # unknown option
+    "r={extra.x|default=1|default=2}/",       # repeated option
+])
+def test_a_wrong_option_fails_the_write_instead_of_writing_an_unexpected_key(fmt):
+    with pytest.raises(ValueError):
+        key({"x": "1"}, fmt=fmt)

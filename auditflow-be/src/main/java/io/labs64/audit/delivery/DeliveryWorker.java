@@ -21,6 +21,7 @@ import io.labs64.audit.config.PipelineRateLimiterRegistry;
 import io.labs64.audit.service.IdempotencyService;
 import io.labs64.audit.service.IdempotencyService.PipelineDelivery;
 import io.labs64.audit.service.PipelineExecutor;
+import io.labs64.audit.service.StepProgress;
 import io.labs64.audit.service.PipelineExecutor.Outcome;
 import io.labs64.audit.service.QuarantineService;
 import io.labs64.audit.tenant.PipelineSet;
@@ -62,7 +63,11 @@ public class DeliveryWorker {
             Duration.ofMinutes(15), Duration.ofHours(1), Duration.ofHours(3) };
 
     /** One unit of work: a message for one pipeline of one tenant, with its parsed event. */
-    record Delivery(BrokerMessage message, String tenantId, String eventId, PipelineProperties pipeline, JsonNode event) {
+    record Delivery(BrokerMessage message, String tenantId, String eventId, PipelineProperties pipeline, JsonNode event,
+                    StepProgress progress) {
+        Delivery(BrokerMessage message, String tenantId, String eventId, PipelineProperties pipeline, JsonNode event) {
+            this(message, tenantId, eventId, pipeline, event, StepProgress.START);
+        }
     }
 
     private final TenantPipelineRegistry tenantRegistry;
@@ -116,7 +121,9 @@ public class DeliveryWorker {
                 continue;
             }
             if (d.pipeline().isBatchEnabled()) {
-                batchGroups.computeIfAbsent(d.tenantId() + "\u0000" + pipelineName, k -> new ArrayList<>()).add(d);
+                // Events at different steps of the same pipeline go to different sinks: one group per step.
+                batchGroups.computeIfAbsent(d.tenantId() + "\u0000" + pipelineName + "\u0000" + d.progress().stepsDone(),
+                        k -> new ArrayList<>()).add(d);
             } else {
                 singles.add(d);
             }
@@ -174,7 +181,21 @@ public class DeliveryWorker {
             return Optional.empty();
         }
         String eventId = event.path("eventId").asText(null);
-        return Optional.of(new Delivery(message, tenantId, eventId, pipeline.get(), event));
+        StepProgress progress;
+        try {
+            progress = DeliveryHeaders.progress(message, objectMapper);
+        } catch (IllegalArgumentException e) {
+            deadLetters.deadLetter(message, tenantId, DeadLetterReason.MALFORMED, e.getMessage());
+            return Optional.empty();
+        }
+        int steps = pipeline.get().getEffectiveSteps().size();
+        if (progress.stepsDone() >= steps) {
+            // The pipeline lost steps since this delivery started: where to continue is unknown, so keep it for an operator.
+            deadLetters.deadLetter(message, tenantId, DeadLetterReason.PIPELINE_UNAVAILABLE, "Delivery resumes at step "
+                    + (progress.stepsDone() + 1) + " but pipeline '" + pipelineName + "' has " + steps + " step(s)");
+            return Optional.empty();
+        }
+        return Optional.of(new Delivery(message, tenantId, eventId, pipeline.get(), event, progress));
     }
 
     /** Drops (and counts) the deliveries a previous attempt already completed: one store call for the batch. */
@@ -201,7 +222,7 @@ public class DeliveryWorker {
             return Mono.fromRunnable(() -> defer(List.of(d)));
         }
         long start = System.nanoTime();
-        return executor.execute(d.pipeline(), d.event(), d.tenantId())
+        return executor.execute(d.pipeline(), d.event(), d.tenantId(), d.progress())
                 .publishOn(Schedulers.boundedElastic())
                 .doOnNext(outcome -> {
                     timer(d.pipeline().getName(), outcome.kind().name(), "single", start);
@@ -218,8 +239,9 @@ public class DeliveryWorker {
             return Mono.fromRunnable(() -> defer(chunk));
         }
         List<JsonNode> events = chunk.stream().map(Delivery::event).toList();
+        List<StepProgress> starts = chunk.stream().map(Delivery::progress).toList();
         long start = System.nanoTime();
-        return executor.executeBatch(first.pipeline(), events, first.tenantId())
+        return executor.executeBatch(first.pipeline(), events, first.tenantId(), starts)
                 .publishOn(Schedulers.boundedElastic())
                 .doOnNext(outcomes -> {
                     timer(first.pipeline().getName(), "BATCH", "batch", start);
@@ -257,6 +279,9 @@ public class DeliveryWorker {
     /** @param markDone false when the caller already marked this delivery done (a batch, in one call) */
     private void settle(Delivery d, Outcome outcome, boolean markDone) {
         String pipelineName = d.pipeline().getName();
+        // A failure after finished steps travels with how far it got, so the next attempt continues there.
+        BrokerMessage message = outcome.progress() == null ? d.message()
+                : DeliveryHeaders.withProgress(d.message(), outcome.progress(), objectMapper);
         switch (outcome.kind()) {
             case SUCCESS -> {
                 if (markDone && StringUtils.hasText(d.eventId())) {
@@ -268,9 +293,9 @@ public class DeliveryWorker {
                         "outcome", "delivered").increment();
                 recordLatency(d, pipelineName);
             }
-            case POISON -> deadLetters.deadLetter(d.message(), d.tenantId(), DeadLetterReason.POISON, outcome.error());
+            case POISON -> deadLetters.deadLetter(message, d.tenantId(), DeadLetterReason.POISON, outcome.error());
             case THROTTLED -> {
-                deliveryQueue.defer(d.message());
+                deliveryQueue.defer(message);
                 count("deferred", d.tenantId(), pipelineName);
             }
             case RETRYABLE -> {
@@ -280,13 +305,13 @@ public class DeliveryWorker {
                 long firstEnqueuedAt = DeliveryHeaders.longHeader(d.message(), DeliveryHeaders.FIRST_ENQUEUED_AT, now);
                 Duration delay = RetryPolicy.delayAfter(failed);
                 if (failed >= policy.maxAttempts()) {
-                    deadLetters.deadLetter(d.message(), d.tenantId(), DeadLetterReason.ATTEMPTS_EXHAUSTED,
+                    deadLetters.deadLetter(message, d.tenantId(), DeadLetterReason.ATTEMPTS_EXHAUSTED,
                             failed + " failed attempt(s): " + outcome.error());
                 } else if (policy.ageExceeded(firstEnqueuedAt, now, delay)) {
-                    deadLetters.deadLetter(d.message(), d.tenantId(), DeadLetterReason.MAX_AGE_EXCEEDED,
+                    deadLetters.deadLetter(message, d.tenantId(), DeadLetterReason.MAX_AGE_EXCEEDED,
                             "older than " + policy.maxAge() + " after " + failed + " attempt(s): " + outcome.error());
                 } else {
-                    deliveryQueue.retryLater(d.message(), failed, outcome.error(), delay);
+                    deliveryQueue.retryLater(message, failed, outcome.error(), delay);
                     count("retried", d.tenantId(), pipelineName);
                 }
             }

@@ -52,6 +52,9 @@ public class AuditEventController implements AuditEventApi {
 
     private static final Logger logger = LoggerFactory.getLogger(AuditEventController.class);
 
+    /** Only a pipeline step's sink writes {@code context}; a publisher setting it could forge an earlier step's result. */
+    static final String RESERVED_CONTEXT = "context is reserved for AuditFlow and must not be set by a publisher";
+
     private final AuditPublisherService publisherService;
     private final TenantGate tenantGate;
     private final ObjectMapper objectMapper;
@@ -78,6 +81,9 @@ public class AuditEventController implements AuditEventApi {
     @Authorize(action = "publishEvent", resourceType = "AuditEvent")
     public ResponseEntity<String> publishEvent(@Valid AuditEvent event) {
         OffsetDateTime receivedAt = OffsetDateTime.now();
+        if (hasContext(event)) {
+            throw new IllegalArgumentException(RESERVED_CONTEXT);
+        }
         String eventTimeProblem = eventTimePolicy.violation(event, receivedAt);
         if (eventTimeProblem != null) {
             throw new IllegalArgumentException(eventTimeProblem);
@@ -140,6 +146,10 @@ public class AuditEventController implements AuditEventApi {
                 results[i] = rejected(i, event.getEventId(), ErrorCode.VALIDATION_ERROR, violations.stream()
                         .map(v -> v.getPropertyPath() + ": " + v.getMessage()).sorted()
                         .collect(Collectors.joining("; ")));
+                continue;
+            }
+            if (hasContext(event)) {
+                results[i] = rejected(i, event.getEventId(), ErrorCode.VALIDATION_ERROR, RESERVED_CONTEXT);
                 continue;
             }
             String eventTimeProblem = eventTimePolicy.violation(event, receivedAt);
@@ -212,6 +222,15 @@ public class AuditEventController implements AuditEventApi {
         AuthContextHolder.get().ifPresent(context -> event.setTenantId(context.tenantId()));
         // Receipt time (timestamp) and event time (eventTime): see EventTimePolicy.
         eventTimePolicy.stamp(event, receivedAt);
+    }
+
+    /**
+     * A publisher-set context. The generated model starts the map empty and a client library sends it as
+     * {@code {}}: that carries nothing and is accepted; any key is refused. JacksonConfig never writes the
+     * field into the published event either way.
+     */
+    private static boolean hasContext(AuditEvent event) {
+        return event.getContext() != null && !event.getContext().isEmpty();
     }
 
     private static BatchPublishEntryResult rejected(int index, UUID eventId, ErrorCode code, String message) {

@@ -404,6 +404,13 @@ components:
           $ref: "#/components/schemas/Geolocation"
         extra:
           $ref: "#/components/schemas/Extra"
+        context:
+          type: object
+          additionalProperties: true
+          description: >-
+            Reserved for AuditFlow. Between the steps of a pipeline it carries what an earlier step's
+            sink returned (for example the key of an archived object) to the transformers of the next
+            step. Only sinks write it: a publish that sets it is refused with 400.
     Geolocation:
       type: object
       description: Geographic location associated with the audit event.

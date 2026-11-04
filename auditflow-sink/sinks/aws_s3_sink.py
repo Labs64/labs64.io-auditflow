@@ -169,6 +169,8 @@ def process(event_data: dict, properties: dict) -> dict:
             "etag": etag,
             "version_id": response.get('VersionId'),
             "digest_key": digest_key,
+            # For the next step of a pipeline with steps (e.g. to store where the event is archived).
+            "context": {"bucket": bucket, "key": object_key},
         }
 
     except ClientError as e:
@@ -238,7 +240,7 @@ def process_batch(events: list, properties: dict) -> list:
             digest_key = _write_digest(s3_client, bucket, prefix, object_key, body, group, properties, signing_key)
             for i in indexes:
                 outcomes[i] = {"sent": True, "destination": "s3", "bucket": bucket, "key": object_key,
-                               "digest_key": digest_key}
+                               "digest_key": digest_key, "context": {"bucket": bucket, "key": object_key}}
         except Exception as e:  # noqa: BLE001 - the group's PUT failed: every event in it failed
             logger.error("Failed to upload batch object s3://%s/%s: %s", bucket, object_key, e)
             for i in indexes:
@@ -292,15 +294,78 @@ def build_object_key(
     return '/'.join(key_parts)
 
 
-_PLACEHOLDER = re.compile(r'\{([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\}')
+# {field} or {field|default=30|allowed=7,14,30}: a dotted path into the event, with optional options.
+_PLACEHOLDER = re.compile(r'\{([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)((?:\|[a-z]+=[^|{}]*)*)\}')
+_OPTIONS = ('default', 'allowed')
 _SAFE_SEGMENT = re.compile(r'[^A-Za-z0-9._-]')
 _MAX_SEGMENT_LENGTH = 128
 
 
 def _fill_placeholders(path: str, event_data: dict) -> str:
     """Replace {field} (a dotted path into the event) with its key-safe value. Runs after strftime,
-    so a value can never be read as a date directive."""
-    return _PLACEHOLDER.sub(lambda m: _partition_value(_lookup(event_data, m.group(1))), path)
+    so a value can never be read as a date directive.
+
+    Options: ``{field|default=30}`` uses 30 when the value is missing; ``|allowed=7,14,30`` also uses the
+    default for a value outside the list, so a key segment that a lifecycle rule matches never takes an
+    unexpected value. A defaulted value is logged and counted (field only, never the value). Without
+    options a missing value is ``unknown``, as before.
+    """
+    return _PLACEHOLDER.sub(lambda m: _placeholder_value(event_data, m.group(1), m.group(2)), path)
+
+
+def _placeholder_options(raw: str) -> dict:
+    options = {}
+    for part in filter(None, raw.split('|')):
+        name, _, value = part.partition('=')
+        if name not in _OPTIONS or name in options:
+            raise ValueError(f"partition-format: unknown or repeated placeholder option '{name}'")
+        options[name] = value
+    if 'allowed' in options and 'default' not in options:
+        raise ValueError("partition-format: 'allowed' needs a 'default'")
+    if 'default' in options and _partition_value(options['default']) != options['default']:
+        raise ValueError("partition-format: a placeholder default must be a key-safe value")
+    if 'allowed' in options:
+        allowed = [v.strip() for v in options['allowed'].split(',') if v.strip()]
+        if not allowed or options['default'] not in allowed:
+            raise ValueError("partition-format: the default must be one of the allowed values")
+        options['allowed'] = set(allowed)
+    return options
+
+
+def _placeholder_value(event_data: dict, field: str, raw_options: str) -> str:
+    if not raw_options:
+        return _partition_value(_lookup(event_data, field))
+    options = _placeholder_options(raw_options)
+    value = _lookup(event_data, field)
+    segment = None if value is None or isinstance(value, (dict, list)) else _partition_value(value)
+    if segment is not None and ('allowed' not in options or segment in options['allowed']):
+        return segment
+    if 'default' not in options:
+        return 'unknown'
+    logger.warning("Partition value of '%s' %s; using the default", field,
+                   "is missing" if segment is None else "is not an allowed value")
+    _telemetry().partition_value_defaulted('aws_s3_sink', field)
+    return options['default']
+
+
+class _NoTelemetry:
+    def partition_value_defaulted(self, sink_id, field):
+        pass
+
+
+_TELEMETRY = None
+
+
+def _telemetry():
+    """The sink service's business telemetry; a no-op where this module is loaded outside the service."""
+    global _TELEMETRY
+    if _TELEMETRY is None:
+        try:
+            from telemetry import get_business_telemetry  # service root, like auditflow_sdk
+            _TELEMETRY = get_business_telemetry()
+        except ImportError:
+            _TELEMETRY = _NoTelemetry()
+    return _TELEMETRY
 
 
 def _lookup(event_data: dict, path: str):

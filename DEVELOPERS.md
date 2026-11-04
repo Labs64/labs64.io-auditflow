@@ -761,6 +761,23 @@ Values are sanitized to `[A-Za-z0-9._-]` (every other character, such as `/` in 
 falls back to the top-level key, where a promoting transformer moves well-known keys. The format is applied
 only when `partition-by-date` is `true`, and a mistyped placeholder is left in the key as literal text.
 
+A placeholder can take a default and a list of allowed values, for a folder that something else relies on, such
+as an S3 lifecycle rule per retention class:
+
+```yaml
+partition-format: "retention={extra.payloadRetentionDays|default=30|allowed=7,14,30,90,365}/year=%Y/month=%m/day=%d/"
+# extra.payloadRetentionDays 14 -> retention=14/   missing or 45 -> retention=30/
+```
+
+`default` replaces a missing value; with `allowed`, also a value outside the list. Each time it is used the sink
+logs a warning naming the field (never the value) and adds the span event `auditflow.partition.defaulted`.
+`allowed` needs a `default` that is one of the allowed values; a wrong option fails the write, so it shows in the
+DLQ instead of producing an unexpected key.
+
+The sink returns `context: {bucket, key}` for every event, single or batched: the object that holds it. A
+pipeline with [steps](#pipeline-steps-and-the-step-context) hands that to its next step, for example to store
+where the event is archived.
+
 ---
 
 ## Adding a New Transformer
@@ -905,6 +922,54 @@ condition:
 ```
 
 An unknown operator never matches; the dry run reports it as a warning.
+
+### Pipeline steps and the step context
+
+A pipeline can run several sinks in order for the same event, each step after the previous one succeeded, and a
+later step can use what an earlier sink returned. The typical use is an archive and an index of it: write the
+event to object storage, then write a row that points to the object.
+
+```yaml
+pipelines:
+  - name: archive
+    enabled: true
+    condition: { … }                       # condition, batch and retry stay on the pipeline
+    batch: { enabled: true, maxSize: 50 }
+    steps:
+      - name: original
+        transformer: { name: zero }
+        sink: { name: aws_s3_sink, properties: { … } }   # returns context {bucket, key}
+      - name: index
+        transformer: { name: my_index_transformer }     # reads input_data["context"]["original"]["key"]
+        sink: { name: clickhouse_sink, properties: { … } }
+```
+
+- **One shape per pipeline.** A pipeline has either `transformer(s)` + `sink` (one step, as before) or `steps`. A
+  tenant file that mixes them, has a step without a sink, or two steps with one name is refused when it loads.
+  Step names follow the sink and transformer id rule `^[a-zA-Z0-9_]+$`. A step can have `transformers` and a sink
+  `fallback`, like a pipeline.
+- **The context.** A sink may return `context: {…}` in its result: `process` in the dict it returns,
+  `process_batch` in each event's outcome dict. AuditFlow keeps it under the step's name and gives the next steps'
+  transformers the event with a top-level `context` field, e.g. `{"original": {"bucket": "…", "key": "…"}}`.
+  The event the first step writes never has it. The whole context of an event may take 4 KiB; a larger one, or one
+  that is not a JSON object, is poison (DLQ).
+- **Only sinks write it.** `context` is reserved in the event contract: a publish that sets it (with any key) is
+  refused with 400, so nobody can forge what an earlier step returned. An empty object, as a generated client sends
+  it, is accepted and dropped; the published event carries no `context` key.
+- **Retries continue where they stopped.** A delivery that fails after a finished step is retried, deferred or
+  dead-lettered with two headers, `x-auditflow-steps-done` and `x-auditflow-context`, and the next attempt, or a
+  DLQ replay, starts at the failed step with that context. A finished step is not repeated. One retry budget
+  (`retry`) covers the whole pipeline. If the process dies between a step and storing its outcome, the step can run
+  again (at-least-once, as for any sink).
+- **Batches.** Each step makes one sink call for the events of the batch still in progress; an event that fails a
+  step leaves the batch there and settles on its own. Events at different steps never share a batch.
+- **Coupled on purpose.** The steps of one pipeline depend on each other: while the first sink is down, the second
+  waits under the retry tiers. Separate pipelines stay independent.
+- **Deploy order.** Releases before this feature can't read `steps`: roll AuditFlow out first, and before rolling it
+  back, put such pipelines back into the one-step shape.
+- **Dry run and listing.** `GET /actuator/pipelines/<tenantId>` lists the steps; a dry run with `"transform": true`
+  runs every step's transformers, the later ones without a context (no sink is called, so none was returned:
+  `withoutContext: true` in the report).
 
 ### Pipeline dry run and tenant fixtures
 

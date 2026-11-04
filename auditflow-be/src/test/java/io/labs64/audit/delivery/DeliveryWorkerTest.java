@@ -30,18 +30,21 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import io.labs64.audit.broker.BrokerMessage;
 import io.labs64.audit.config.AuditFlowConfiguration.BatchProperties;
 import io.labs64.audit.config.AuditFlowConfiguration.PipelineProperties;
 import io.labs64.audit.config.AuditFlowConfiguration.RetryProperties;
 import io.labs64.audit.config.AuditFlowConfiguration.SinkProperties;
+import io.labs64.audit.config.AuditFlowConfiguration.StepProperties;
 import io.labs64.audit.config.PipelineRateLimiterRegistry;
 import io.labs64.audit.service.IdempotencyService;
 import io.labs64.audit.service.IdempotencyService.PipelineDelivery;
 import io.labs64.audit.service.PipelineExecutor;
 import io.labs64.audit.service.PipelineExecutor.Outcome;
 import io.labs64.audit.service.QuarantineService;
+import io.labs64.audit.service.StepProgress;
 import io.labs64.audit.tenant.TenantConcurrencyLimiter;
 import io.labs64.audit.tenant.TenantConfig;
 import io.labs64.audit.tenant.TenantPipelineRegistry;
@@ -119,7 +122,7 @@ class DeliveryWorkerTest {
     }
 
     private void outcome(Outcome outcome) {
-        when(executor.execute(any(), any(), anyString())).thenReturn(Mono.just(outcome));
+        when(executor.execute(any(), any(), anyString(), any())).thenReturn(Mono.just(outcome));
     }
 
     @Test
@@ -263,7 +266,7 @@ class DeliveryWorkerTest {
 
         worker.process(List.of(m));
 
-        verify(executor).execute(any(), any(), eq("acme"));
+        verify(executor).execute(any(), any(), eq("acme"), any());
     }
 
     @Test
@@ -294,7 +297,7 @@ class DeliveryWorkerTest {
         batch.setMaxSize(2);
         p.setBatch(batch);
         tenant("acme", p);
-        when(executor.executeBatch(any(), anyList(), eq("acme"))).thenAnswer(inv -> {
+        when(executor.executeBatch(any(), anyList(), eq("acme"), anyList())).thenAnswer(inv -> {
             int n = ((List<?>) inv.getArgument(1)).size();
             List<Outcome> outcomes = new ArrayList<>();
             for (int i = 0; i < n; i++) {
@@ -308,10 +311,10 @@ class DeliveryWorkerTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<com.fasterxml.jackson.databind.JsonNode>> chunks = ArgumentCaptor.forClass(List.class);
-        verify(executor, times(2)).executeBatch(any(), chunks.capture(), eq("acme"));
+        verify(executor, times(2)).executeBatch(any(), chunks.capture(), eq("acme"), anyList());
         assertEquals(List.of(2, 1), chunks.getAllValues().stream().map(List::size).sorted((a, b) -> b - a).toList());
         verify(idempotencyService, times(3)).markPipelineDone(anyString(), eq("archive"));
-        verify(executor, never()).execute(any(), any(), anyString());
+        verify(executor, never()).execute(any(), any(), anyString(), any());
     }
 
     private static PipelineProperties batchPipeline(String name, int maxSize) {
@@ -324,7 +327,7 @@ class DeliveryWorkerTest {
     }
 
     private void everyBatchSucceeds() {
-        when(executor.executeBatch(any(), anyList(), anyString())).thenAnswer(inv -> {
+        when(executor.executeBatch(any(), anyList(), anyString(), anyList())).thenAnswer(inv -> {
             int n = ((List<?>) inv.getArgument(1)).size();
             return Mono.just(java.util.Collections.nCopies(n, Outcome.SUCCESS));
         });
@@ -341,11 +344,11 @@ class DeliveryWorkerTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<com.fasterxml.jackson.databind.JsonNode>> acme = ArgumentCaptor.forClass(List.class);
-        verify(executor, times(1)).executeBatch(any(), acme.capture(), eq("acme"));
+        verify(executor, times(1)).executeBatch(any(), acme.capture(), eq("acme"), anyList());
         assertEquals(List.of("a1", "a2"), acme.getValue().stream().map(e -> e.path("eventId").asText()).toList());
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<com.fasterxml.jackson.databind.JsonNode>> globex = ArgumentCaptor.forClass(List.class);
-        verify(executor, times(1)).executeBatch(any(), globex.capture(), eq("globex"));
+        verify(executor, times(1)).executeBatch(any(), globex.capture(), eq("globex"), anyList());
         assertEquals(List.of("g1"), globex.getValue().stream().map(e -> e.path("eventId").asText()).toList());
     }
 
@@ -363,8 +366,8 @@ class DeliveryWorkerTest {
         worker.process(List.of(delivery("acme", "archive", "e1"), delivery("acme", "alerts", "e1"),
                 delivery("acme", "archive", "e2"), delivery("acme", "size-only", "e2")));
 
-        verify(executor, times(1)).executeBatch(any(), anyList(), eq("acme"));
-        verify(executor, times(2)).execute(any(), any(), eq("acme"));
+        verify(executor, times(1)).executeBatch(any(), anyList(), eq("acme"), anyList());
+        verify(executor, times(2)).execute(any(), any(), eq("acme"), any());
         verify(idempotencyService, times(2)).markPipelineDone(anyString(), eq("archive"));
         verify(idempotencyService).markPipelineDone("e1", "alerts");
         verify(idempotencyService).markPipelineDone("e2", "size-only");
@@ -373,7 +376,7 @@ class DeliveryWorkerTest {
     @Test
     void everyEventOfABatchIsSettledByItsOwnOutcome() {
         tenant("acme", batchPipeline("archive", 100));
-        when(executor.executeBatch(any(), anyList(), eq("acme"))).thenReturn(Mono.just(List.of(
+        when(executor.executeBatch(any(), anyList(), eq("acme"), anyList())).thenReturn(Mono.just(List.of(
                 Outcome.SUCCESS, new Outcome(Outcome.Kind.POISON, "refused"),
                 new Outcome(Outcome.Kind.RETRYABLE, "timeout"), new Outcome(Outcome.Kind.THROTTLED, "busy"))));
 
@@ -397,7 +400,7 @@ class DeliveryWorkerTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<com.fasterxml.jackson.databind.JsonNode>> sent = ArgumentCaptor.forClass(List.class);
-        verify(executor).executeBatch(any(), sent.capture(), eq("acme"));
+        verify(executor).executeBatch(any(), sent.capture(), eq("acme"), anyList());
         assertEquals(List.of("new"), sent.getValue().stream().map(e -> e.path("eventId").asText()).toList());
     }
 
@@ -416,7 +419,7 @@ class DeliveryWorkerTest {
     @Test
     void theDeliveredEventsOfABatchAreMarkedDoneInOneStoreCall() {
         tenant("acme", batchPipeline("archive", 100));
-        when(executor.executeBatch(any(), anyList(), eq("acme"))).thenReturn(Mono.just(List.of(
+        when(executor.executeBatch(any(), anyList(), eq("acme"), anyList())).thenReturn(Mono.just(List.of(
                 Outcome.SUCCESS, new Outcome(Outcome.Kind.RETRYABLE, "timeout"), Outcome.SUCCESS)));
 
         worker.process(List.of(delivery("acme", "archive", "e1"), delivery("acme", "archive", "e2"),
@@ -436,5 +439,135 @@ class DeliveryWorkerTest {
         verify(deliveryQueue).defer(any());
         verify(deliveryQueue, never()).retryLater(any(), anyInt(), any(), any());
         verifyNoInteractions(deadLetters);
+    }
+
+    // --- pipelines with steps: progress travels with the delivery ---
+
+    private static PipelineProperties steps(String name, String... stepNames) {
+        PipelineProperties p = new PipelineProperties();
+        p.setName(name);
+        p.setEnabled(true);
+        List<StepProperties> list = new ArrayList<>();
+        for (String stepName : stepNames) {
+            StepProperties step = new StepProperties();
+            step.setName(stepName);
+            SinkProperties s = new SinkProperties();
+            s.setName("sink_" + stepName);
+            s.setProperties(Map.of());
+            step.setSink(s);
+            list.add(step);
+        }
+        p.setSteps(list);
+        return p;
+    }
+
+    private static ObjectNode keyContext(String key) {
+        ObjectNode c = new ObjectMapper().createObjectNode();
+        c.putObject("original").put("key", key);
+        return c;
+    }
+
+    private static BrokerMessage resumed(String pipeline, int stepsDone, String context) {
+        return resumed(pipeline, "e1", stepsDone, context);
+    }
+
+    private static BrokerMessage resumed(String pipeline, String eventId, int stepsDone, String context) {
+        BrokerMessage m = delivery("acme", pipeline, eventId);
+        m.headers().put(DeliveryHeaders.STEPS_DONE, stepsDone);
+        if (context != null) {
+            m.headers().put(DeliveryHeaders.CONTEXT, context);
+        }
+        return m;
+    }
+
+    @Test
+    void aFailureAfterAFinishedStepIsRetriedWithItsProgress() {
+        tenant("acme", steps("archive", "original", "index"));
+        outcome(new Outcome(Outcome.Kind.RETRYABLE, "ch down", new StepProgress(1, keyContext("k1"))));
+
+        worker.process(List.of(delivery("acme", "archive", "e1")));
+
+        ArgumentCaptor<BrokerMessage> retried = ArgumentCaptor.forClass(BrokerMessage.class);
+        verify(deliveryQueue).retryLater(retried.capture(), eq(1), eq("ch down"), any());
+        assertEquals(1, DeliveryHeaders.intHeader(retried.getValue(), DeliveryHeaders.STEPS_DONE));
+        assertEquals("{\"original\":{\"key\":\"k1\"}}", DeliveryHeaders.string(retried.getValue(), DeliveryHeaders.CONTEXT));
+    }
+
+    @Test
+    void poisonAfterAFinishedStepIsDeadLetteredWithItsProgressSoAReplayResumesThere() {
+        tenant("acme", steps("archive", "original", "index"));
+        outcome(new Outcome(Outcome.Kind.POISON, "bad row", new StepProgress(1, keyContext("k1"))));
+
+        worker.process(List.of(delivery("acme", "archive", "e1")));
+
+        ArgumentCaptor<BrokerMessage> entry = ArgumentCaptor.forClass(BrokerMessage.class);
+        verify(deadLetters).deadLetter(entry.capture(), eq("acme"), eq(DeadLetterReason.POISON), eq("bad row"));
+        assertEquals(1, DeliveryHeaders.intHeader(entry.getValue(), DeliveryHeaders.STEPS_DONE));
+    }
+
+    @Test
+    void aFailureOfAOneStepPipelineAddsNoProgressHeaders() {
+        tenant("acme", pipeline("archive"));
+        outcome(new Outcome(Outcome.Kind.RETRYABLE, "down"));
+
+        worker.process(List.of(delivery("acme", "archive", "e1")));
+
+        ArgumentCaptor<BrokerMessage> retried = ArgumentCaptor.forClass(BrokerMessage.class);
+        verify(deliveryQueue).retryLater(retried.capture(), eq(1), eq("down"), any());
+        assertEquals(null, retried.getValue().header(DeliveryHeaders.STEPS_DONE));
+        assertEquals(null, retried.getValue().header(DeliveryHeaders.CONTEXT));
+    }
+
+    @Test
+    void aResumedDeliveryHandsItsProgressToTheExecutor() {
+        tenant("acme", steps("archive", "original", "index"));
+        outcome(Outcome.SUCCESS);
+
+        worker.process(List.of(resumed("archive", 1, "{\"original\":{\"key\":\"k1\"}}")));
+
+        verify(executor).execute(any(), any(), eq("acme"), eq(new StepProgress(1, keyContext("k1"))));
+        verify(idempotencyService).markPipelineDone("e1", "archive");
+    }
+
+    @Test
+    void aContextHeaderThatIsNotAJsonObjectIsDeadLetteredAsMalformed() {
+        tenant("acme", steps("archive", "original", "index"));
+
+        worker.process(List.of(resumed("archive", 1, "[1,2]")));
+
+        verify(deadLetters).deadLetter(any(), eq("acme"), eq(DeadLetterReason.MALFORMED), contains(DeliveryHeaders.CONTEXT));
+        verify(executor, never()).execute(any(), any(), anyString(), any());
+    }
+
+    @Test
+    void aResumePointBeyondThePipelinesStepsIsDeadLetteredNotGuessed() {
+        tenant("acme", pipeline("archive")); // the pipeline lost its steps since the delivery started
+
+        worker.process(List.of(resumed("archive", 1, null)));
+
+        verify(deadLetters).deadLetter(any(), eq("acme"), eq(DeadLetterReason.PIPELINE_UNAVAILABLE), contains("step 2"));
+        verify(executor, never()).execute(any(), any(), anyString(), any());
+    }
+
+    @Test
+    void deliveriesAtDifferentStepsOfOneBatchedPipelineGoInSeparateBatches() {
+        PipelineProperties p = steps("archive", "original", "index");
+        BatchProperties batch = new BatchProperties();
+        batch.setEnabled(true);
+        batch.setMaxSize(10);
+        p.setBatch(batch);
+        tenant("acme", p);
+        when(executor.executeBatch(any(), anyList(), eq("acme"), anyList())).thenAnswer(inv ->
+                Mono.just(java.util.Collections.nCopies(((List<?>) inv.getArgument(1)).size(), Outcome.SUCCESS)));
+
+        BrokerMessage fresh = delivery("acme", "archive", "e1");
+        BrokerMessage resumedOne = resumed("archive", "e2", 1, "{\"original\":{\"key\":\"k2\"}}");
+        worker.process(List.of(fresh, resumedOne));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<StepProgress>> starts = ArgumentCaptor.forClass(List.class);
+        verify(executor, times(2)).executeBatch(any(), anyList(), eq("acme"), starts.capture());
+        assertEquals(java.util.Set.of(List.of(StepProgress.START), List.of(new StepProgress(1, keyContext("k2")))),
+                java.util.Set.copyOf(starts.getAllValues()));
     }
 }
