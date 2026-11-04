@@ -1,9 +1,13 @@
 package io.labs64.audit.tenant;
 
+import static org.junit.jupiter.api.Assertions.*;
+
+import java.util.List;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class TenantConfigParserTest {
 
@@ -111,5 +115,66 @@ class TenantConfigParserTest {
                       enabled: true
                       maxSize: 0
                 """));
+    }
+
+    // --- pipeline steps ---
+
+    private static String withPipeline(String pipeline) {
+        return "tenantId: acme\nenabled: true\npipelines:\n" + pipeline;
+    }
+
+    private static final String STEPS = """
+              - name: archive
+                enabled: true
+                steps:
+                  - name: original
+                    transformer: { name: zero }
+                    sink: { name: aws_s3_sink, properties: { bucket: b } }
+                  - name: index
+                    transformer: { name: audit_clickhouse }
+                    sink: { name: clickhouse_sink }
+            """;
+
+    @Test
+    void aPipelineWithStepsParsesInOrder() {
+        TenantConfig cfg = parser.parse(withPipeline(STEPS));
+        var p = cfg.pipelines().get(0);
+        assertTrue(p.hasSteps());
+        assertEquals(List.of("original", "index"), p.getEffectiveSteps().stream().map(s -> s.getName()).toList());
+        assertEquals("aws_s3_sink", p.getSteps().get(0).getSink().getName());
+        assertEquals("audit_clickhouse", p.getSteps().get(1).getEffectiveTransformers().get(0).getName());
+    }
+
+    @Test
+    void aPipelineWithoutStepsIsOneUnnamedStepOfItsTransformerAndSink() {
+        TenantConfig cfg = parser.parse(withPipeline("""
+                  - name: log
+                    transformer: { name: zero }
+                    sink: { name: logging_sink }
+                """));
+        var steps = cfg.pipelines().get(0).getEffectiveSteps();
+        assertEquals(1, steps.size());
+        assertNull(steps.get(0).getName());
+        assertEquals("logging_sink", steps.get(0).getSink().getName());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            // steps and a top-level sink
+            "  - name: p\n    sink: { name: s }\n    steps:\n      - { name: a, sink: { name: s } }\n",
+            // steps and a top-level transformer
+            "  - name: p\n    transformer: { name: t }\n    steps:\n      - { name: a, sink: { name: s } }\n",
+            // a step without a name
+            "  - name: p\n    steps:\n      - { sink: { name: s } }\n",
+            // a step name outside the identifier rule
+            "  - name: p\n    steps:\n      - { name: \"a-b\", sink: { name: s } }\n",
+            // two steps with one name
+            "  - name: p\n    steps:\n      - { name: a, sink: { name: s } }\n      - { name: a, sink: { name: s } }\n",
+            // a step without a sink
+            "  - name: p\n    steps:\n      - { name: a, transformer: { name: t } }\n",
+    })
+    void aWrongStepsShapeRefusesTheWholeTenant(String pipeline) {
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> parser.parse(withPipeline(pipeline)));
+        assertTrue(e.getMessage().contains("pipeline 'p'"), e.getMessage());
     }
 }

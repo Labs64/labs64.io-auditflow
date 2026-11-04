@@ -40,7 +40,9 @@ public class TenantConfigParser {
                     + TENANT_ID.pattern() + " (only the reserved '" + TenantIds.PLATFORM + "' is exempt)");
         }
         try {
-            return objectMapper.convertValue(raw, TenantConfig.class);
+            TenantConfig config = objectMapper.convertValue(raw, TenantConfig.class);
+            PipelineShape.check(config.pipelines());
+            return config;
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("Invalid tenant.yaml for '" + id + "': " + e.getMessage(), e);
         }

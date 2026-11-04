@@ -82,6 +82,16 @@ public class PipelinesEndpoint {
             entry.put("transformers", p.getEffectiveTransformers().stream()
                     .filter(t -> t != null && t.getName() != null).map(t -> t.getName()).toList());
             entry.put("sink", p.getSink() == null ? null : p.getSink().getName());
+            if (p.hasSteps()) {
+                entry.put("steps", p.getSteps().stream().map(step -> {
+                    Map<String, Object> s = new LinkedHashMap<>();
+                    s.put("name", step.getName());
+                    s.put("transformers", step.getEffectiveTransformers().stream()
+                            .filter(t -> t != null && t.getName() != null).map(t -> t.getName()).toList());
+                    s.put("sink", step.getSink() == null ? null : step.getSink().getName());
+                    return s;
+                }).toList());
+            }
             entry.put("retry", Map.of("maxAttempts", policy.maxAttempts(), "maxAge", policy.maxAge().toString()));
             // A sink batch is cut from ONE received consumer batch, so it never holds more than
             // auditflow.delivery.batch-size events, whatever maxSize says.

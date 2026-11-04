@@ -131,9 +131,17 @@ public class SinkService {
         return guarded(response, sinkUrl, sinkName);
     }
 
-    /** Outcome of one event in a batch sink call. */
-    public record EntryResult(boolean success, boolean retryable, String error) {
-        public static final EntryResult OK = new EntryResult(true, false, null);
+    /**
+     * Outcome of one event in a batch sink call.
+     *
+     * @param context what the sink returned for the event as {@code context} (pipeline steps), or null
+     */
+    public record EntryResult(boolean success, boolean retryable, String error, JsonNode context) {
+        public static final EntryResult OK = new EntryResult(true, false, null, null);
+
+        public EntryResult(boolean success, boolean retryable, String error) {
+            this(success, retryable, error, null);
+        }
     }
 
     /**
@@ -188,7 +196,8 @@ public class SinkService {
         List<EntryResult> out = new ArrayList<>(expected);
         for (JsonNode r : results) {
             if ("success".equals(r.path("status").asText())) {
-                out.add(EntryResult.OK);
+                JsonNode context = r.get("context");
+                out.add(context == null || context.isNull() ? EntryResult.OK : new EntryResult(true, false, null, context));
             } else {
                 out.add(new EntryResult(false, r.path("retryable").asBoolean(true), r.path("error").asText("sink error")));
             }

@@ -141,4 +141,44 @@ class PipelineDryRunTest {
     void anUnprovisionedTenantWithoutInlineDocumentIsAnError() {
         assertThrows(IllegalArgumentException.class, () -> dryRun.run("ghost", null, List.of(), false));
     }
+
+    // --- pipelines with steps ---
+
+    private static final String STEPS = """
+            tenantId: acme
+            enabled: true
+            pipelines:
+              - name: archive
+                enabled: true
+                steps:
+                  - name: original
+                    transformer: {name: zero}
+                    sink: {name: aws_s3_sink, properties: {bucket: "do-not-show"}}
+                  - name: index
+                    transformer: {name: audit_clickhouse}
+                    sink: {name: clickhouse_sink}
+            """;
+
+    @Test
+    void aPipelineWithStepsReportsEachStepAndRunsItsTransformersWithoutTheContextNoSinkReturned() throws Exception {
+        when(transformations.transform(any(), eq("audit_clickhouse"))).thenReturn(Mono.just("{\"row\":1}"));
+        var report = dryRun.run("acme", new TenantConfigParser(mapper).parse(STEPS),
+                List.of(event("{\"eventType\":\"x\"}", "archive")), true);
+
+        var archive = report.events().get(0).pipelines().get(0);
+        assertEquals(0, report.failedCases(), "the case expected exactly 'archive'");
+        assertEquals(List.of("original", "index"), archive.steps().stream().map(PipelineDryRun.StepReport::name).toList());
+        assertEquals("aws_s3_sink", archive.steps().get(0).sink());
+        assertEquals("clickhouse_sink", archive.steps().get(1).sink());
+        assertEquals(false, archive.steps().get(0).withoutContext());
+        assertEquals(true, archive.steps().get(1).withoutContext());
+        assertEquals(1, archive.steps().get(1).transformed().path("row").asInt());
+        assertTrue(report.warnings().isEmpty(), report.warnings().toString());
+    }
+
+    @Test
+    void aOneStepPipelineReportsNoSteps() throws Exception {
+        var report = dryRun.run("acme", tenant(), List.of(event("{}")), false);
+        assertNull(report.events().get(0).pipelines().get(0).steps());
+    }
 }

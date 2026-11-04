@@ -196,4 +196,17 @@ class DlqEndpointTest {
 
         assertFalse(endpoint.getDlqInfo("acme").containsKey("entries"));
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void anEntryOfAPipelineWithStepsShowsHowManyStepsWereDone() {
+        BrokerMessage stepped = entry("archive", "POISON", 1);
+        stepped.headers().put(DeliveryHeaders.STEPS_DONE, 1);
+        broker.put(ACME_DLQ, stepped).put(ACME_DLQ, entry("siem", "POISON", 2));
+
+        var entries = (List<Map<String, Object>>) endpoint.getDlqInfo("acme", 10, null).get("entries");
+
+        assertEquals(1, entries.get(0).get("stepsDone"));
+        assertTrue(!entries.get(1).containsKey("stepsDone"), "a one-step pipeline has no such field");
+    }
 }

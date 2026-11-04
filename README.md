@@ -72,6 +72,7 @@ The common formats and destinations are in the catalogue and ready to use. Anyth
 - **Intelligent routing**: field-level conditions (nested paths, AND/OR groups, CIDR, regex, wildcard) plus a dry run that shows which pipelines a sample event would reach.
 - **Asynchronous by design**: events are buffered on the message broker (RabbitMQ or Amazon SQS, a configuration choice) before processing, so API latency stays flat under bursts.
 - **Multi-destination fan-out**: one publish can reach search, archive, SIEM and webhooks; pipelines fail independently.
+- **Pipeline steps**: one pipeline can archive an event and then index it, the index step seeing where the archive put it; a retry continues at the failed step.
 - **Redaction at ingest**: sensitive fields are masked, hashed or dropped before they reach the broker.
 - **Multi-tenant by construction**: every tenant owns its pipelines, quota and credentials; there is no cross-tenant fall-through.
 - **Resilient delivery**: idempotent processing, retry tiers, circuit breaking and a per-tenant dead-letter queue with replay.

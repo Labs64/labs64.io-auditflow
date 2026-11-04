@@ -45,6 +45,12 @@ public class AuditFlowConfiguration {
         private RetryProperties retry;
         /** Sink-side batching; off unless {@code batch.enabled}. */
         private BatchProperties batch;
+        /**
+         * Ordered steps, as an alternative to {@code transformer(s)} + {@code sink}: each step has its own
+         * transformers and sink, runs only after the previous one succeeded for the event, and its transformers
+         * see what earlier steps' sinks returned in the event's {@code context}. Never both shapes in one pipeline.
+         */
+        private List<StepProperties> steps = new ArrayList<>();
 
         public String getName() {
             return name;
@@ -127,6 +133,85 @@ public class AuditFlowConfiguration {
 
         public boolean isBatchEnabled() {
             return batch != null && batch.isEnabled();
+        }
+
+        public List<StepProperties> getSteps() {
+            return steps;
+        }
+
+        public void setSteps(List<StepProperties> steps) {
+            this.steps = steps;
+        }
+
+        /** True when the pipeline is configured with {@code steps}. */
+        public boolean hasSteps() {
+            return steps != null && !steps.isEmpty();
+        }
+
+        /**
+         * The steps to run, in order. A pipeline without {@code steps} is ONE unnamed step made of its
+         * {@code transformer(s)} and {@code sink}, so both shapes run through the same code.
+         */
+        public List<StepProperties> getEffectiveSteps() {
+            if (hasSteps()) {
+                return steps;
+            }
+            StepProperties single = new StepProperties();
+            single.setTransformer(transformer);
+            single.setTransformers(transformers);
+            single.setSink(sink);
+            return List.of(single);
+        }
+    }
+
+    /** One step of a pipeline: transformer stages, then a sink (with its optional fallback). */
+    public static class StepProperties {
+        private String name;
+        private TransformerProperties transformer;
+        private List<TransformerProperties> transformers = new ArrayList<>();
+        private SinkProperties sink;
+
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public TransformerProperties getTransformer() {
+            return transformer;
+        }
+
+        public void setTransformer(TransformerProperties transformer) {
+            this.transformer = transformer;
+        }
+
+        public List<TransformerProperties> getTransformers() {
+            return transformers;
+        }
+
+        public void setTransformers(List<TransformerProperties> transformers) {
+            this.transformers = transformers;
+        }
+
+        /** Same precedence as a pipeline's: the {@code transformers} list, else the single {@code transformer}. */
+        public List<TransformerProperties> getEffectiveTransformers() {
+            if (transformers != null && !transformers.isEmpty()) {
+                return transformers;
+            }
+            if (transformer != null) {
+                return List.of(transformer);
+            }
+            return List.of();
+        }
+
+        public SinkProperties getSink() {
+            return sink;
+        }
+
+        public void setSink(SinkProperties sink) {
+            this.sink = sink;
         }
     }
 

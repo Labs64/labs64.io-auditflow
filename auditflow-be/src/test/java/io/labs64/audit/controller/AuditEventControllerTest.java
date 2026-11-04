@@ -392,4 +392,42 @@ class AuditEventControllerTest {
         assertEquals(io.labs64.auditflow.model.BatchPublishEntryResult.StatusEnum.ACCEPTED, results.get(2).getStatus());
         verify(tenantGate, org.mockito.Mockito.times(2)).tryAcquireQuota(any());
     }
+
+    // --- the reserved step context ---
+
+    @Test
+    void aPublisherSetContextIsRefusedBeforeTheGateAndTheBroker() {
+        AuditEventController controller = controller();
+        AuditEvent event = newEvent().context(java.util.Map.of("original", java.util.Map.of("key", "forged")));
+
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> controller.publishEvent(event));
+
+        assertEquals(AuditEventController.RESERVED_CONTEXT, e.getMessage());
+        verify(tenantGate, never()).check(any());
+        verify(publisherService, never()).publishMessage(any());
+    }
+
+    @Test
+    void anEmptyContextAsAClientLibrarySendsItIsAccepted() {
+        when(publisherService.publishMessage(any())).thenReturn(null);
+
+        var response = controller().publishEvent(newEvent().context(new java.util.HashMap<>()));
+
+        assertEquals(200, response.getStatusCode().value());
+    }
+
+    @Test
+    void batchRefusesOnlyTheEntryThatSetsAContext() {
+        when(tenantGate.tryAcquireQuota(any())).thenReturn(true);
+        when(publisherService.publishMessages(any())).thenAnswer(inv ->
+                java.util.Collections.nCopies(((java.util.List<?>) inv.getArgument(0)).size(), (String) null));
+        java.util.Map<String, Object> forged = entry("api.call", null);
+        forged.put("context", java.util.Map.of("original", java.util.Map.of("key", "forged")));
+
+        var body = controller().publishEvents(batch(entry("api.call", null), forged)).getBody();
+
+        assertEquals(1, body.getAcceptedCount());
+        assertEquals(io.labs64.auditflow.model.ErrorCode.VALIDATION_ERROR, body.getResults().get(1).getError().getCode());
+        assertEquals(AuditEventController.RESERVED_CONTEXT, body.getResults().get(1).getError().getMessage());
+    }
 }
