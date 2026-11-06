@@ -51,7 +51,7 @@ public class DeliveryQueue {
                 DeliveryHeaders.copy(delivery, Map.of(DeliveryHeaders.THROTTLED, throttled)));
     }
 
-    /** Re-deliver a DLQ entry as a fresh delivery: attempts and age start over, DLQ headers removed. */
+    /** Re-deliver a DLQ entry: attempts and age start over, DLQ headers removed; the step progress headers are kept. */
     public void replay(BrokerMessage dlqEntry) {
         Map<String, Object> headers = new HashMap<>();
         headers.put(DeliveryHeaders.ATTEMPTS, 0);
