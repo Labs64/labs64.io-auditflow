@@ -13,7 +13,7 @@ Drop `mysink.py` into `sinks/` (or `sinks_bootstrap/` at runtime) implementing
 A sink whose destination takes many records per request can also define
 `process_batch(events: list, properties: dict) -> list`, used for pipelines with `batch.enabled`. It
 returns one outcome per event; see
-[Writing a batch in one call](../DEVELOPERS.md#writing-a-batch-in-one-call-optional).
+[Writing a batch in one call](https://labs64.io/docs/modules/auditflow/sinks-and-transformers/#writing-a-batch-in-one-call-optional).
 
 **`extra` is an open map — a sink must honour three invariants** (see e.g.
 `auditflow-sink/tests/test_syslog_sink.py`, which exercises exactly this for one sink; there is no
