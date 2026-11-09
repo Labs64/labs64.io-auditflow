@@ -97,6 +97,10 @@ def test_a_default_without_allowed_only_fills_a_missing_value():
     "r={extra.x|default=a/b}/",               # default not key-safe
     "r={extra.x|fallback=1}/",                # unknown option
     "r={extra.x|default=1|default=2}/",       # repeated option
+    "r={extra.x|Default=30}/",                # misspelt option: would have stayed in the key as written
+    "r={extra.x |default=30}/",               # a space
+    "r={extra.x|default}/",                   # an option without a value
+    "r={extra.x/",                            # not closed
 ])
 def test_a_wrong_option_fails_the_write_instead_of_writing_an_unexpected_key(fmt):
     with pytest.raises(ValueError):

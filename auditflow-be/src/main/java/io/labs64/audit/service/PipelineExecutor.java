@@ -359,13 +359,25 @@ public class PipelineExecutor {
         return value;
     }
 
-    /** The event as the step's transformers see it: with the context so far, if there is one. */
+    /**
+     * The event as the step's transformers see it: with the context so far, if there is one. {@code context} is
+     * reserved for what steps returned: one an event brought along (ingest refuses it, but a message can reach the
+     * broker another way) never reaches a transformer as if a step had written it.
+     */
     private static JsonNode withContext(JsonNode event, ObjectNode context) {
-        if (context == null || context.isEmpty() || !(event instanceof ObjectNode object)) {
+        if (!(event instanceof ObjectNode object)) {
+            return event;
+        }
+        boolean none = context == null || context.isEmpty();
+        if (none && !object.has(CONTEXT_FIELD)) {
             return event;
         }
         ObjectNode copy = object.deepCopy();
-        copy.set(CONTEXT_FIELD, context);
+        if (none) {
+            copy.remove(CONTEXT_FIELD);
+        } else {
+            copy.set(CONTEXT_FIELD, context);
+        }
         return copy;
     }
 

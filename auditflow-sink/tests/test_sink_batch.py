@@ -190,4 +190,6 @@ def test_the_batch_endpoint_passes_a_sinks_context_through_and_omits_it_when_the
     results = response.json()["results"]
     assert results[0]["context"] == {"key": "k1"}
     assert "context" not in results[1]
-    assert "context" not in results[2]  # only a JSON object is a context
+    # As for a single event: a context that is not a JSON object is the sink's bug, and poison, not dropped.
+    assert results[2]["status"] == "error" and results[2]["retryable"] is False
+    assert "context" not in results[2]

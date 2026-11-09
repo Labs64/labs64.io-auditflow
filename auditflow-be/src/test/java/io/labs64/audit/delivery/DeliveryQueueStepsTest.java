@@ -34,6 +34,36 @@ class DeliveryQueueStepsTest {
     }
 
     @Test
+    void aReplayOfAnEntryWithUnreadableProgressStartsOver() {
+        InMemoryBroker broker = new InMemoryBroker();
+        BrokerMessage entry = resumedAtStepTwo();
+        entry.headers().put(DeliveryHeaders.DLQ_REASON, DeadLetterReason.MALFORMED.name());
+
+        new DeliveryQueue(broker).replay(entry);
+
+        BrokerMessage copy = broker.published().get(0).message();
+        assertEquals(null, copy.header(DeliveryHeaders.STEPS_DONE));
+        assertEquals(null, copy.header(DeliveryHeaders.CONTEXT));
+        assertEquals(io.labs64.audit.service.StepProgress.START, DeliveryHeaders.progress(copy, new com.fasterxml.jackson.databind.ObjectMapper()));
+    }
+
+    @Test
+    void progressThisCodeCouldNotHaveWrittenIsRefused() {
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        BrokerMessage noStepDone = resumedAtStepTwo();
+        noStepDone.headers().put(DeliveryHeaders.STEPS_DONE, 0);
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> DeliveryHeaders.progress(noStepDone, mapper));
+
+        BrokerMessage tooLarge = resumedAtStepTwo();
+        tooLarge.headers().put(DeliveryHeaders.CONTEXT, "{\"k\":\"" + "x".repeat(5000) + "\"}");
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> DeliveryHeaders.progress(tooLarge, mapper));
+
+        assertEquals(1, DeliveryHeaders.progress(resumedAtStepTwo(), mapper).stepsDone());
+    }
+
+    @Test
     void aDeferAndARetryKeepTheProgress() {
         InMemoryBroker broker = new InMemoryBroker();
         DeliveryQueue queue = new DeliveryQueue(broker);

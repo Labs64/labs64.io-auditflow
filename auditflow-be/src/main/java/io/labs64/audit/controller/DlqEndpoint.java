@@ -43,7 +43,7 @@ import io.labs64.audit.tenant.TenantIds;
  * </ul>
  *
  * <p>Replay re-enqueues a delivery entry for its pipeline (attempts and age start over; a pipeline with
- * steps resumes at the step that failed, as the step headers are kept) and a legacy entry onto the ingest queue. Optional {@code pipeline} narrows replay and purge
+ * steps resumes at the step that failed, as the step headers are kept; a {@code MALFORMED} entry starts over) and a legacy entry onto the ingest queue. Optional {@code pipeline} narrows replay and purge
  * to one pipeline. Safety: the broker adapter's {@link MessageBroker#scan} removes a message only
  * after it was forwarded (replay, confirmed) or on purpose (purge); every other message stays, also
  * when the operation crashes.</p>

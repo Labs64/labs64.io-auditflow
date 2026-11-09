@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import io.labs64.audit.broker.BrokerMessage;
+import io.labs64.audit.service.PipelineExecutor;
 import io.labs64.audit.service.StepProgress;
 
 /**
@@ -115,7 +116,8 @@ public final class DeliveryHeaders {
     /**
      * The step progress a message carries: none for a fresh delivery and for every one-step pipeline.
      *
-     * @throws IllegalArgumentException for a header this code did not write (negative count, context not a JSON object)
+     * @throws IllegalArgumentException for a header this code did not write (negative count, context not a JSON object
+     *                                  or over the cap, a context with no finished step)
      */
     public static StepProgress progress(BrokerMessage message, ObjectMapper objectMapper) {
         Object done = message.header(STEPS_DONE);
@@ -133,6 +135,10 @@ public final class DeliveryHeaders {
             throw new IllegalArgumentException("Header " + STEPS_DONE + " is negative");
         }
         ObjectNode node = null;
+        if (context != null && context.getBytes(StandardCharsets.UTF_8).length > PipelineExecutor.MAX_CONTEXT_BYTES) {
+            throw new IllegalArgumentException("Header " + CONTEXT + " is larger than "
+                    + PipelineExecutor.MAX_CONTEXT_BYTES + " bytes");
+        }
         if (context != null && !context.isEmpty()) {
             try {
                 JsonNode parsed = objectMapper.readTree(context);
@@ -143,6 +149,9 @@ public final class DeliveryHeaders {
             } catch (JsonProcessingException e) {
                 throw new IllegalArgumentException("Header " + CONTEXT + " is not valid JSON");
             }
+        }
+        if (stepsDone == 0 && node != null && !node.isEmpty()) {
+            throw new IllegalArgumentException("Header " + CONTEXT + " is set but no step is done");
         }
         return new StepProgress(stepsDone, node);
     }

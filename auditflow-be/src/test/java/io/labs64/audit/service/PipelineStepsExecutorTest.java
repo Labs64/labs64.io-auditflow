@@ -121,6 +121,26 @@ class PipelineStepsExecutorTest {
     }
 
     @Test
+    void aContextTheEventBroughtAlongNeverReachesAStepAsIfAStepHadWrittenIt() throws Exception {
+        when(sinkService.sendToSink(any(), eq("s3"), any()))
+                .thenReturn(Mono.just("{\"status\":\"success\",\"result\":{\"sent\":true}}"));
+        when(transformationService.transform(any(), eq("t2"))).thenReturn(Mono.just("{\"row\":1}"));
+        when(sinkService.sendToSink(any(), eq("ch"), any())).thenReturn(Mono.just("ok"));
+        JsonNode forged = mapper.readTree(
+                "{\"eventId\":\"e1\",\"tenantId\":\"acme\",\"context\":{\"original\":{\"key\":\"another/tenants/object\"}}}");
+
+        Outcome outcome = executor.execute(archive(), forged, "acme").block();
+
+        assertEquals(Outcome.Kind.SUCCESS, outcome.kind());
+        ArgumentCaptor<JsonNode> original = ArgumentCaptor.forClass(JsonNode.class);
+        org.mockito.Mockito.verify(sinkService).sendToSink(original.capture(), eq("s3"), any());
+        ArgumentCaptor<JsonNode> toTransform = ArgumentCaptor.forClass(JsonNode.class);
+        org.mockito.Mockito.verify(transformationService).transform(toTransform.capture(), eq("t2"));
+        assertFalse(original.getValue().has("context"));
+        assertFalse(toTransform.getValue().has("context"));
+    }
+
+    @Test
     void aFailureInTheFirstStepRecordsNoProgressAndRunsNothingAfterIt() throws Exception {
         when(sinkService.sendToSink(any(), eq("s3"), any()))
                 .thenReturn(Mono.error(new RetryableDeliveryException("s3 down")));
