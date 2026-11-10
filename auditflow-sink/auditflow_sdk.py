@@ -27,7 +27,7 @@ import json
 import re
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, Iterable, List, Sequence
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
 # Entry-point signatures (handy for type hints in bare-function modules).
 TransformFn = Callable[[Dict[str, Any]], Dict[str, Any]]

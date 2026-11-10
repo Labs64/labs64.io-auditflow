@@ -51,9 +51,17 @@ public class DeliveryQueue {
                 DeliveryHeaders.copy(delivery, Map.of(DeliveryHeaders.THROTTLED, throttled)));
     }
 
-    /** Re-deliver a DLQ entry: attempts and age start over, DLQ headers removed; the step progress headers are kept. */
+    /**
+     * Re-deliver a DLQ entry: attempts and age start over, DLQ headers removed. The step progress headers are kept, so
+     * the delivery resumes at the step that failed; an entry dead-lettered as {@code MALFORMED} starts over instead,
+     * since its progress may be what could not be read, and with it kept no replay could ever succeed.
+     */
     public void replay(BrokerMessage dlqEntry) {
         Map<String, Object> headers = new HashMap<>();
+        if (DeadLetterReason.MALFORMED.name().equals(DeliveryHeaders.string(dlqEntry, DeliveryHeaders.DLQ_REASON))) {
+            headers.put(DeliveryHeaders.STEPS_DONE, null);
+            headers.put(DeliveryHeaders.CONTEXT, null);
+        }
         headers.put(DeliveryHeaders.ATTEMPTS, 0);
         headers.put(DeliveryHeaders.THROTTLED, 0);
         headers.put(DeliveryHeaders.FIRST_ENQUEUED_AT, System.currentTimeMillis());

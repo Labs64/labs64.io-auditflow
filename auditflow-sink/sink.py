@@ -232,10 +232,17 @@ def _run_batch(process_function, events, properties):
             results.append({"index": i, "status": "error", "retryable": not isinstance(outcome, ValueError),
                             "error": str(outcome)[:500]})
         else:
+            context = outcome.get("context") if isinstance(outcome, dict) else None
+            if context is not None and not isinstance(context, dict):
+                # As for a single event: a context that is not an object is the sink's bug, never dropped silently.
+                app_logger.error("Batch event %d: the sink returned a context that is not a JSON object", i)
+                results.append({"index": i, "status": "error", "retryable": False,
+                                "error": "The sink returned a context that is not a JSON object"})
+                continue
             result = {"index": i, "status": "success"}
             # What a sink returns as `context` goes back to AuditFlow for the next step of a pipeline with steps.
-            if isinstance(outcome, dict) and isinstance(outcome.get("context"), dict):
-                result["context"] = outcome["context"]
+            if context is not None:
+                result["context"] = context
             results.append(result)
     return results
 

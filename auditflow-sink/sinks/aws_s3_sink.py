@@ -310,7 +310,13 @@ def _fill_placeholders(path: str, event_data: dict) -> str:
     unexpected value. A defaulted value is logged and counted (field only, never the value). Without
     options a missing value is ``unknown``, as before.
     """
-    return _PLACEHOLDER.sub(lambda m: _placeholder_value(event_data, m.group(1), m.group(2)), path)
+    filled = _PLACEHOLDER.sub(lambda m: _placeholder_value(event_data, m.group(1), m.group(2)), path)
+    if '{' in filled or '}' in filled:
+        # A placeholder this could not read (a misspelt option, a space) would otherwise become part of the key,
+        # under which no lifecycle rule or reader looks.
+        raise ValueError("partition-format: a placeholder could not be read; use {field} or "
+                         "{field|default=x|allowed=x,y}")
+    return filled
 
 
 def _placeholder_options(raw: str) -> dict:
