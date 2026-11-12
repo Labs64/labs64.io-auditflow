@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.labs64.audit.config.AuditFlowConfiguration.PipelineProperties;
@@ -167,7 +168,7 @@ public class PipelineDryRun {
                 String stepError = null;
                 if (matched && transform) {
                     try {
-                        stepOut = transformAll(event, names);
+                        stepOut = transformAll(withoutContext(event), names);
                     } catch (Exception ex) {
                         stepError = ex.getMessage();
                     }
@@ -187,6 +188,14 @@ public class PipelineDryRun {
                 p.getSink() == null ? null : p.getSink().getName(), transformers, policy.maxAttempts(),
                 policy.maxAge().toString(), batch, batch ? p.getBatch().getMaxSize() : null, transformed, transformError,
                 steps);
+    }
+
+    /** No sink runs here, so no step has a context: one the fixture brought along must not pass for a step's. */
+    private static JsonNode withoutContext(JsonNode event) {
+        if (event instanceof ObjectNode object && object.has(PipelineExecutor.CONTEXT_FIELD)) {
+            return object.deepCopy().without(PipelineExecutor.CONTEXT_FIELD);
+        }
+        return event;
     }
 
     private JsonNode transformAll(JsonNode event, List<String> transformers) throws Exception {
