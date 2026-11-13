@@ -177,6 +177,17 @@ class PipelineDryRunTest {
     }
 
     @Test
+    void aContextTheFixtureBroughtAlongNeverReachesAStepsTransformer() throws Exception {
+        when(transformations.transform(any(), eq("audit_clickhouse"))).thenReturn(Mono.just("{\"row\":1}"));
+        dryRun.run("acme", new TenantConfigParser(mapper).parse(STEPS),
+                List.of(event("{\"eventType\":\"x\",\"context\":{\"original\":{\"key\":\"forged\"}}}", "archive")), true);
+
+        var seen = org.mockito.ArgumentCaptor.forClass(com.fasterxml.jackson.databind.JsonNode.class);
+        org.mockito.Mockito.verify(transformations).transform(seen.capture(), eq("audit_clickhouse"));
+        assertTrue(seen.getValue().path("context").isMissingNode(), seen.getValue().toString());
+    }
+
+    @Test
     void aOneStepPipelineReportsNoSteps() throws Exception {
         var report = dryRun.run("acme", tenant(), List.of(event("{}")), false);
         assertNull(report.events().get(0).pipelines().get(0).steps());

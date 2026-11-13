@@ -343,7 +343,7 @@ public class PipelineExecutor {
         try {
             root = objectMapper.readTree(response);
         } catch (Exception e) {
-            throw new PoisonDeliveryException("Sink '" + step.getSink().getName() + "' answered with invalid JSON: "
+            throw new PoisonDeliveryException("The sink of step '" + step.getName() + "' answered with invalid JSON: "
                     + e.getMessage(), e);
         }
         return contextOf(step, root == null ? null : root.path("result").get(CONTEXT_FIELD));
@@ -354,7 +354,7 @@ public class PipelineExecutor {
             return null;
         }
         if (!value.isObject()) {
-            throw new PoisonDeliveryException("Sink '" + step.getSink().getName() + "' returned a context that is not a JSON object");
+            throw new PoisonDeliveryException("The sink of step '" + step.getName() + "' returned a context that is not a JSON object");
         }
         return value;
     }
