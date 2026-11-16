@@ -14,7 +14,16 @@ Publish valid event (200)
     ${event}=    Build Valid Audit Event    ${correlation_id}
     ${response}=    Publish Audit Event    ${event}
     Response Status Should Be    ${response}    200
-    Dictionary Should Contain Key    ${response.headers}    X-Audit-Event-Id
+    Should Be A UUID    ${response.headers}[X-Audit-Event-Id]
+    Timestamp Should Be Recent    ${response.headers}[X-Audit-Received-At]
+
+Publish valid batch (200)
+    [Documentation]    POST /audit/publish/batch with two valid events: 200, both ACCEPTED.
+    [Tags]    auditflow    smoke    batch
+    ${events}=    Build Valid Audit Event Batch    2
+    ${response}=    Publish Audit Event Batch    ${events}
+    ${body}=    Batch Response Should Be Consistent    ${response}    2
+    Should Be Equal As Integers    ${body}[acceptedCount]    2
 
 Reject event missing required field (400)
     [Documentation]    POST missing `eventType` returns 400 VALIDATION_ERROR.
@@ -26,8 +35,8 @@ Reject event missing required field (400)
     Should Be Equal As Strings    ${body}[code]    VALIDATION_ERROR
 
 Reject oversized payload (413)
-    [Documentation]    POST payload exceeding limits (e.g. 2.5MB) must be rejected gracefully with 413.
-    [Tags]    auditflow    smoke    error-handling    known-bug
+    [Documentation]    A 15 MB body exceeds the gateway's request-size limit (2.5 MiB by default) and must be refused at the edge with 413.
+    [Tags]    auditflow    smoke    error-handling
     ${correlation_id}=    Generate Correlation ID
     ${event}=    Build Oversized Audit Event    ${correlation_id}
     ${response}=    Publish Audit Event    ${event}

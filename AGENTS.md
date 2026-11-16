@@ -181,18 +181,21 @@ stack has no gateway in front of it.
 
 | File | Covers |
 |---|---|
-| `smoke.robot` | Happy path + 400 validation |
-| `authz.robot` | Auth/authz scope matrix |
-| `tenant_isolation.robot` | Gateway-derived tenant is authoritative; unprovisioned tenants rejected |
+| `smoke.robot` | Happy path (single + batch), 400 validation, 413 over the gateway body limit |
+| `authz.robot` | Auth/authz scope matrix; non-bearer and empty credentials; error-body shape; `X-Auth-*` headers cannot grant a scope |
+| `tenant_isolation.robot` | Gateway-derived tenant is authoritative (payload `tenantId` and `X-Auth-Tenant` header are ignored, single and batch); unprovisioned tenants rejected |
+| `request_validation.robot` | `POST /audit/publish` contract: field-limit boundary pairs, the `eventTime` window, `eventId` echo and retry, receipt-time header, Content-Type 415, undeclared methods and paths denied, malformed/hostile bodies answer 400 |
+| `batch_publish.robot` | `POST /audit/publish/batch`: one result per event in order, counts and indexes consistent, partial acceptance (invalid, malformed, out-of-window events), the 100-event limit, whole-request 400/403/413/415, `eventId` echo |
 | `pipeline_routing.robot` | Non-matching events produce no delivery attempt; fan-out dead-letters once per failed pipeline |
 | `condition_operators.robot` | Every `ConditionEvaluator` operator branch + match:all/any |
 | `redaction.robot` | PII masking before publish (baseline + local-k8s content corroboration) |
 | `dlq_replay.robot` | DLQ inspect is non-destructive; replay drains and is tenant-scoped |
+| `dlq_admin.robot` | The DLQ operator endpoint: 401/403 access control, entry fields, `limit`/`pipeline` handling, purge (counted, per pipeline, tenant-scoped), invalid input |
 | `pipeline_steps.robot` | A publisher-set `context` is refused (single and batch), an empty one accepted; a step's failure dead-letters with `stepsDone` (second step) or none (first step), once |
-| `quota_enforcement.robot` | Per-tenant token bucket: 429 + Retry-After, recovery |
+| `quota_enforcement.robot` | Per-tenant token bucket: 429 + Retry-After, recovery, per-event limiting in a batch, another tenant unaffected |
 | `secret_ref_resolution.robot` | Resolvable vs. missing `${secretRef:...}` — fail-closed, never blank |
 
-The last seven use a dedicated `t_regression`/`t_regression_quota` tenant pair (mock-oidc personas
+`pipeline_routing`, `condition_operators`, `dlq_replay`, `dlq_admin`, `pipeline_steps`, `quota_enforcement` and `secret_ref_resolution` use a dedicated `t_regression`/`t_regression_quota` tenant pair (mock-oidc personas
 `auditflow-regression`/`auditflow-regression-quota`, provisioned in
 `overrides/auditflow/values.local.yaml` in `labs64.io-helm-charts`) — deliberately aggressive
 fixtures (tiny quotas, pipelines that always fail via an unresolvable secretRef) that must never

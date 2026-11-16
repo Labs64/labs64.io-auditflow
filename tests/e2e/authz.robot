@@ -79,6 +79,41 @@ Prevent 500 on unauthenticated request
     Should Be True    ${status} != 500
     ...    msg=Unauthenticated request caused HTTP 500 — possible misconfigured auth filter. Expected 401.
 
+Reject a non-bearer authorization scheme (401)
+    [Documentation]    HTTP Basic credentials are not a token: 401, never an attempt to interpret them.
+    [Tags]    auditflow    regression    auth
+    [Template]    Publish With Authorization Header Should Be Rejected
+    Basic dGVzdDp0ZXN0
+
+Reject an empty bearer token (401)
+    [Tags]    auditflow    regression    auth
+    [Template]    Publish With Authorization Header Should Be Rejected
+    Bearer${SPACE}
+
+Authentication failures are well-formed errors
+    [Documentation]    A refused call carries the contract's ErrorResponse — 401 UNAUTHORIZED without
+    ...                credentials, 403 FORBIDDEN with the wrong scope — and nothing of the implementation.
+    [Tags]    auditflow    regression    auth    error-handling
+    Create Unauthenticated AuditFlow Session
+    ${event}=    Build Valid Audit Event    error-shape-check
+    ${anonymous}=    Publish Audit Event    ${event}
+    Response Should Be Error Response    ${anonymous}    401    UNAUTHORIZED
+    Create Session With Scope    auditflow-error-shape    ${AUDITFLOW_BASE_URL}    audit-event:read
+    ${wrong_scope}=    Publish Audit Event    ${event}    alias=auditflow-error-shape
+    Response Should Be Error Response    ${wrong_scope}    403    FORBIDDEN
+
+Client-supplied X-Auth headers cannot grant a scope
+    [Documentation]    A token with only audit-event:read that also sends ``X-Auth-Scopes`` and
+    ...                ``X-Auth-Scope`` naming audit-event:write is still read-only (403): the gateway
+    ...                derives scopes from the token, never from the request.
+    [Tags]    auditflow    regression    auth    security
+    Create Session With Scope    auditflow-escalation    ${AUDITFLOW_BASE_URL}    audit-event:read
+    ${event}=    Build Valid Audit Event    escalation-check
+    ${body}=    Evaluate    json.dumps($event)    modules=json
+    ${headers}=    Create Dictionary    X-Auth-Scopes=audit-event:write    X-Auth-Scope=audit-event:write
+    ${response}=    Send Raw Request    auditflow-escalation    POST    /audit/publish    ${body}    headers=${headers}
+    Response Should Be Error Response    ${response}    403    FORBIDDEN
+
 Verify authproxy logs show 401 (local-k8s)
     [Documentation]    Authproxy logs must record no-token rejection.
     [Tags]    auditflow    regression    auth    local-k8s-only
@@ -138,3 +173,15 @@ Verify Cerbos deny in authproxy logs for no scopes (local-k8s)
     Response Status Should Be    ${response}    403
     Authproxy Logs Should Show Authz Decision For Publish    enforced-deny
     AuditFlow Backend Logs Should Not Contain Correlation Id    ${correlation_id}
+
+*** Keywords ***
+Publish With Authorization Header Should Be Rejected
+    [Documentation]    A valid event sent with the given ``Authorization`` header value and no token: 401
+    ...                UNAUTHORIZED.
+    [Arguments]    ${authorization}
+    Create Unauthenticated AuditFlow Session
+    ${event}=    Build Valid Audit Event    auth-scheme-check
+    ${body}=    Evaluate    json.dumps($event)    modules=json
+    ${headers}=    Create Dictionary    Authorization=${authorization}
+    ${response}=    Send Raw Request    ${AUDITFLOW_SESSION_ALIAS}    POST    /audit/publish    ${body}    headers=${headers}
+    Response Should Be Error Response    ${response}    401    UNAUTHORIZED
