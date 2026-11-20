@@ -50,7 +50,7 @@ services:
       - auditflow-net
 
   loki:
-    image: grafana/loki:3.7.9
+    image: grafana/loki:3.7.10
     container_name: auditflow-loki
     command: ["-config.file=/etc/loki/loki.yaml"]
     user: "0:0"
@@ -82,7 +82,7 @@ services:
       - auditflow-net
 
   grafana:
-    image: grafana/grafana:13.2.4
+    image: grafana/grafana:13.3.1
     container_name: auditflow-grafana
     environment:
       GF_SECURITY_ADMIN_PASSWORD: admin
