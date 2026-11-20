@@ -38,9 +38,6 @@ publisher's ``extra`` value replace the event's identity.
 An ``extra`` value that is explicitly ``null`` is treated as ABSENT and omitted, like a key the
 publisher never sent. Falsy-but-present values (``0``, ``""``, ``false``) are real and are kept.
 
-``examples/netlicensing/audit_clickhouse_netlicensing.py`` is a worked example, paired with
-``examples/clickhouse/schema-netlicensing.sql``.
-
 A transformer takes no pipeline properties, so the *module id* is what selects a vocabulary — one
 module per domain, chosen per pipeline. Two pipelines may therefore write different column subsets
 into the same table; absent scalars are omitted so ClickHouse applies the column DEFAULT, and the

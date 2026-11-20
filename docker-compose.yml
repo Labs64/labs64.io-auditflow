@@ -81,12 +81,9 @@ services:
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-auditflow}
       CLICKHOUSE_DB: audit
     volumes:
-      # Canonical core schema, also parsed by the transformer contract test, plus the NetLicensing
-      # use-case extension. Numbered targets because init scripts run in lexicographic order and
-      # the extension ALTERs the core table.
+      # Canonical core schema, also parsed by the transformer contract test.
       # Init scripts run only on an empty data dir — `just clean` drops the volume to re-apply.
       - ./examples/clickhouse/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-      - ./examples/clickhouse/schema-netlicensing.sql:/docker-entrypoint-initdb.d/02-schema-netlicensing.sql:ro
       - clickhouse-data:/var/lib/clickhouse
     ulimits:
       nofile:
@@ -112,14 +109,6 @@ services:
     container_name: auditflow-transformer
     ports:
       - "8081:8081"
-    volumes:
-      # The bootstrap directory is the runtime extension point for transformers (a ConfigMap in
-      # k8s, a bind mount here). It carries the NetLicensing example — `audit_clickhouse` itself
-      # stays domain-free and ships in the image, while the licensing vocabulary layered on top
-      # of it is mounted, which is exactly how an integrator adds their own.
-      # Transformer modules only: the registry scans this directory for *.py and reports anything
-      # without a `transform` entry point as a broken plugin.
-      - ./examples/netlicensing:/home/l64user/transformers_bootstrap:ro
     environment:
       # No-code `extra` promotion: {extra key: target field}. Passed through from the host so
       # `AUDITFLOW_PROMOTED_KEYS='{"orderRef":"order_ref"}' just up` works without editing this file.

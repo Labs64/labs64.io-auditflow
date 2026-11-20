@@ -41,8 +41,7 @@ pipelines:
     enabled: true
     transformer:
       # The generic, domain-free transformer: core audit columns only, everything else preserved
-      # in the `extra` map column. Contrast with tenants/demo.yaml, which points the same sink at
-      # a use-case layer that promotes licensing/monetization keys into their own columns.
+      # in the `extra` map column.
       name: audit_clickhouse
     sink:
       name: clickhouse_sink

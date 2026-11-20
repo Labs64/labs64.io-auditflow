@@ -107,19 +107,15 @@ ClickHouse is in the default stack as a **queryable** sink for the local flow. T
 trip lives in `examples/getting-started.ipynb` **section 6** — publish → poll → `SELECT` → assert
 the column contract (keep new local-flow checks there, not in a shell script). `just ch-events` /
 `just ch-stats` / `just ch "<SQL>"` query it ad hoc; `just ch-seed` publishes a synthetic
-NetLicensing API + Payment Gateway event stream to query against. Pipelines are enabled in `tenants/demo.yaml` and
+API + Payment Gateway event stream to query against. Pipelines are enabled in `tenants/demo.yaml` and
 `tenants/_platform.yaml`.
 
 **The ClickHouse core stays domain-free.** `audit_clickhouse` and `schema.sql` carry the generic
 audit vocabulary only; a use case is a **layer on top**, never a widening of the core. A layer is
-three files that must agree, and the NetLicensing one is the worked example:
-
-| Layer | Generic (shipped) | NetLicensing example |
-|---|---|---|
-| Columns | `examples/clickhouse/schema.sql` (CREATE TABLE) | `examples/clickhouse/schema-netlicensing.sql` (ALTER TABLE ADD COLUMN) |
-| Promotion | `transformers/audit_clickhouse.py` | `examples/netlicensing/audit_clickhouse_netlicensing.py` — `make_transform({extra key: column})`, mounted into `transformers_bootstrap` by compose, **not** in the image |
-| Vocabulary | `Extra` schema in the OpenAPI contract | `examples/clickhouse/NETLICENSING_EVENTS.md` (field vocabulary + event templates + queries) |
-| Pipeline | `tenants/_platform.yaml` | `tenants/demo.yaml` |
+three files that must agree: an `ALTER TABLE ADD COLUMN` script, a transformer built on
+`audit_clickhouse.make_transform({extra key: column})` (mounted into `transformers_bootstrap`, not
+shipped in the image), and the pipeline that selects it. The shipped stack uses the generic layer
+only (`schema.sql`, `audit_clickhouse`, `tenants/_platform.yaml` and `tenants/demo.yaml`).
 
 **`extra` is an open map — four invariants** (`auditflow-transformer/tests/test_extra_contract.py`
 enforces them across every module in `transformers/`, so a new transformer is covered on arrival):
@@ -141,8 +137,8 @@ Promotion also accepts `AUDITFLOW_PROMOTED_KEYS` / `AUDITFLOW_PROMOTED_KEYS_<MOD
 object); a malformed value **must** keep raising at import so the registry excludes the module
 instead of silently dropping a column.
 
-Both schema files are compose init scripts, applied only on an empty data dir — `just clean` after
-editing either. Invariants to preserve when touching any of this:
+`schema.sql` is a compose init script, applied only on an empty data dir — `just clean` after
+editing it. Invariants to preserve when touching any of this:
 
 - **Never add a domain key to `audit_clickhouse` or a domain column to `schema.sql`.** Extend via
   `make_transform(extra_promoted)` + an `ALTER TABLE` script. A transformer takes no pipeline
@@ -150,8 +146,7 @@ editing either. Invariants to preserve when touching any of this:
   `test_audit_clickhouse_contract.py` fails on a domain leak into either generic file.
 - Every promoted key needs a column and every column a promoted key, or the pairing silently
   half-works — the sink inserts with `input_format_skip_unknown_fields=1`, so a key with no column
-  is dropped rather than rejected. `test_audit_clickhouse_netlicensing.py` asserts the round trip
-  across all three files of the layer.
+  is dropped rather than rejected. A layer should carry a test asserting that pairing.
 - **`event_time` is the analytics axis**, `timestamp` is receipt time. Partitioning, sorting, TTL
   and every KPI query group on `event_time`; grouping on `timestamp` silently breaks any backfill
   or replay. Ingest sets an omitted `eventTime` to the receipt time, so `event_time` is never null (the transformer

@@ -35,7 +35,7 @@ _urls:
     @echo "  ClickHouse Play:    http://localhost:8123/play  (auditflow/auditflow)"
     @echo ""
     @echo "  ClickHouse round trip: just notebook-getting-started  (section 6)"
-    @echo "  Demo event data:       just ch-seed                   (then see examples/clickhouse/NETLICENSING_EVENTS.md)"
+    @echo "  Demo event data:       just ch-seed"
     @echo "  OTel Collector:     localhost:4317 (gRPC) / localhost:4318 (HTTP)"
     @echo "  Grafana:            http://localhost:3000   (admin/admin)"
     @echo "  Prometheus:         http://localhost:9090"
@@ -163,8 +163,7 @@ ch-shell:
         --password "${CLICKHOUSE_PASSWORD:-auditflow}" \
         --database audit
 
-# Publish synthetic NetLicensing API + Payment Gateway events so the queries in
-# examples/clickhouse/NETLICENSING_EVENTS.md have data.
+# Publish synthetic API + Payment Gateway events so ClickHouse queries have data.
 # Pass extra flags through, e.g.: just ch-seed "--tenant demo"
 #
 # Publish synthetic NetLicensing and Payment Gateway events to query against

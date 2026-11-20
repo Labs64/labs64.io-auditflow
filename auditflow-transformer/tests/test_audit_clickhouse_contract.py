@@ -6,7 +6,7 @@ operators actually run would otherwise only appear as a stream of DLQ entries.
 
 Scope is the **generic** contract: examples/clickhouse/schema.sql and the domain-free
 `audit_clickhouse`. Both must stay free of any one publisher's field names — a use-case layer is
-covered by its own test (test_audit_clickhouse_netlicensing.py), which reuses the parser here.
+covered by its own test, which can reuse the parser here.
 
 The schema is parsed from the .sql file rather than duplicated as a Python constant, so there is
 exactly one source of truth for the column contract. ALIAS and MATERIALIZED columns are excluded

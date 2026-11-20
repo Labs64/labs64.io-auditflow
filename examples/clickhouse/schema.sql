@@ -7,9 +7,7 @@
 --
 -- These columns are what the domain-free `audit_clickhouse` transformer emits. Keep both sides
 -- generic: a use case adds its own columns in a sibling ALTER TABLE script applied after this one,
--- paired with a transformer module that promotes the matching `extra` keys. See
--- schema-netlicensing.sql + examples/netlicensing/audit_clickhouse_netlicensing.py for a worked
--- example. `clickhouse_sink` sends `input_format_skip_unknown_fields=1`, so a pipeline using an
+-- paired with a transformer module that promotes the matching `extra` keys. `clickhouse_sink` sends `input_format_skip_unknown_fields=1`, so a pipeline using an
 -- extension against a table that only has these columns still works — the extra keys are dropped
 -- at insert time rather than failing the delivery.
 --
@@ -40,8 +38,7 @@ CREATE TABLE IF NOT EXISTS audit.audit_events
     -- entity state: a SUCCESSful call can be what moves a subscription to CANCELLED, and a use
     -- case that needs the entity's state adds its own column for it rather than overloading this.
     -- `action_name` is the semantic action ("payment.capture"); a use case whose events are API
-    -- calls may prefer its own endpoint column instead (see `action_method` in
-    -- schema-netlicensing.sql).
+    -- calls may prefer its own endpoint column instead.
     action_name      LowCardinality(String),
     action_status    LowCardinality(String),
     action_message   String,

@@ -210,7 +210,7 @@ labs64.io-auditflow/
 ├── auditflow-transformer/   # Python transformer service
 │   ├── transformer.py       # FastAPI app
 │   ├── transformers/        # Built-in transformers (zero, audit_loki, audit_opensearch, audit_clickhouse)
-│   ├── transformers_bootstrap/  # Mounted at runtime for custom transformers (compose mounts examples/netlicensing/)
+│   ├── transformers_bootstrap/  # Mounted at runtime for custom transformers 
 │   └── tests/
 ├── auditflow-sink/          # Python sink service
 │   ├── sink.py              # FastAPI app
@@ -222,8 +222,7 @@ labs64.io-auditflow/
 
 ├── examples/                       # Runnable examples, not part of any image
 │   ├── getting-started.ipynb       # Hands-on walkthrough (section 6 = ClickHouse round trip)
-│   ├── clickhouse/                 # schema.sql (core) + the NetLicensing layer's DDL, KPI book, seeder
-│   └── netlicensing/               # Use-case transformer, mounted into transformers_bootstrap/
+│   └── clickhouse/                 # schema.sql (core) + seeder
 ├── observability/                  # Config for the observability overlay
 │   ├── otel-collector/config.yaml  # OTel Collector: receivers, processors, exporters
 │   ├── prometheus/prometheus.yml   # Prometheus scrape targets
@@ -254,21 +253,14 @@ just clean     # stop + remove volumes (full reset)
 
 ClickHouse is part of the default stack so the local setup delivers events to a **queryable**
 destination, not just a log line. The `clickhouse-analytics` pipeline is enabled for both the
-`demo` and `_platform` tenants, and two init scripts are applied on first start:
-
-| File | Contains |
-|---|---|
-| `examples/clickhouse/schema.sql` | Core audit columns — the generic, domain-free contract. |
-| `examples/clickhouse/schema-netlicensing.sql` | The NetLicensing example layer: the columns the NetLicensing API and Payment Gateway events carry. |
-
-They are layered rather than merged so a deployment that only wants an audit trail is not forced to
-carry licensing columns — see [Extending it for a use case](#extending-it-for-a-use-case) below.
+`demo` and `_platform` tenants, and `examples/clickhouse/schema.sql` (the core audit columns, the
+generic domain-free contract) is applied on first start. A use case adds its own columns on top —
+see [Extending it for a use case](#extending-it-for-a-use-case) below.
 
 **Try it, from the shell** (stack must be running — `just up`):
 
-**1. Seed a dataset.** Publishes ~2000 events over 30 days — NetLicensing entity CRUD, licensee
-and license lifecycle, `licensee/validate` traffic with its expiry verdicts, and correlated
-Payment Gateway lifecycles (create → pay → close, cancellations, renewals):
+**1. Seed a dataset.** Publishes ~2000 events over 30 days — API entity CRUD, licensing
+lifecycle traffic with its expiry verdicts, and correlated Payment Gateway lifecycles (create → pay → close, cancellations, renewals):
 ```bash
 just ch-seed
 just ch-seed "--events 20000 --days 90"   # bigger stream
@@ -291,9 +283,7 @@ Also reachable at http://localhost:8123/play (`auditflow` / `auditflow`), and ov
 protocol on `localhost:9000` for JDBC/ODBC drivers and BI tools.
 
 For the fully asserted round trip — publish → poll → `SELECT` → check every column — see
-**section 6 of `examples/getting-started.ipynb`**, run via `just notebook-getting-started`. For a
-tour of the event vocabulary and the queries built on the seeded data, see
-[`examples/clickhouse/NETLICENSING_EVENTS.md`](examples/clickhouse/NETLICENSING_EVENTS.md).
+**section 6 of `examples/getting-started.ipynb`**, run via `just notebook-getting-started`.
 
 #### Extending it for a use case
 
@@ -304,46 +294,38 @@ real columns — a column store rewards a dedicated column wherever a key is a `
 so it **layers** on top rather than widening the core:
 
 ```python
-# examples/netlicensing/audit_clickhouse_netlicensing.py
+# auditflow-transformer/transformers_bootstrap/audit_clickhouse_mydomain.py
 from audit_clickhouse import make_transform
 
-PROMOTED = {"licenseeNumber": "licensee_number", "actionMethod": "action_method", ...}
+PROMOTED = {"orderRef": "order_ref", "region": "region"}
 transform = make_transform(PROMOTED)
 ```
 
 ```sql
--- examples/clickhouse/schema-netlicensing.sql, applied after schema.sql
-ALTER TABLE audit.audit_events ADD COLUMN IF NOT EXISTS licensee_number String;
+-- applied after schema.sql
+ALTER TABLE audit.audit_events ADD COLUMN IF NOT EXISTS order_ref String;
 ```
 
 ```yaml
-# tenants/demo.yaml
+# tenants/<tenant>.yaml
 transformer:
-  name: audit_clickhouse_netlicensing
+  name: audit_clickhouse_mydomain
 ```
 
 A transformer takes no pipeline properties, so the **module id is what selects a vocabulary** — one
 module per domain, chosen per pipeline. Two pipelines can therefore write different column subsets
-to the same table, which is exactly what the compose stack demonstrates: `_platform` uses the
-generic transformer, `demo` uses the NetLicensing layer.
+to the same table.
 
-The example is **mounted, not shipped** — compose bind-mounts `examples/netlicensing/` onto the
-transformer's `transformers_bootstrap` directory, the same runtime extension point (a ConfigMap in
-Kubernetes) an integrator uses for their own module. Only transformer modules belong in that
-directory; the registry reports any other `.py` file as a broken plugin.
+Mount the module into the transformer's `transformers_bootstrap` directory (a ConfigMap in
+Kubernetes, a bind mount in compose). Only transformer modules belong there; the registry reports
+any other `.py` file as a broken plugin.
 
 Nothing fails if a layer is only half-applied: the sink inserts with
 `input_format_skip_unknown_fields=1`, so a promoted key with no column is dropped at insert time
 rather than dead-lettering the event, and applying only `schema.sql` stays supported. A deployment that would
 rather hear about it sets the sink property `unknown-columns: reject`: the insert then fails, and the
-event is retried and dead-lettered, replayable once the column exists. That tolerance is also why the
-pairing needs a test —
-`auditflow-transformer/tests/test_audit_clickhouse_netlicensing.py` asserts that every promoted key
-has a column, every column has a key, and every key is documented for publishers.
-
-The NetLicensing event model — the field vocabulary, the event templates a publisher such as
-NetLicensing or the Payment Gateway emits, and the queries built on them — is
-[`examples/clickhouse/NETLICENSING_EVENTS.md`](examples/clickhouse/NETLICENSING_EVENTS.md).
+event is retried and dead-lettered, replayable once the column exists. That tolerance is why a layer
+needs a test asserting that every promoted key has a column and every column has a key.
 
 Worth knowing when evaluating ClickHouse here:
 

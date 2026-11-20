@@ -17,13 +17,9 @@ pipelines:
   - name: clickhouse-analytics
     enabled: true
     transformer:
-      # The NetLicensing use-case layer, NOT the generic `audit_clickhouse` that `_platform` uses:
-      # same core columns, plus the licensing/monetization keys promoted out of `extra`. It is a
-      # mounted example (examples/netlicensing/), not part of the image — a transformer takes no
-      # pipeline properties, so the module id is what selects a vocabulary. Switch this to
-      # `audit_clickhouse` to see the same events land with the licensing keys left in the
-      # `extra` map column instead.
-      name: audit_clickhouse_netlicensing
+      # The generic, domain-free transformer: core audit columns only, everything else stays in
+      # the `extra` map column.
+      name: audit_clickhouse
     sink:
       name: clickhouse_sink
       properties:

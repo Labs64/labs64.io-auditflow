@@ -129,8 +129,7 @@ def test_empty_extra_still_emits_an_empty_map():
 
 
 # ── make_transform: the extension point a use-case layer builds on ───────────────────────────────
-# The worked example (examples/netlicensing/) is covered by test_audit_clickhouse_netlicensing.py;
-# these cover the mechanism itself.
+# These cover the mechanism itself; a use-case layer should carry its own pairing test.
 
 def test_make_transform_promotes_a_domain_key_into_its_own_column():
     domain_transform = audit_clickhouse.make_transform({"orderRef": "order_ref"})

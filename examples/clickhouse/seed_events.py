@@ -10,7 +10,7 @@ Two sources, both shaped exactly as the NetLicensing API audit event spec define
   * **Payment Gateway** — the full payment lifecycle per the OpenAPI: create → pay → close, plus
     cancellations, deletions, checkout-session steps, provider webhooks and monthly renewals.
 
-Volume, not variety, is the point: the queries in NETLICENSING_EVENTS.md are aggregations, and an
+Volume, not variety, is the point: ClickHouse queries are aggregations, and an
 aggregation over eight rows demonstrates nothing. The default is ~2000 events over 30 days.
 
 This is a *generator*, not a model of a business — there is no MRR, retention or cohort machinery
@@ -450,8 +450,7 @@ def main():
               file=sys.stderr)
         return 1
 
-    print("\nQuery it:  just ch-stats   |   just ch-events   |   "
-          "examples/clickhouse/NETLICENSING_EVENTS.md")
+    print("\nQuery it:  just ch-stats   |   just ch-events")
     return 0
 
 
