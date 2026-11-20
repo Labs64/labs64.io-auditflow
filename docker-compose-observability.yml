@@ -3,15 +3,18 @@
 # Adds OTel Collector, Tempo, Loki, Prometheus, and Grafana to the base stack.
 #
 # Same components, versions and registries as the monitoring layer in
-# labs64.io-helm-charts/helmfile.yaml.gotmpl. The image tag is the appVersion of the chart pinned
-# there (`helm show chart <chart> --version <pin>`); bump both in the same commit:
+# labs64.io-helm-charts/helmfile.yaml.gotmpl. Each image tag below is the appVersion of the chart
+# pinned there (`helm show chart <chart> --version <pin>`); for Prometheus it is the chart's default
+# `prometheus.prometheusSpec.image.tag` (`helm show values <chart> --version <pin>`). When a chart
+# pin moves, move the matching image line here in the same commit. The numbers are not repeated in
+# this comment: the chart pins live in the Helmfile, the image pins are the `image:` lines below.
 #
-#   service         helmfile release (chart)                 chart    image
-#   otel-collector  opentelemetry-collector                  0.175.0  otel/opentelemetry-collector-contrib:0.161.0
-#   tempo           tempo (grafana-community/tempo)          3.1.0    grafana/tempo:3.1.0
-#   loki            loki (grafana-community/loki)            18.13.8  grafana/loki:3.7.8
-#   prometheus      prometheus (kube-prometheus-stack)       91.9.0   quay.io/prometheus/prometheus:v3.15.0-distroless
-#   grafana         grafana (grafana-community/grafana)      13.2.7   grafana/grafana:13.2.3
+#   service         helmfile release (chart)
+#   otel-collector  opentelemetry-collector (open-telemetry/opentelemetry-collector)
+#   tempo           tempo (grafana-community/tempo)
+#   loki            loki (grafana-community/loki)
+#   prometheus      prometheus (prometheus-community/kube-prometheus-stack)
+#   grafana         grafana (grafana-community/grafana)
 #
 # Compose on top of the stack:
 #
@@ -64,7 +67,7 @@ services:
 
   prometheus:
     # quay.io, like the kube-prometheus-stack chart (not Docker Hub's prom/prometheus).
-    image: quay.io/prometheus/prometheus:v3.15.1-distroless
+    image: quay.io/prometheus/prometheus:v3.16.0-distroless
     container_name: auditflow-prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
