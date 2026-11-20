@@ -8,7 +8,7 @@ info:
     url: https://labs64.io
 servers:
   - url: /api/v1
-    description: Via API Gateway (Traefik strips the module prefix)
+    description: Via Auth Gateway (Traefik strips the module prefix)
 tags:
   - name: AuditEvent
     description: Operations to manage and publish audit events.
