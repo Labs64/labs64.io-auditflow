@@ -1,12 +1,12 @@
 *** Settings ***
 Documentation    AuditFlow authentication & authorization regression, asserted entirely at the
-...              gateway edge (Traefik authproxy + cerbos). Mirrors the manual scope-matrix
+...              gateway edge (Auth Gateway + cerbos). Mirrors the manual scope-matrix
 ...              validation this suite replaces: a token with the wrong scope must be denied
 ...              (403), the correct scope must be allowed (200), and missing/malformed
 ...              credentials must be rejected (401) before any Authz Decision is made.
 ...
 ...              The ``local-k8s-only`` tagged cases below additionally corroborate the HTTP
-...              assertion against kubectl pod logs (authproxy Authz Decision + AuditFlow
+...              assertion against kubectl pod logs (authgateway Authz Decision + AuditFlow
 ...              backend delivery) — a deliberate, narrow exception to this suite's normal
 ...              "no kubectl" rule. They call `Skip Unless Local Kubernetes` first and skip
 ...              cleanly outside the local k3d dev cluster, so CI never fails on them. See
@@ -114,8 +114,8 @@ Client-supplied X-Auth headers cannot grant a scope
     ${response}=    Send Raw Request    auditflow-escalation    POST    /audit/publish    ${body}    headers=${headers}
     Response Should Be Error Response    ${response}    403    FORBIDDEN
 
-Verify authproxy logs show 401 (local-k8s)
-    [Documentation]    Authproxy logs must record no-token rejection.
+Verify authgateway logs show 401 (local-k8s)
+    [Documentation]    Authgateway logs must record no-token rejection.
     [Tags]    auditflow    regression    auth    local-k8s-only
     Skip Unless Local Kubernetes
     Create Unauthenticated AuditFlow Session
@@ -123,10 +123,10 @@ Verify authproxy logs show 401 (local-k8s)
     ${event}=    Build Valid Audit Event    ${correlation_id}
     ${response}=    Publish Audit Event    ${event}
     Response Status Should Be    ${response}    401
-    Authproxy Logs Should Show No-Token Rejection For Publish
+    Authgateway Logs Should Show No-Token Rejection For Publish
 
-Verify Cerbos deny in authproxy logs for wrong scope (local-k8s)
-    [Documentation]    Authproxy logs show Cerbos deny and event never reaches backend.
+Verify Cerbos deny in authgateway logs for wrong scope (local-k8s)
+    [Documentation]    Authgateway logs show Cerbos deny and event never reaches backend.
     [Tags]    auditflow    regression    auth    tenant-isolation    local-k8s-only
     Skip Unless Local Kubernetes
     Create Session With Scope    auditflow-wrong-scope-k8s    ${AUDITFLOW_BASE_URL}    audit-event:read
@@ -134,11 +134,11 @@ Verify Cerbos deny in authproxy logs for wrong scope (local-k8s)
     ${event}=    Build Valid Audit Event    ${correlation_id}
     ${response}=    Publish Audit Event    ${event}    alias=auditflow-wrong-scope-k8s
     Response Status Should Be    ${response}    403
-    Authproxy Logs Should Show Authz Decision For Publish    enforced-deny
+    Authgateway Logs Should Show Authz Decision For Publish    enforced-deny
     AuditFlow Backend Logs Should Not Contain Correlation Id    ${correlation_id}
 
-Verify Cerbos allow in authproxy logs for correct scope (local-k8s)
-    [Documentation]    Authproxy logs show Cerbos allow and event reaches backend.
+Verify Cerbos allow in authgateway logs for correct scope (local-k8s)
+    [Documentation]    Authgateway logs show Cerbos allow and event reaches backend.
     [Tags]    auditflow    regression    auth    local-k8s-only
     Skip Unless Local Kubernetes
     Create Session With Scope    auditflow-correct-scope-k8s    ${AUDITFLOW_BASE_URL}    audit-event:write
@@ -146,11 +146,11 @@ Verify Cerbos allow in authproxy logs for correct scope (local-k8s)
     ${event}=    Build Valid Audit Event    ${correlation_id}
     ${response}=    Publish Audit Event    ${event}    alias=auditflow-correct-scope-k8s
     Response Status Should Be    ${response}    200
-    Authproxy Logs Should Show Authz Decision For Publish    enforced-allow
+    Authgateway Logs Should Show Authz Decision For Publish    enforced-allow
     AuditFlow Backend Logs Should Contain Correlation Id    ${correlation_id}
 
-Verify Cerbos allow in authproxy logs for multiple scopes (local-k8s)
-    [Documentation]    Authproxy logs show Cerbos allow and event reaches backend.
+Verify Cerbos allow in authgateway logs for multiple scopes (local-k8s)
+    [Documentation]    Authgateway logs show Cerbos allow and event reaches backend.
     [Tags]    auditflow    regression    auth    local-k8s-only
     Skip Unless Local Kubernetes
     Create Session With Scope    auditflow-multi-scope-k8s    ${AUDITFLOW_BASE_URL}
@@ -159,11 +159,11 @@ Verify Cerbos allow in authproxy logs for multiple scopes (local-k8s)
     ${event}=    Build Valid Audit Event    ${correlation_id}
     ${response}=    Publish Audit Event    ${event}    alias=auditflow-multi-scope-k8s
     Response Status Should Be    ${response}    200
-    Authproxy Logs Should Show Authz Decision For Publish    enforced-allow
+    Authgateway Logs Should Show Authz Decision For Publish    enforced-allow
     AuditFlow Backend Logs Should Contain Correlation Id    ${correlation_id}
 
-Verify Cerbos deny in authproxy logs for no scopes (local-k8s)
-    [Documentation]    Authproxy logs show Cerbos deny and event never reaches backend.
+Verify Cerbos deny in authgateway logs for no scopes (local-k8s)
+    [Documentation]    Authgateway logs show Cerbos deny and event never reaches backend.
     [Tags]    auditflow    regression    auth    local-k8s-only
     Skip Unless Local Kubernetes
     Create Session With Scope    auditflow-no-scope-k8s    ${AUDITFLOW_BASE_URL}    no-access
@@ -171,7 +171,7 @@ Verify Cerbos deny in authproxy logs for no scopes (local-k8s)
     ${event}=    Build Valid Audit Event    ${correlation_id}
     ${response}=    Publish Audit Event    ${event}    alias=auditflow-no-scope-k8s
     Response Status Should Be    ${response}    403
-    Authproxy Logs Should Show Authz Decision For Publish    enforced-deny
+    Authgateway Logs Should Show Authz Decision For Publish    enforced-deny
     AuditFlow Backend Logs Should Not Contain Correlation Id    ${correlation_id}
 
 *** Keywords ***

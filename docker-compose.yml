@@ -10,7 +10,7 @@
 #   cerbos     charts/authz-pdp/Chart.yaml            appVersion
 # Keep the tags in step when helm-charts moves them; the observability overlay lists the rest.
 #
-# Deliberate differences from Kubernetes: no Traefik/AuthProxy (so the auth-context filter and
+# Deliberate differences from Kubernetes: no Traefik/Auth Gateway (so the auth-context filter and
 # authz are off), and tenants come from the mounted ./tenants dir, not labelled ConfigMaps.
 #
 # Usage:
